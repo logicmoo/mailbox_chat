@@ -12,20 +12,20 @@
   - [Platform presences](#platform-presence-capability)
 - [Listener configuration](#common-listener-fields)
 - [Register a relay token](#register-a-relay-token)
-- [Platform-side setup](#platform-side-setup)
-- [Client setup](#client-setup)
 - Implemented platform adapters
   - [Mattermost](#mattermost--implemented)
   - [Discord](#discord--implemented-adapter)
   - [Slack](#slack--implemented-adapter)
-  - [IRC](#irc--implemented)
   - [Matrix / Element](#matrix--element--implemented-adapter)
-  - [Telegram](#telegram--implemented-adapter)
+  - [IRC](#irc--implemented)
   - [WhatsApp Business](#whatsapp-business--implemented-adapter)
+  - [Personal WhatsApp](#personal-whatsapp--implemented-companion)
   - [Facebook Messenger](#facebook-messenger--implemented-adapter)
-- Planned platform contracts
   - [Viber](#viber--implemented-adapter)
+  - [Telegram](#telegram--implemented-adapter)
   - [LINE](#line--implemented-adapter)
+  - [Discourse](#discourse--implemented-adapter)
+- [Client setup](#client-setup)
 - Mailbox interfaces
   - [CLI versus REST capabilities](#agent-mailbox-cli-versus-direct-rest)
   - [REST](#rest-mailbox--implemented)
@@ -288,6 +288,11 @@ whether it supports no presence, one presence, or multiple presences and must
 reject unsupported selections. Automated identities must remain disclosed and
 must follow the platform's authorization rules rather than forging human users.
 
+The platform sections below combine listener configuration, adapter behavior,
+and platform-side setup. Never store platform secrets in `relays.json`; put
+tokens and signing secrets in `config/.env` or the process environment and
+reference only their environment-variable names from listener entries.
+
 ## Mattermost — implemented
 
 ```json
@@ -306,6 +311,12 @@ must follow the platform's authorization rules rather than forging human users.
 
 Required `.env` values: `MM_URL`, `MM_BOT_TOKEN`, `MM_CHANNEL_ID`. Optional:
 `MM_CHANNEL_IDS` and `MATTERMOST_RELAY_RECIPIENTS` for legacy fallback.
+
+### Setup
+
+Create a bot account in the Mattermost system console, add it to the required
+channels, then set the values above. Keep the token only in `config/.env` or a
+secret manager.
 
 ## Discord — implemented adapter
 
@@ -331,6 +342,18 @@ bot messages, records origin and destination identities in the durable ledger,
 emits every inbound post through the mailbox, and supports outbound text and
 file attachments. Set `listener_id` on outbound messages when multiple Discord
 listeners are enabled.
+
+### Setup
+
+1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Follow Discord's [bot guide](https://docs.discord.com/developers/quick-start/getting-started), create the bot user, and store its token as `DISCORD_BOT_TOKEN`.
+3. Generate an installation URL with the `bot` scope and install it into the server. See [OAuth2 and permissions](https://docs.discord.com/developers/platform/oauth2-and-permissions).
+4. Grant only View Channel, Read Message History, Send Messages, and Attach Files where needed.
+5. Enable Developer Mode, copy channel IDs into `DISCORD_CHANNEL_IDS`, and enable the listener.
+
+A webhook URL is only sufficient for outbound posting and is not the transport
+used by this bidirectional adapter. Never place a bot token in an install URL,
+listener file, mailbox message, or commit.
 
 ## Slack — implemented adapter
 
@@ -365,11 +388,31 @@ listeners are enabled.
 
 Expected secrets: `SLACK_BOT_TOKEN` and, for Socket Mode, `SLACK_APP_TOKEN`.
 
+### Setup
+
+1. Create a Slack app and bot using Slack's [authentication guide](https://api.slack.com/authentication).
+2. Add `chat:write`, `files:write`, and the applicable `channels:history`, `groups:history`, `im:history`, or `mpim:history` scopes. See [`conversations.history`](https://docs.slack.dev/reference/methods/conversations.history/).
+3. Install or reinstall the app and store its `xoxb-...` token as `SLACK_BOT_TOKEN`. See [OAuth installation](https://api.slack.com/authentication/oauth-v2).
+4. Invite the bot to each required channel, copy channel IDs into `SLACK_CHANNEL_IDS`, and enable the listener.
+
+Outbound messages use [`chat.postMessage`](https://docs.slack.dev/reference/methods/chat.postmessage).
+Different `token_env` and `presence_id` values support multiple bot presences
+or workspaces.
+
 ## Matrix / Element — implemented adapter
 
 The Matrix adapter uses the Client-Server API and works with rooms administered
-through Element or another Matrix client. Account, token, room, and encryption
-requirements are documented under [Platform-side setup](#matrix--element-setup).
+through Element or another Matrix client.
+
+### Setup
+
+1. Create a dedicated Matrix account on the selected homeserver.
+2. Obtain its access token and store it as `MATRIX_ACCESS_TOKEN`. See the [Matrix bot introduction](https://matrix.org/docs/older/matrix-bot-sdk-intro/).
+3. Invite or join the account to every relayed room.
+4. Set `MATRIX_HOMESERVER`, put canonical `!room:server` IDs—not display aliases—in `MATRIX_ROOM_IDS`, and enable the listener.
+
+The implementation uses `/sync`, room-message events, and media uploads from
+the [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/).
 
 ## IRC — implemented
 
@@ -392,6 +435,12 @@ requirements are documented under [Platform-side setup](#matrix--element-setup).
 
 Optional secrets: `IRC_PASSWORD`, `IRC_NICKSERV_PASSWORD`, and TLS client
 credentials when required by the network.
+
+### Setup
+
+Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password or NickServ settings.
+IRC has no native attachment upload, so configure `MAILBOX_RELAY_PUBLIC_URL`;
+the adapter publishes managed files through `/v1/attachments/`.
 
 ## WhatsApp Business — implemented adapter
 
@@ -418,6 +467,33 @@ Groups API accounts may set `groups_enabled` and use group IDs as channel IDs;
 group messages preserve both the group ID and participant ID. This does not
 provide access to ordinary personal-account groups.
 
+### Setup
+
+Configure a Meta WhatsApp Business phone-number ID and conversation allowlist.
+Store the system-user access token, webhook verification token, and app secret
+in `config/.env`; register the public HTTPS callback at
+`/v1/webhooks/whatsapp`. Meta template and 24-hour conversation rules apply.
+Accounts approved for the restricted Groups API may set `groups_enabled: true`
+and use approved group IDs as `channel_ids`.
+
+## Personal WhatsApp — implemented companion
+
+The optional `companions/whatsapp-personal` process handles ordinary direct and
+group chats using `whatsapp-web.js`, persistent `LocalAuth`, and linked-device
+QR login. It is not an official Meta API.
+
+### Setup
+
+Set `WHATSAPP_PERSONAL_COMPANION_TOKEN`,
+`WHATSAPP_PERSONAL_WEBHOOK_SECRET`, and optionally
+`WHATSAPP_PERSONAL_SESSION_DIR`. Run `npm install` in the companion directory,
+start `whatsapp-personal-relay`, scan the QR code, and query authenticated
+`GET /chats` for stable `@g.us` group IDs.
+
+The companion binds to `127.0.0.1:46668`, protects its API with a Bearer token,
+and signs callbacks to `/v1/webhooks/whatsapp-personal`. WhatsApp Web changes or
+account restrictions can break this unofficial integration.
+
 ## Facebook Messenger — implemented adapter
 
 ```json
@@ -439,6 +515,13 @@ Expected secrets: `FACEBOOK_PAGE_ACCESS_TOKEN`, `FACEBOOK_VERIFY_TOKEN`, and
 Meta webhooks at `/v1/webhooks/facebook-messenger`; outbound delivery uses the
 Messenger Send API for text and file attachments. User profile names are
 resolved through Graph and cached by source system and identifier.
+
+### Setup
+
+Configure a Facebook Page ID and permitted PSIDs. Store the Page access token,
+webhook verification token, and app secret in `config/.env`; register the public
+HTTPS callback at `/v1/webhooks/facebook-messenger` and grant the required Page
+messaging permissions.
 
 ## Viber — implemented adapter
 
@@ -465,6 +548,20 @@ directory. Outbound text uses Viber's Bot API, while files up to Viber's 50 MiB
 limit use the relay's public attachment URLs. Register an HTTPS webhook with a
 trusted certificate; Viber does not accept self-signed webhook certificates.
 
+### Setup
+
+Enable the listener, store the commercial bot token as `VIBER_AUTH_TOKEN`, and
+configure `VIBER_ALLOWED_CONVERSATIONS` or `include_direct_messages`. Register:
+
+```bash
+curl -X POST https://chatapi.viber.com/pa/set_webhook \
+  -H "X-Viber-Auth-Token: $VIBER_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://relay.example.com/v1/webhooks/viber","event_types":["subscribed","unsubscribed","failed"],"send_name":true}'
+```
+
+Viber requires publicly trusted HTTPS and limits outbound files to 50 MiB.
+
 ## Telegram — implemented adapter
 
 ```json
@@ -486,6 +583,17 @@ opaque strings, preserves numeric message-thread IDs for forum topics, polls
 inbound messages and channel posts, and sends outbound text and documents. It
 uses `getChat` to glean readable names for configured chat IDs and retains names
 learned from inbound updates in the durable identifier directory.
+
+### Setup
+
+1. Create a bot with BotFather and store its token as `TELEGRAM_BOT_TOKEN`.
+2. Add it to each required group, supergroup, or channel with minimum read/send permissions.
+3. Put numeric chat IDs or `@channelusername` values in `TELEGRAM_ALLOWED_CHAT_IDS` and enable the listener.
+4. Enable `include_direct_messages` only when private conversations are explicitly in scope.
+
+The adapter uses the [Telegram Bot API](https://core.telegram.org/bots/api),
+long-polls `getUpdates`, resolves labels with `getChat`, and preserves forum
+topic `message_thread_id` values.
 
 ## LINE — implemented adapter
 
@@ -512,134 +620,30 @@ Inbound images, video, audio, and files are downloaded through the managed
 attachment quota. Text and public attachment links can be pushed to users,
 group chats, and multi-person rooms; images use native LINE image messages.
 
-## Platform-side setup
-
-Never store platform secrets in `relays.json`. Put tokens and signing secrets
-in `config/.env` or the process environment, and reference only their environment
-variable names from listener entries.
-
-### Mattermost setup
-
-Create a bot account in the Mattermost system console, add it to the required
-channels, then set `MM_URL`, `MM_BOT_TOKEN`, `MM_CHANNEL_ID`, and optional
-`MM_CHANNEL_IDS`. Keep the token only in `config/.env` or a secret manager.
-
-### Discord setup
-
-1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications).
-2. Follow Discord's [bot guide](https://docs.discord.com/developers/quick-start/getting-started), create the bot user, and store its token as `DISCORD_BOT_TOKEN`.
-3. Generate an installation URL with the `bot` scope and install it into the server. See [OAuth2 and permissions](https://docs.discord.com/developers/platform/oauth2-and-permissions).
-4. Grant only View Channel, Read Message History, Send Messages, and Attach Files where needed.
-5. Enable Developer Mode, copy the channel IDs into `DISCORD_CHANNEL_IDS`, and enable the listener.
-
-A webhook URL is only sufficient for outbound posting and is not the transport
-used by this bidirectional adapter. Never place a bot token in an install URL,
-listener file, mailbox message, or commit.
-
-### Slack setup
-
-1. Create a Slack app and bot installation using Slack's [authentication guide](https://api.slack.com/authentication).
-2. Add `chat:write`, `files:write`, and the applicable `channels:history`, `groups:history`, `im:history`, or `mpim:history` scopes. See [`conversations.history`](https://docs.slack.dev/reference/methods/conversations.history/).
-3. Install or reinstall the app and store its `xoxb-...` token as `SLACK_BOT_TOKEN`. See [OAuth installation](https://api.slack.com/authentication/oauth-v2).
-4. Invite the bot to each required channel, copy channel IDs into `SLACK_CHANNEL_IDS`, and enable the listener.
-
-Outbound messages use [`chat.postMessage`](https://docs.slack.dev/reference/methods/chat.postmessage).
-Separate listeners may use different `token_env` and `presence_id` values for
-multiple bot presences or workspaces.
-
-### Matrix / Element setup
-
-1. Create a dedicated Matrix account on the selected homeserver.
-2. Obtain its access token and store it as `MATRIX_ACCESS_TOKEN`. See the [Matrix bot introduction](https://matrix.org/docs/older/matrix-bot-sdk-intro/).
-3. Invite or join the account to every relayed room.
-4. Set `MATRIX_HOMESERVER`, put the canonical `!room:server` IDs—not display aliases—in `MATRIX_ROOM_IDS`, and enable the listener.
-
-The implementation uses `/sync`, room-message events, and media uploads from
-the [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/).
-
-### Telegram setup
-
-1. Create a bot with BotFather and store its token as `TELEGRAM_BOT_TOKEN`.
-2. Add it to each required group, supergroup, or channel with the minimum read/send permissions.
-3. Put numeric chat IDs or `@channelusername` values in `TELEGRAM_ALLOWED_CHAT_IDS` and enable the listener.
-4. Enable `include_direct_messages` only when private conversations are explicitly in scope.
-
-The adapter uses the [Telegram Bot API](https://core.telegram.org/bots/api),
-long-polls `getUpdates`, resolves chat labels with `getChat`, and preserves forum
-topic `message_thread_id` values.
-
-### WhatsApp Business setup
-
-Configure a Meta WhatsApp Business phone-number ID and conversation allowlist.
-Store the system-user access token, webhook verification token, and app secret
-in `config/.env`; register the public HTTPS callback at
-`/v1/webhooks/whatsapp`. Meta template and 24-hour conversation rules apply.
-
-Accounts approved for the restricted WhatsApp Business Groups API may set
-`groups_enabled: true` and use approved group IDs as `channel_ids`. Ordinary
-WhatsApp groups require the separate personal companion.
-
-### Personal WhatsApp and ordinary groups
-
-The optional `companions/whatsapp-personal` process uses `whatsapp-web.js`,
-persistent `LocalAuth`, and linked-device QR login. It is not an official Meta
-API. Set `WHATSAPP_PERSONAL_COMPANION_TOKEN`,
-`WHATSAPP_PERSONAL_WEBHOOK_SECRET`, and optionally
-`WHATSAPP_PERSONAL_SESSION_DIR`; run `npm install` in the companion directory,
-start `whatsapp-personal-relay`, scan the QR code, and query authenticated
-`GET /chats` for stable `@g.us` group IDs.
-
-The companion binds to `127.0.0.1:46668`, protects its API with a Bearer token,
-and signs callbacks to `/v1/webhooks/whatsapp-personal`. WhatsApp Web changes or
-account restrictions can break this unofficial integration.
-
-### Facebook Messenger setup
-
-Configure a Facebook Page ID and permitted PSIDs. Store the Page access token,
-webhook verification token, and app secret in `config/.env`; register the public
-HTTPS callback at `/v1/webhooks/facebook-messenger` and grant the required Page
-messaging permissions.
-
-### Viber setup
-
-Enable the listener, store the commercial bot token as `VIBER_AUTH_TOKEN`, and
-configure `VIBER_ALLOWED_CONVERSATIONS` or `include_direct_messages`. Register:
-
-```bash
-curl -X POST https://chatapi.viber.com/pa/set_webhook \
-  -H "X-Viber-Auth-Token: $VIBER_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://relay.example.com/v1/webhooks/viber","event_types":["subscribed","unsubscribed","failed"],"send_name":true}'
-```
-
-Viber requires publicly trusted HTTPS, signs callbacks with
-`X-Viber-Content-Signature`, and limits outbound files to 50 MiB.
-
-### LINE setup
+### Setup
 
 Create a LINE Official Account and Messaging API channel. Store its long-lived
 token as `LINE_CHANNEL_ACCESS_TOKEN` and secret as `LINE_CHANNEL_SECRET`.
-Enable the listener, configure `LINE_ALLOWED_SOURCE_IDS`, permit the Official
-Account to join group and multi-person chats, and register this webhook with
-redelivery enabled:
+Configure `LINE_ALLOWED_SOURCE_IDS`, permit the account to join group and
+multi-person chats, and register this webhook with redelivery enabled:
 
 ```text
 https://relay.example.com/v1/webhooks/line
 ```
 
-### Discourse setup
+## Discourse — implemented adapter
+
+The Discourse adapter accepts signature-verified post webhooks and sends posts
+through the Discourse API. Topic IDs are channel IDs; post numbers are
+thread/reply IDs. Outbound messages can reply to a topic or create one when
+`topic_title` is supplied.
+
+### Setup
 
 Enable the listener and set `DISCOURSE_URL`, `DISCOURSE_API_KEY`, and
-`DISCOURSE_WEBHOOK_SECRET`. Configure a Discourse post webhook pointing to
-`https://relay.example.com/v1/webhooks/discourse` with the same secret. Topic
-IDs are channel IDs and post numbers are thread/reply IDs. The API-key user
-must be able to read configured topics and create posts.
-
-### IRC setup
-
-Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password or NickServ settings.
-IRC has no native attachment upload, so configure `MAILBOX_RELAY_PUBLIC_URL`;
-the adapter publishes managed files through `/v1/attachments/`.
+`DISCOURSE_WEBHOOK_SECRET`. Configure a post webhook pointing to
+`https://relay.example.com/v1/webhooks/discourse` with the same secret. The
+API-key user must be able to read configured topics and create posts.
 
 ## Client setup
 
