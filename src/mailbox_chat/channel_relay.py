@@ -74,10 +74,28 @@ class ChannelRelay(MattermostRelay):
         self.mattermost_enabled = False
         self.delivery_ledger = DeliveryLedger(self._mailbox().mailbox_dir())
         self._adapter_event_states: dict[str, str] = {}
+        self._last_log_message = ""
+        self._last_log_repeats = 0
+        self._repeat_summary_open = False
 
     def _log(self, message: str, *, level: int = 1) -> None:
-        if self.verbose >= level:
-            print(f"[relay] {message}", file=sys.stderr, flush=True)
+        if self.verbose < level:
+            return
+        if message == self._last_log_message:
+            self._last_log_repeats += 1
+            summary = f"[relay] last message repeated {self._last_log_repeats} times"
+            if sys.stderr.isatty():
+                print(f"\r\x1b[2K{summary}", file=sys.stderr, end="", flush=True)
+                self._repeat_summary_open = True
+            elif self._last_log_repeats == 1 or self._last_log_repeats % 20 == 0:
+                print(summary, file=sys.stderr, flush=True)
+            return
+        if self._repeat_summary_open:
+            print(file=sys.stderr, flush=True)
+            self._repeat_summary_open = False
+        self._last_log_message = message
+        self._last_log_repeats = 0
+        print(f"[relay] {message}", file=sys.stderr, flush=True)
 
     @staticmethod
     def _safe_error(error: Exception) -> str:

@@ -38,6 +38,9 @@ Add `--verbose` for adapter startup, connection, failure, and retry messages,
 or `--verbose 2` to include successful adapter polls and HTTP request logging.
 Level `0` reports errors only. Failed adapters continue retrying with bounded
 exponential backoff while verbose output identifies the affected service.
+On an interactive terminal, consecutive identical verbose messages are
+collapsed into one in-place `last message repeated N times` counter. Redirected
+logs emit periodic repeat summaries without terminal control characters.
 Adapter startup, connection, and failure transitions are also delivered to
 each listener's bridge agent and mailbox recipients as durable
 `chat_server_status` messages from `local-ADAPTER-server`. This lets agents

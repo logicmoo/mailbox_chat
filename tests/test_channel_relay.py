@@ -110,3 +110,23 @@ def test_adapter_diagnostics_redact_environment_secrets(monkeypatch) -> None:
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "do-not-publish-this")
     error = RuntimeError("request rejected for do-not-publish-this")
     assert ChannelRelay._safe_error(error) == "request rejected for <redacted>"
+
+
+def test_verbose_logging_coalesces_repeated_messages(monkeypatch, capsys) -> None:
+    relay = ChannelRelay.__new__(ChannelRelay)
+    relay.verbose = 2
+    relay._last_log_message = ""
+    relay._last_log_repeats = 0
+    relay._repeat_summary_open = False
+    monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.channel_relay.sys.stderr.isatty", lambda: True)
+
+    relay._log("mattermost adapter poll completed", level=2)
+    relay._log("mattermost adapter poll completed", level=2)
+    relay._log("mattermost adapter poll completed", level=2)
+    relay._log("discord adapter connected")
+
+    output = capsys.readouterr().err
+    assert output.count("mattermost adapter poll completed") == 1
+    assert "\r\x1b[2K[relay] last message repeated 1 times" in output
+    assert "\r\x1b[2K[relay] last message repeated 2 times" in output
+    assert output.endswith("\n[relay] discord adapter connected\n")
