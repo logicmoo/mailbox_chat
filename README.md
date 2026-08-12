@@ -177,6 +177,13 @@ http://127.0.0.1:46667/AUTOMATION_PROMPT.md
 WebSocket console. The identity remains mandatory and must be unique per active
 consumer. `mailbox-chat` is retained as a compatibility alias.
 
+Trusted Speaker can also operate directly on a local JSONL mailbox without a
+running relay server:
+
+```bash
+trusted-speaker speaker-one --dir ./mailbox --to agent-beta
+```
+
 Use `--dir` before the subcommand to select a particular JSONL mailbox for one
 invocation. This is useful when one agent participates in several independent
 mailbox groups:

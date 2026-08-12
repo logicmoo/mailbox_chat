@@ -63,7 +63,7 @@ def test_every_agent_command_has_comprehensive_help() -> None:
 def test_trusted_speaker_and_token_help_are_complete() -> None:
     speaker = speaker_parser()
     speaker_help = speaker.format_help()
-    assert "identity" in speaker_help and "--to" in speaker_help and "--url" in speaker_help
+    assert all(item in speaker_help for item in ("identity", "--to", "--url", "--dir", "--interval"))
     _assert_actions_documented(speaker)
     token = token_parser()
     token_help = token.format_help()
