@@ -81,6 +81,32 @@ def test_cli_filter_count_and_text_output(tmp_path: Path, capsys) -> None:
     assert capsys.readouterr().out.strip() == "2"
 
 
+def test_cli_text_output_explains_chat_server_diagnostics(tmp_path: Path, capsys) -> None:
+    agent_mailbox.send(
+        "worker", "discord chat server connection failed: offline",
+        sender="local-discord-server", message_type="chat_server_status",
+        channel_type="discord", root=tmp_path,
+        extra_fields={
+            "adapter": "discord", "connection_state": "connection_failed",
+            "service_context": {
+                "adapter": "discord", "listener_ids": ["discord-main"], "channel_ids": ["ops"],
+            },
+            "diagnostic": {
+                "operation": "connect_or_poll", "error_type": "ConnectionError",
+                "error_message": "offline", "will_retry": True,
+            },
+        },
+    )
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "--format", "text", "peek", "worker",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "local-discord-server: discord chat server connection failed: offline" in output
+    assert "adapter=discord; state=connection_failed" in output
+    assert "listeners=discord-main; channels=ops" in output
+    assert "error=ConnectionError: offline; will_retry=true" in output
+
+
 def test_rest_token_is_sent_as_bearer_authorization(monkeypatch) -> None:
     class Response:
         def __enter__(self): return self

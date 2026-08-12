@@ -429,12 +429,32 @@ def _select_records(records: list[dict[str, Any]], *, since: str | None = None,
     return selected
 
 
+def _render_text_record(item: dict[str, Any]) -> str:
+    line = f"[{item.get('timestamp', '')}] {item.get('from', '')}: {item.get('text', '')}"
+    if item.get("type") != "chat_server_status":
+        return line
+    context = item.get("service_context") if isinstance(item.get("service_context"), dict) else {}
+    diagnostic = item.get("diagnostic") if isinstance(item.get("diagnostic"), dict) else {}
+    details = [
+        f"adapter={item.get('adapter') or context.get('adapter') or item.get('channel_type', '')}",
+        f"state={item.get('connection_state', '')}",
+    ]
+    if context.get("listener_ids"):
+        details.append(f"listeners={','.join(map(str, context['listener_ids']))}")
+    if context.get("channel_ids"):
+        details.append(f"channels={','.join(map(str, context['channel_ids']))}")
+    if diagnostic:
+        details.append(f"operation={diagnostic.get('operation', '')}")
+        details.append(f"error={diagnostic.get('error_type', '')}: {diagnostic.get('error_message', '')}")
+        details.append(f"will_retry={str(bool(diagnostic.get('will_retry'))).lower()}")
+    return f"{line}\n  {'; '.join(details)}"
+
+
 def _render_records(records: list[dict[str, Any]], output_format: str) -> str:
     if output_format == "json":
         return json.dumps(records, ensure_ascii=False, indent=2)
     if output_format == "text":
-        return "\n".join(f"[{item.get('timestamp', '')}] {item.get('from', '')}: {item.get('text', '')}"
-                          for item in records)
+        return "\n".join(_render_text_record(item) for item in records)
     return "\n".join(json.dumps(item, ensure_ascii=False) for item in records)
 
 

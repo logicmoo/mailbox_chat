@@ -47,6 +47,11 @@ and message, failed operation, enabled state, and automatic-retry flags. A
 `service_context` object supplies safe listener IDs, channel IDs, directions,
 connection state, and retry policy.
 
+`agent-mailbox receive`, `peek`, `poll`, and `follow` retain these objects in
+their default JSONL output. With `--format text`, the client prints a compact
+diagnostic summary including the service, state, listener/channel IDs, failed
+operation, error type/message, and whether another attempt will occur.
+
 The daemon is independent of FastAPI and survives development API reloads.
 Runtime PID, status, and logs are under `mailbox/runtime/channel-relay-PORT/`.
 
