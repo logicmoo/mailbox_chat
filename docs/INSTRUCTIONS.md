@@ -11,6 +11,7 @@
   - [Agent-mediated bridges](#agent-mediated-bridge-architecture)
   - [Platform presences](#platform-presence-capability)
 - [Listener configuration](#common-listener-fields)
+- [Register a relay token](#register-a-relay-token)
 - Implemented platform adapters
   - [Mattermost](#mattermost--implemented)
   - [Discord](#discord--implemented-adapter)
@@ -91,6 +92,31 @@ instances without state overlap.
   logs, screenshots, or committed files.
 - A listener is not operational until its adapter appears in `GET /v1/adapters`
   under `supported`. Entries under `planned` document future contracts only.
+
+## Register a relay token
+
+Run token registration on the relay host, never through an unauthenticated
+remote endpoint:
+
+```powershell
+mailbox-relay-token register
+```
+
+This generates a strong random value and atomically writes it to
+`config/.env` as `MAILBOX_RELAY_TOKEN`. The value is printed once. Copy it into
+the authorized client's secret environment as `AGENT_MAILBOX_TOKEN`, then
+restart the relay. Confirm registration without revealing the secret:
+
+```powershell
+mailbox-relay-token status
+```
+
+For a non-default configuration directory, pass `--config-dir PATH` to both
+the token command and relay daemon. Token rotation uses the same `register`
+command and requires redistributing the new value to clients. Do not commit
+`config/.env`, paste tokens into listener configuration, or expose them in
+logs. Internet-facing relays require HTTPS because Bearer tokens otherwise
+travel as plaintext.
 
 ## Implementation checklist
 

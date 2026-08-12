@@ -188,19 +188,52 @@ files are served below `/v1/attachments/`; paths outside the mailbox's
 URL per attachment. Configure the firewall, TLS reverse proxy, and public DNS
 for the advertised URL as appropriate.
 
-To expose mailbox messaging externally with Bearer authentication:
+### Register a server token
+
+Register a strong token locally in `config/.env`:
 
 ```powershell
-python server.py --host 0.0.0.0 --port 46667 `
-  --public-url https://relay.example.com --token 'a-long-random-secret'
+mailbox-relay-token register
+```
 
-python agent_mailbox.py --url https://relay.example.com `
-  --token 'a-long-random-secret' --from worker-1 `
+The command generates a strong token, stores it atomically as
+`MAILBOX_RELAY_TOKEN`, and displays it once so it can be copied to authorized
+clients. Check registration without revealing the token:
+
+```powershell
+mailbox-relay-token status
+```
+
+From an uninstalled checkout, use:
+
+```powershell
+$env:PYTHONPATH="$PWD\src"
+python -m mailbox_channel_relay_bridging_proxy.token_admin register
+```
+
+Restart the relay after registering or rotating the token. On each authorized
+client, set the displayed value without committing it:
+
+```powershell
+$env:AGENT_MAILBOX_TOKEN='<the displayed token>'
+agent-mailbox --url https://relay.example.com --from worker-1 `
   send planner 'Finished the task'
 ```
 
-The server token can instead be supplied as `MAILBOX_RELAY_TOKEN`; clients use
-`AGENT_MAILBOX_TOKEN`. When no server token is configured, REST mailbox routes
+For automated deployment, an existing secret of at least 32 characters can be
+registered with `mailbox-relay-token register --token VALUE`, though passing a
+secret on the command line may expose it in shell history. Supplying
+`MAILBOX_RELAY_TOKEN` through a service secret manager is preferable.
+
+Then expose the authenticated relay behind TLS:
+
+```powershell
+mailbox-channel-relay-proxy --host 0.0.0.0 --port 46667 `
+  --public-url https://relay.example.com
+```
+
+The server reads `MAILBOX_RELAY_TOKEN`; clients use `AGENT_MAILBOX_TOKEN`.
+When no server token is configured, REST mailbox routes
 remain unauthenticated for backward-compatible local operation. Put TLS in
 front of any Internet-facing deployment so the Bearer token is encrypted in
 transit.

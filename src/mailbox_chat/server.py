@@ -15,6 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from dotenv import load_dotenv
+
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 RESOURCE_ROOT = PACKAGE_ROOT / "resources"
@@ -108,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         os.environ[agent_mailbox.MAILBOX_ENV] = str(arguments.mailbox_dir.expanduser().resolve())
     if arguments.config_dir:
         os.environ[CONFIG_DIR_ENV] = str(arguments.config_dir.expanduser().resolve())
+    configuration_root = config_dir()
+    load_dotenv(configuration_root / ".env", override=False)
     if arguments.token:
         os.environ[TOKEN_ENV] = arguments.token
     mailbox_root = agent_mailbox.mailbox_dir()
@@ -116,7 +120,6 @@ def main(argv: list[str] | None = None) -> int:
         advertised_host = "127.0.0.1" if arguments.host in {"127.0.0.1", "localhost"} else socket.getfqdn()
         public_url = f"http://{advertised_host}:{arguments.port}"
     os.environ[PUBLIC_URL_ENV] = public_url.rstrip("/")
-    configuration_root = config_dir()
     runtime_dir, pid_file, status_file = runtime_paths(arguments.port, mailbox_root)
     runtime_dir.mkdir(parents=True, exist_ok=True)
     identifiers = IdentifierDirectory(mailbox_root)
