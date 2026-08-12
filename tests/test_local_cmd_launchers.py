@@ -35,6 +35,7 @@ def test_every_published_command_has_windows_and_posix_launchers() -> None:
         "trusted-speaker": "console_client",
         "mailbox-relay-token": "token_admin",
         "mailbox-relay-contacts": "contact_admin",
+        "mailbox-relay-route": "route_admin",
     }
     for command, module in commands.items():
         windows = (root / f"{command}.cmd").read_text(encoding="utf-8")

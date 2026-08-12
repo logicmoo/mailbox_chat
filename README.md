@@ -432,6 +432,19 @@ to `#agents` to match only that channel:
 This sends a separate Business API conversation to that WhatsApp recipient; it
 does not claim to join an ordinary personal WhatsApp group.
 
+The same route can be created safely from the server command line:
+
+```powershell
+mailbox-relay-route attach irc-primary "#agents" `
+  whatsapp-personal-primary "123456789@g.us" --id irc-to-family
+mailbox-relay-route list
+mailbox-relay-route detach irc-to-family
+```
+
+Use a quoted `"*"` source channel to match every channel heard by the source
+listener. Use `--controller agent:MAILBOX_RECIPIENT` when an agent should review
+or transform traffic; the default `presence` controller forwards immediately.
+
 ### Ordinary WhatsApp groups (explicitly unofficial)
 
 `whatsapp_personal` connects an ordinary WhatsApp or WhatsApp Business App

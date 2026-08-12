@@ -5,6 +5,7 @@ from mailbox_channel_relay_bridging_proxy.console_client import parser as speake
 from mailbox_channel_relay_bridging_proxy.server import build_parser as server_parser
 from mailbox_channel_relay_bridging_proxy.token_admin import parser as token_parser
 from mailbox_channel_relay_bridging_proxy.contact_admin import parser as contact_parser
+from mailbox_channel_relay_bridging_proxy.route_admin import parser as route_parser
 
 
 def _agent_commands():
@@ -77,3 +78,6 @@ def test_trusted_speaker_and_token_help_are_complete() -> None:
     contacts = contact_parser()
     assert all(item in contacts.format_help() for item in ("--dir", "--url", "--token", "import", "list"))
     _assert_actions_documented(contacts)
+    routes = route_parser()
+    assert all(item in routes.format_help() for item in ("--config-dir", "--json", "list", "attach", "detach"))
+    _assert_actions_documented(routes)
