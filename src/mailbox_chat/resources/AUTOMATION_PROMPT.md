@@ -54,7 +54,7 @@ relay failures, authentication failures, or required-service failures.
 
 ## Example: REST relay on the same machine
 
-Replace `<AGENT_ID>` with a stable identity such as `symbolic-workbench`, use
+Replace `<AGENT_ID>` with a stable identity such as `local-agent`, use
 `http://127.0.0.1:46667` for `<MAILBOX_URL>`, and replace
 `<REQUIRED_PORT_ARGUMENTS>` with zero or more repeatable checks, for example:
 

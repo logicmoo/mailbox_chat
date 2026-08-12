@@ -6,8 +6,8 @@ Output:
 Python package/repository name: `mailbox_channel_relay_bridging_proxy`.
 
 Mailbox Channel Relay Bridging Proxy is a standalone, transport-neutral daemon for
-relaying messages between mailboxes and chat channels. It can serve Workbench
-workflows, OpenAI Codex tasks, OmegaClaw, MeTTaClaw, or ordinary channel-to-channel
+relaying messages between mailboxes and chat channels. It can serve automated
+workflows, OpenAI Codex tasks, agent runtimes, or ordinary channel-to-channel
 bridges without making any of those systems part of the daemon's identity. It
 owns loopback port `46667`. If `GET /health` answers, another instance must not
 be started on that machine.
@@ -35,8 +35,8 @@ Start directly on Windows (the `.env` file is optional for mailbox-only use):
 run.bat
 ```
 
-The Symbolic Learner Workbench may discover and control the same external daemon,
-but the proxy does not depend on Workbench:
+Other applications may discover and control the same external daemon through
+its transport-neutral API:
 
 ```text
 GET  http://127.0.0.1:8000/api/system/services
@@ -227,8 +227,8 @@ MM_URL=https://mattermost.example
 MM_BOT_TOKEN=...
 MM_CHANNEL_ID=...
 MM_CHANNEL_IDS=optional-second-channel,optional-third-channel
-MATTERMOST_RELAY_RECIPIENTS=symbolic-workbench,omegaclaw-core,omegaclaw-min
-WORKBENCH_MATTERMOST_RELAY=1
+MATTERMOST_RELAY_RECIPIENTS=local-agent
+MATTERMOST_RELAY_ENABLED=1
 ```
 
 Never store tokens in workspace resources, workflow files, mailbox records, or

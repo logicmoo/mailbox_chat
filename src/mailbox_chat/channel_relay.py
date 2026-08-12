@@ -145,7 +145,7 @@ class ChannelRelay(MattermostRelay):
             )
             if not self.delivery_ledger.claim(message, destination):
                 mailbox.send(
-                    str(message.get("from") or "symbolic-workbench"),
+                    str(message.get("from") or "local-agent"),
                     f"Suppressed duplicate relay to {destination}",
                     sender=RELAY_RECIPIENT,
                     message_type="channel_delivery_suppressed",
@@ -178,7 +178,7 @@ class ChannelRelay(MattermostRelay):
             except Exception as error:
                 self.delivery_ledger.release(message, destination)
                 mailbox.send(
-                    str(message.get("from") or "symbolic-workbench"),
+                    str(message.get("from") or "local-agent"),
                     str(error),
                     sender=RELAY_RECIPIENT,
                     message_type="channel_delivery_failed",

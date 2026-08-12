@@ -19,7 +19,7 @@ from .channel_routes import dispatch_routes
 
 LOGGER = logging.getLogger(__name__)
 RELAY_RECIPIENT = "channel-relay"
-DEFAULT_INBOUND_RECIPIENTS = ("symbolic-workbench", "omegaclaw-core", "omegaclaw-min")
+DEFAULT_INBOUND_RECIPIENTS = ("local-agent",)
 RELAY_PORT = 46667
 
 
@@ -50,7 +50,7 @@ class MattermostRelay:
         load_dotenv(config_dir() / ".env", override=False)
         required = ("MM_URL", "MM_BOT_TOKEN", "MM_CHANNEL_ID")
         missing = [name for name in required if not os.environ.get(name, "").strip()]
-        enabled = os.environ.get("WORKBENCH_MATTERMOST_RELAY", "1").strip().lower() not in {"0", "false", "no"}
+        enabled = os.environ.get("MATTERMOST_RELAY_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
         self.status["enabled"] = enabled and not missing
         if enabled and missing:
             self.status["lastError"] = f"Missing Mattermost settings: {', '.join(missing)}"

@@ -19,7 +19,7 @@ def parser() -> argparse.ArgumentParser:
         description="Trusted Speaker console client for mailbox WebSocket chat",
     )
     result.add_argument("identity", help="Unique stable mailbox recipient identity")
-    result.add_argument("--to", dest="destination", default="symbolic-workbench")
+    result.add_argument("--to", dest="destination", default="local-agent")
     result.add_argument("--url", default="ws://127.0.0.1:46667/v1/chat/ws")
     return result
 

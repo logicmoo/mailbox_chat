@@ -39,7 +39,7 @@ def test_mattermost_adapter_uses_shared_envelope(tmp_path: Path, monkeypatch) ->
     monkeypatch.setenv("MM_URL", "https://mattermost.example")
     monkeypatch.setenv("MM_BOT_TOKEN", "token")
     monkeypatch.setenv("MM_CHANNEL_ID", "channel")
-    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "symbolic-workbench")
+    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "local-agent")
     session = Session()
     relay = ChannelRelay(session=session)
     relay.configure()
@@ -47,5 +47,5 @@ def test_mattermost_adapter_uses_shared_envelope(tmp_path: Path, monkeypatch) ->
     relay._latest_create_at["channel"] = 0
     agent_mailbox.send(RELAY_RECIPIENT, "done", channel_type="mattermost", channel_id="channel", root=tmp_path)
     relay.cycle()
-    assert agent_mailbox.receive("symbolic-workbench", root=tmp_path)[0]["text"] == "hello"
+    assert agent_mailbox.receive("local-agent", root=tmp_path)[0]["text"] == "hello"
     assert session.posts[0]["message"] == "done"

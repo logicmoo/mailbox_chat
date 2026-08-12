@@ -8,7 +8,7 @@
       "direction": "bidirectional",
       "channel_ids": ["$MM_CHANNEL_ID", "$MM_CHANNEL_IDS"],
       "bridge_agent": "mattermost-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench", "omegaclaw-core", "omegaclaw-min"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "include_direct_messages": true,
       "preserve_threads": true
@@ -24,7 +24,7 @@
       "nickname": "mailbox-relay",
       "channel_ids": ["$IRC_CHANNELS"],
       "bridge_agent": "irc-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": false
     },
@@ -36,7 +36,7 @@
       "token_env": "DISCORD_BOT_TOKEN",
       "channel_ids": ["$DISCORD_CHANNEL_IDS"],
       "bridge_agent": "discord-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": true
     },
@@ -49,7 +49,7 @@
       "token_env": "MATRIX_ACCESS_TOKEN",
       "channel_ids": ["$MATRIX_ROOM_IDS"],
       "bridge_agent": "matrix-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": true
     },
@@ -61,7 +61,7 @@
       "token_env": "SLACK_BOT_TOKEN",
       "channel_ids": ["$SLACK_CHANNEL_IDS"],
       "bridge_agent": "slack-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": true,
       "presence_id": "slack-primary-bot"
@@ -74,7 +74,7 @@
       "token_env": "TELEGRAM_BOT_TOKEN",
       "channel_ids": ["$TELEGRAM_ALLOWED_CHAT_IDS"],
       "bridge_agent": "telegram-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "include_direct_messages": false,
       "preserve_threads": true
@@ -88,7 +88,7 @@
       "token_env": "WHATSAPP_ACCESS_TOKEN",
       "channel_ids": ["$WHATSAPP_ALLOWED_CONVERSATIONS"],
       "bridge_agent": "whatsapp-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": false
     },
@@ -101,7 +101,7 @@
       "token_env": "FACEBOOK_PAGE_ACCESS_TOKEN",
       "channel_ids": ["$FACEBOOK_ALLOWED_CONVERSATIONS"],
       "bridge_agent": "facebook-messenger-bridge-agent",
-      "mailbox_recipients": ["symbolic-workbench"],
+      "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": false
     }

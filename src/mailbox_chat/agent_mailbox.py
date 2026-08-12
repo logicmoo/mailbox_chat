@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_SENDER = "symbolic-workbench"
+DEFAULT_SENDER = "local-agent"
 PEERS = ("omegaclaw-core", "omegaclaw-min", "channel-relay")
 MAILBOX_ENV = "AGENT_MAILBOX_DIR"
 MAILBOX_URL_ENV = "AGENT_MAILBOX_URL"

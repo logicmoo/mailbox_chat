@@ -119,7 +119,7 @@ and outbound delivery should use the Discourse REST API.
 Agent integrations:
 
 - [x] OpenAI Codex CLI/Desktop through `agent_mailbox.py` and REST
-- [x] Symbolic Learner Workbench
+- [x] Generic workflow and agent clients
 - [x] OmegaClaw/MeTTaClaw-compatible mailbox identities
 - [ ] Client/server authentication
 
@@ -131,7 +131,7 @@ do not count as implementation.
 ## Deep compatibility invariant
 
 Everything crosses the durable mailbox. The mailbox envelope—not Mattermost,
-IRC, Codex, Workbench, or any agent framework—is the compatibility layer:
+IRC, Codex, or any agent framework—is the compatibility layer:
 
 ```text
 external channel <-> adapter <-> endpoint agent <-> JSONL/REST mailbox
@@ -143,7 +143,7 @@ Adapters never call other adapters directly. Agents never need platform SDKs
 to communicate with one another. Every participant only reads and writes the
 stable envelope. This preserves replayability, offline delivery, per-recipient
 cursors, audit evidence, and compatibility between Windows, WSL, Codex,
-Workbench, OmegaClaw, and future systems.
+agent runtimes and future systems.
 
 ### Durable loop prevention
 
@@ -252,7 +252,7 @@ must follow the platform's authorization rules rather than forging human users.
   "direction": "bidirectional",
   "channel_ids": ["$MM_CHANNEL_ID", "$MM_CHANNEL_IDS"],
   "bridge_agent": "mattermost-bridge-agent",
-  "mailbox_recipients": ["symbolic-workbench", "omegaclaw-core"],
+  "mailbox_recipients": ["local-agent", "automation-agent"],
   "include_direct_messages": true,
   "preserve_threads": true
 }
@@ -379,7 +379,7 @@ uploads documents, and sends uploaded media by ID.
   "page_id": "$FACEBOOK_PAGE_ID",
   "channel_ids": ["$FACEBOOK_ALLOWED_CONVERSATIONS"],
   "bridge_agent": "facebook-messenger-bridge-agent",
-  "mailbox_recipients": ["symbolic-workbench"],
+  "mailbox_recipients": ["local-agent"],
   "preserve_threads": false
 }
 ```
@@ -456,14 +456,14 @@ listener. Send to `POST /v1/messages`:
 ```json
 {
   "from": "workflow-runner",
-  "to": "symbolic-workbench",
+  "to": "local-agent",
   "type": "message",
   "text": "The workflow completed",
   "correlation_id": "run-123"
 }
 ```
 
-Receive through `GET /v1/messages?recipient=symbolic-workbench`. Receiving
+Receive through `GET /v1/messages?recipient=local-agent`. Receiving
 advances that identity's durable cursor, so every concurrent consumer needs a
 unique stable identity.
 
@@ -497,11 +497,11 @@ WebSocket, REST, or JSONL.
 ### Trusted Speaker console client
 
 ```powershell
-trusted-speaker special-console-client --to symbolic-workbench
+trusted-speaker special-console-client --to local-agent
 ```
 
 `mailbox-chat` remains a compatibility alias. From an uninstalled checkout, use
-`python -m mailbox_channel_relay_bridging_proxy.console_client special-console-client --to symbolic-workbench`.
+`python -m mailbox_channel_relay_bridging_proxy.console_client special-console-client --to local-agent`.
 Trusted Speaker is the client role/name; `special-console-client` must still be
 a unique stable mailbox identity so concurrent clients do not consume the same
 cursor.
@@ -518,7 +518,7 @@ a demonstration client; it does not bypass or replace the mailbox.
 Filesystem clients use the same envelope without a listener entry:
 
 ```powershell
-python agent_mailbox.py send symbolic-workbench "Please inspect this run" `
+python agent_mailbox.py send local-agent "Please inspect this run" `
   --sender workflow-runner
 python agent_mailbox.py receive workflow-runner
 ```
