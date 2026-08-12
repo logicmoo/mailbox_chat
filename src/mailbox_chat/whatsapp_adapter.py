@@ -30,10 +30,24 @@ class WhatsAppAdapter:
 
     def configure(self) -> bool:
         self.listeners = listeners_for("whatsapp")
-        missing = [item["id"] for item in self.listeners if not self._token(item)]
+        missing = []
+        for item in self.listeners:
+            required = []
+            if not self._token(item):
+                required.append(str(item.get("token_env") or "WHATSAPP_ACCESS_TOKEN"))
+            if not str(item.get("phone_number_id") or "").strip():
+                required.append("phone_number_id")
+            if item["direction"] in {"inbound", "bidirectional"}:
+                if not os.environ.get("WHATSAPP_VERIFY_TOKEN", "").strip():
+                    required.append("WHATSAPP_VERIFY_TOKEN")
+                if not os.environ.get("WHATSAPP_APP_SECRET", "").strip():
+                    required.append("WHATSAPP_APP_SECRET")
+            if required:
+                missing.append(f"{item['id']} ({', '.join(required)})")
         self.status.update({"enabled": bool(self.listeners) and not missing, "connected": False,
                             "phoneNumbers": [str(item.get("phone_number_id") or "") for item in self.listeners],
-                            "lastError": f"Missing WhatsApp tokens for: {', '.join(missing)}" if missing else None})
+                            "lastError": f"Missing WhatsApp configuration: {', '.join(missing)}"
+                            if missing else None})
         return bool(self.status["enabled"])
 
     def close(self) -> None:

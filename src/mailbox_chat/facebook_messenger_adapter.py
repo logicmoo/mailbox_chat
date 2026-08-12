@@ -30,10 +30,24 @@ class FacebookMessengerAdapter:
 
     def configure(self) -> bool:
         self.listeners = listeners_for("facebook_messenger")
-        missing = [item["id"] for item in self.listeners if not self._token(item)]
+        missing = []
+        for item in self.listeners:
+            required = []
+            if not self._token(item):
+                required.append(str(item.get("token_env") or "FACEBOOK_PAGE_ACCESS_TOKEN"))
+            if not str(item.get("page_id") or "").strip():
+                required.append("page_id")
+            if item["direction"] in {"inbound", "bidirectional"}:
+                if not os.environ.get("FACEBOOK_VERIFY_TOKEN", "").strip():
+                    required.append("FACEBOOK_VERIFY_TOKEN")
+                if not os.environ.get("FACEBOOK_APP_SECRET", "").strip():
+                    required.append("FACEBOOK_APP_SECRET")
+            if required:
+                missing.append(f"{item['id']} ({', '.join(required)})")
         self.status.update({"enabled": bool(self.listeners) and not missing, "connected": False,
                             "pages": [str(item.get("page_id") or "") for item in self.listeners],
-                            "lastError": f"Missing Facebook tokens for: {', '.join(missing)}" if missing else None})
+                            "lastError": f"Missing Facebook configuration: {', '.join(missing)}"
+                            if missing else None})
         return bool(self.status["enabled"])
 
     def close(self) -> None:

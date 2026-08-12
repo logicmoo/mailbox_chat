@@ -298,8 +298,8 @@ reference only their environment-variable names from listener entries.
 ### Setup
 
 Create a bot account in the Mattermost system console, add it to the required
-channels, then set the values above. Keep the token only in `config/.env` or a
-secret manager.
+channels, then set `MM_URL`, `MM_BOT_TOKEN`, and `MM_CHANNEL_ID`. Keep the
+token only in `config/.env` or a secret manager.
 
 ```json
 {
@@ -338,7 +338,6 @@ listener file, mailbox message, or commit.
   "adapter": "discord",
   "enabled": true,
   "direction": "bidirectional",
-  "server_id": "$DISCORD_GUILD_ID",
   "channel_ids": ["$DISCORD_CHANNEL_IDS"],
   "bridge_agent": "discord-bridge-agent",
   "mailbox_recipients": ["community-agent"],
@@ -360,13 +359,14 @@ listeners are enabled.
 ### Setup
 
 1. Create a Slack app and bot using Slack's [authentication guide](https://api.slack.com/authentication).
-2. Add `chat:write`, `files:write`, and the applicable `channels:history`, `groups:history`, `im:history`, or `mpim:history` scopes. See [`conversations.history`](https://docs.slack.dev/reference/methods/conversations.history/).
+2. Add `chat:write`, `files:read`, `files:write`, and the applicable `channels:history`, `groups:history`, `im:history`, or `mpim:history` scopes. See [`conversations.history`](https://docs.slack.dev/reference/methods/conversations.history/).
 3. Install or reinstall the app and store its `xoxb-...` token as `SLACK_BOT_TOKEN`. See [OAuth installation](https://api.slack.com/authentication/oauth-v2).
 4. Invite the bot to each required channel, copy channel IDs into `SLACK_CHANNEL_IDS`, and enable the listener.
 
 Outbound messages use [`chat.postMessage`](https://docs.slack.dev/reference/methods/chat.postmessage).
-Different `token_env` and `presence_id` values support multiple bot presences
-or workspaces.
+This adapter polls Slack's Web API; it does not use Socket Mode. Create a
+separate listener with its own `token_env` and `presence_id` for every bot
+identity or workspace.
 
 ```json
 {
@@ -375,29 +375,17 @@ or workspaces.
   "enabled": true,
   "direction": "bidirectional",
   "workspace_id": "$SLACK_WORKSPACE_ID",
+  "token_env": "SLACK_BOT_TOKEN",
   "channel_ids": ["$SLACK_CHANNEL_IDS"],
   "bridge_agent": "slack-bridge-agent",
-  "presences": [
-    {
-      "id": "operations-bot",
-      "display_name": "Operations Assistant",
-      "mailbox_agent": "operations-agent",
-      "credential_profile": "SLACK_OPERATIONS"
-    },
-    {
-      "id": "support-bot",
-      "display_name": "Support Assistant",
-      "mailbox_agent": "support-agent",
-      "credential_profile": "SLACK_SUPPORT"
-    }
-  ],
+  "presence_id": "operations-bot",
   "mailbox_recipients": ["operations-agent"],
   "include_direct_messages": true,
   "preserve_threads": true
 }
 ```
 
-Expected secrets: `SLACK_BOT_TOKEN` and, for Socket Mode, `SLACK_APP_TOKEN`.
+Expected secret: `SLACK_BOT_TOKEN`.
 
 ## Matrix / Element — implemented adapter
 
@@ -410,6 +398,23 @@ Expected secrets: `SLACK_BOT_TOKEN` and, for Socket Mode, `SLACK_APP_TOKEN`.
 
 The implementation uses `/sync`, room-message events, and media uploads from
 the [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/).
+It reads plaintext `m.room.message` events; end-to-end encrypted room
+decryption is not implemented, so relay rooms must be unencrypted.
+
+```json
+{
+  "id": "matrix-homeserver",
+  "adapter": "matrix",
+  "enabled": true,
+  "direction": "bidirectional",
+  "homeserver": "$MATRIX_HOMESERVER",
+  "token_env": "MATRIX_ACCESS_TOKEN",
+  "channel_ids": ["$MATRIX_ROOM_IDS"],
+  "bridge_agent": "matrix-bridge-agent",
+  "mailbox_recipients": ["community-agent"],
+  "preserve_threads": true
+}
+```
 
 The Matrix adapter uses the Client-Server API and works with rooms administered
 through Element or another Matrix client.
@@ -418,7 +423,7 @@ through Element or another Matrix client.
 
 ### Setup
 
-Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password or NickServ settings.
+Set `IRC_SERVER`, `IRC_CHANNELS`, and optional `IRC_PASSWORD`.
 IRC has no native attachment upload, so configure `MAILBOX_RELAY_PUBLIC_URL`;
 the adapter publishes managed files through `/v1/attachments/`.
 
@@ -439,15 +444,16 @@ the adapter publishes managed files through `/v1/attachments/`.
 }
 ```
 
-Optional secrets: `IRC_PASSWORD`, `IRC_NICKSERV_PASSWORD`, and TLS client
-credentials when required by the network.
+Optional secret: `IRC_PASSWORD`. NickServ identification and TLS client
+certificates are not currently implemented by the adapter.
 
 ## WhatsApp Business — implemented adapter
 
 ### Setup
 
 Configure a Meta WhatsApp Business phone-number ID and conversation allowlist.
-Store the system-user access token, webhook verification token, and app secret
+Store the system-user access token as `WHATSAPP_ACCESS_TOKEN`, the verification
+token as `WHATSAPP_VERIFY_TOKEN`, and the app secret as `WHATSAPP_APP_SECRET`
 in `config/.env`; register the public HTTPS callback at
 `/v1/webhooks/whatsapp`. Meta template and 24-hour conversation rules apply.
 Accounts approved for the restricted Groups API may set `groups_enabled: true`
@@ -468,8 +474,8 @@ and use approved group IDs as `channel_ids`.
 }
 ```
 
-Expected secrets: `WHATSAPP_ACCESS_TOKEN` and webhook verification/signing
-secrets. The adapter accepts signature-verified Cloud API webhooks at
+Expected secrets: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, and
+`WHATSAPP_APP_SECRET`. The adapter accepts signature-verified Cloud API webhooks at
 `/v1/webhooks/whatsapp`, preserves contact and message identifiers, sends text,
 uploads documents, and sends uploaded media by ID. Eligible WhatsApp Business
 Groups API accounts may set `groups_enabled` and use group IDs as channel IDs;
@@ -482,8 +488,8 @@ provide access to ordinary personal-account groups.
 
 Set `WHATSAPP_PERSONAL_COMPANION_TOKEN`,
 `WHATSAPP_PERSONAL_WEBHOOK_SECRET`, and optionally
-`WHATSAPP_PERSONAL_SESSION_DIR`. Run `npm install` in the companion directory,
-start `whatsapp-personal-relay`, scan the QR code, and query authenticated
+`WHATSAPP_PERSONAL_SESSION_DIR`. Run `npm install` and then `npm start` in
+`companions/whatsapp-personal`, scan the QR code, and query authenticated
 `GET /chats` for stable `@g.us` group IDs.
 
 The companion binds to `127.0.0.1:46668`, protects its API with a Bearer token,
@@ -498,8 +504,9 @@ QR login. It is not an official Meta API.
 
 ### Setup
 
-Configure a Facebook Page ID and permitted PSIDs. Store the Page access token,
-webhook verification token, and app secret in `config/.env`; register the public
+Configure a Facebook Page ID and permitted PSIDs. Store the Page access token
+as `FACEBOOK_PAGE_ACCESS_TOKEN`, verification token as `FACEBOOK_VERIFY_TOKEN`,
+and app secret as `FACEBOOK_APP_SECRET` in `config/.env`; register the public
 HTTPS callback at `/v1/webhooks/facebook-messenger` and grant the required Page
 messaging permissions.
 
@@ -534,7 +541,7 @@ configure `VIBER_ALLOWED_CONVERSATIONS` or `include_direct_messages`. Register:
 curl -X POST https://chatapi.viber.com/pa/set_webhook \
   -H "X-Viber-Auth-Token: $VIBER_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://relay.example.com/v1/webhooks/viber","event_types":["subscribed","unsubscribed","failed"],"send_name":true}'
+  -d '{"url":"https://relay.example.com/v1/webhooks/viber","event_types":["message","conversation_started","subscribed","unsubscribed","failed"],"send_name":true}'
 ```
 
 Viber requires publicly trusted HTTPS and limits outbound files to 50 MiB.
@@ -568,7 +575,7 @@ trusted certificate; Viber does not accept self-signed webhook certificates.
 
 1. Create a bot with BotFather and store its token as `TELEGRAM_BOT_TOKEN`.
 2. Add it to each required group, supergroup, or channel with minimum read/send permissions.
-3. Put numeric chat IDs or `@channelusername` values in `TELEGRAM_ALLOWED_CHAT_IDS` and enable the listener.
+3. Put numeric chat IDs in `TELEGRAM_ALLOWED_CHAT_IDS` and enable the listener. Use the numeric ID even for public channels because inbound updates identify chats numerically.
 4. Enable `include_direct_messages` only when private conversations are explicitly in scope.
 
 The adapter uses the [Telegram Bot API](https://core.telegram.org/bots/api),
@@ -638,7 +645,10 @@ group chats, and multi-person rooms; images use native LINE image messages.
 Enable the listener and set `DISCOURSE_URL`, `DISCOURSE_API_KEY`, and
 `DISCOURSE_WEBHOOK_SECRET`. Configure a post webhook pointing to
 `https://relay.example.com/v1/webhooks/discourse` with the same secret. The
-API-key user must be able to read configured topics and create posts.
+API-key user must be able to read configured topics and create posts. Set the
+listener's `api_username` when the key does not belong to the default `system`
+user; use `category_ids` to filter inbound posts and `default_category_id` when
+creating a new topic.
 
 The Discourse adapter accepts signature-verified post webhooks and sends posts
 through the Discourse API. Topic IDs are channel IDs; post numbers are

@@ -59,6 +59,8 @@ def test_facebook_messenger_inbound_and_outbound(monkeypatch, tmp_path: Path) ->
                 "channel_ids": ["user-1"], "bridge_agent": "facebook-agent",
                 "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("FACEBOOK_PAGE_ACCESS_TOKEN", "secret")
+    monkeypatch.setenv("FACEBOOK_VERIFY_TOKEN", "verify")
+    monkeypatch.setenv("FACEBOOK_APP_SECRET", "app-secret")
     monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.facebook_messenger_adapter.listeners_for", lambda adapter: [listener])
     session = Session()
     adapter = FacebookMessengerAdapter(session=session)
@@ -79,6 +81,8 @@ def test_whatsapp_business_inbound_outbound_and_media(monkeypatch, tmp_path: Pat
                 "channel_ids": ["15551234567"], "bridge_agent": "whatsapp-agent",
                 "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "secret")
+    monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", "verify")
+    monkeypatch.setenv("WHATSAPP_APP_SECRET", "app-secret")
     monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.whatsapp_adapter.listeners_for", lambda adapter: [listener])
     session = Session()
     adapter = WhatsAppAdapter(session=session)
@@ -106,6 +110,8 @@ def test_whatsapp_business_group_preserves_group_and_participant(monkeypatch, tm
                 "channel_ids": ["group-1"], "groups_enabled": True,
                 "bridge_agent": "whatsapp-agent", "mailbox_recipients": []}
     monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "secret")
+    monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", "verify")
+    monkeypatch.setenv("WHATSAPP_APP_SECRET", "app-secret")
     monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.whatsapp_adapter.listeners_for",
                         lambda adapter: [listener])
     session, mailbox = Session(), Mailbox(tmp_path)
@@ -122,3 +128,25 @@ def test_whatsapp_business_group_preserves_group_and_participant(monkeypatch, tm
     adapter.send_message({"listener_id": "whatsapp-one", "channel_id": "group-1",
                           "whatsapp_group": True, "text": "reply"})
     assert session.posts[-1][1]["json"]["recipient_type"] == "group"
+
+
+def test_inbound_meta_adapters_require_webhook_credentials(monkeypatch) -> None:
+    whatsapp = {"id": "wa", "direction": "inbound", "phone_number_id": "phone"}
+    facebook = {"id": "fb", "direction": "inbound", "page_id": "page"}
+    monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("FACEBOOK_PAGE_ACCESS_TOKEN", "token")
+    for name in ("WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET",
+                 "FACEBOOK_VERIFY_TOKEN", "FACEBOOK_APP_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.whatsapp_adapter.listeners_for",
+                        lambda adapter: [whatsapp])
+    monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.facebook_messenger_adapter.listeners_for",
+                        lambda adapter: [facebook])
+    whatsapp_adapter = WhatsAppAdapter()
+    facebook_adapter = FacebookMessengerAdapter()
+    assert not whatsapp_adapter.configure()
+    assert "WHATSAPP_VERIFY_TOKEN" in whatsapp_adapter.status["lastError"]
+    assert "WHATSAPP_APP_SECRET" in whatsapp_adapter.status["lastError"]
+    assert not facebook_adapter.configure()
+    assert "FACEBOOK_VERIFY_TOKEN" in facebook_adapter.status["lastError"]
+    assert "FACEBOOK_APP_SECRET" in facebook_adapter.status["lastError"]
