@@ -1,4 +1,4 @@
-"""Interactive console client for mailbox-backed WebSocket chat."""
+"""Trusted Speaker interactive client for mailbox-backed WebSocket chat."""
 
 from __future__ import annotations
 
@@ -10,9 +10,14 @@ from urllib.parse import quote
 
 import websocket
 
+CLIENT_NAME = "Trusted Speaker"
+
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Mailbox WebSocket console chat")
+    result = argparse.ArgumentParser(
+        prog="trusted-speaker",
+        description="Trusted Speaker console client for mailbox WebSocket chat",
+    )
     result.add_argument("identity", help="Unique stable mailbox recipient identity")
     result.add_argument("--to", dest="destination", default="symbolic-workbench")
     result.add_argument("--url", default="ws://127.0.0.1:46667/v1/chat/ws")
@@ -47,7 +52,7 @@ def run(identity: str, destination: str, url: str) -> int:
         connection = websocket.create_connection(f"{url}?recipient={quote(identity, safe='')}", timeout=10)
     except Exception as error:
         print(
-            f"Mailbox chat service unavailable: {error}. "
+            f"{CLIENT_NAME} service unavailable: {error}. "
             "Verify the URL, network access, and any future authentication requirements.",
             file=sys.stderr,
         )
@@ -55,7 +60,7 @@ def run(identity: str, destination: str, url: str) -> int:
     connection.settimeout(None)
     stop = threading.Event()
     threading.Thread(target=_receive, args=(connection, stop), daemon=True).start()
-    print(f"Connected as {identity}; destination is {destination}.")
+    print(f"{CLIENT_NAME} connected as {identity}; destination is {destination}.")
     print("Commands: /to ID, /ping, /help, /quit")
     try:
         while True:

@@ -494,14 +494,17 @@ must be masked JSON text frames and are limited to 1 MiB. Only one active
 consumer should use a recipient identity, regardless of whether it connects by
 WebSocket, REST, or JSONL.
 
-### Console client
+### Trusted Speaker console client
 
 ```powershell
-mailbox-chat special-console-client --to symbolic-workbench
+trusted-speaker special-console-client --to symbolic-workbench
 ```
 
-From an uninstalled checkout, use
-`python console_client.py special-console-client --to symbolic-workbench`.
+`mailbox-chat` remains a compatibility alias. From an uninstalled checkout, use
+`python -m mailbox_channel_relay_bridging_proxy.console_client special-console-client --to symbolic-workbench`.
+Trusted Speaker is the client role/name; `special-console-client` must still be
+a unique stable mailbox identity so concurrent clients do not consume the same
+cursor.
 Commands are `/to ID`, `/ping`, `/help`, and `/quit`.
 
 ### Browser demonstration

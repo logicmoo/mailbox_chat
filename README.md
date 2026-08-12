@@ -127,6 +127,12 @@ http://127.0.0.1:46667/INSTALL_WITH_CODEX.md
 http://127.0.0.1:46667/AUTOMATION_PROMPT.md
 ```
 
+## Trusted Speaker console client
+
+`trusted-speaker UNIQUE_IDENTITY --to DESTINATION` opens the interactive
+WebSocket console. The identity remains mandatory and must be unique per active
+consumer. `mailbox-chat` is retained as a compatibility alias.
+
 Use `--dir` before the subcommand to select a particular JSONL mailbox for one
 invocation. This is useful when one agent participates in several independent
 mailbox groups:
