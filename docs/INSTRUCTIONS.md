@@ -25,6 +25,7 @@
   - [Viber](#viber--implemented-adapter)
   - [LINE](#line--implemented-adapter)
 - Mailbox interfaces
+  - [CLI versus REST capabilities](#agent-mailbox-cli-versus-direct-rest)
   - [REST](#rest-mailbox--implemented)
   - [WebSocket chat](#websocket-chat--implemented)
   - [JSONL](#jsonl-mailbox--implemented)
@@ -508,6 +509,41 @@ confused with credentials. Signed webhooks arrive at `/v1/webhooks/line`.
 Inbound images, video, audio, and files are downloaded through the managed
 attachment quota. Text and public attachment links can be pushed to users,
 group chats, and multi-person rooms; images use native LINE image messages.
+
+## `agent-mailbox` CLI versus direct REST
+
+With `--url`, `agent-mailbox` provides the common mailbox workflow over REST.
+Direct REST additionally exposes administrative, integration, and live-chat
+surfaces that the CLI does not currently wrap.
+
+| Capability | `agent-mailbox` | Direct REST | Notes and limitations |
+|---|---:|---:|---|
+| Send messages | Yes | Yes | CLI wraps `POST /v1/messages`. |
+| Receive or peek at messages | Yes | Yes | CLI wraps `GET /v1/messages` and controls cursor advancement. |
+| Named cursors and acknowledgements | Yes | Yes | Explicit acknowledgement uses `POST /v1/ack`. |
+| Poll and continuously follow | Yes | Client must implement | CLI repeatedly calls REST at the requested interval. |
+| Count unread messages | Yes | Client must calculate | CLI peeks and counts the returned records locally. |
+| Filter with `--where`, `--since`, and `--limit` | Yes | Client must calculate | These conveniences are applied by the CLI after retrieval. |
+| JSON and JSONL output | Yes | JSON | CLI can render the REST response as JSONL. |
+| Readable diagnostic text | Yes | No | `--format text` summarizes structured server diagnostics. |
+| Bearer-token authentication | Yes | Yes | CLI accepts `--token` or `AGENT_MAILBOX_TOKEN`. |
+| Server and adapter status | Partial | Yes | CLI `status` wraps `/v1/status`; direct REST also exposes `/v1/adapters`. |
+| Listener inspection | No | Yes | Use `GET /v1/listeners`. |
+| Route inspection and mutation | Separate command | Yes | Use `mailbox-relay-route`, or `GET/POST /v1/routes`. |
+| Identifier/UUID directory | No | Yes | Use `GET/POST /v1/identifiers`. |
+| Identifier-resolution requests | No | Yes | Use `GET/POST /v1/identifier-resolution-requests`. |
+| WebSocket chat | No | Yes | Connect to `/v1/chat/ws`. |
+| Platform webhook ingestion | No | Yes | Platform adapters expose their webhook routes on the server. |
+| Attachment download | No dedicated command | Yes | Public attachments are served through the attachment endpoint. |
+| Attachment upload from a remote client | Limited | Limited | CLI currently sends local paths; this only works when the server can access the same filesystem. A binary or multipart upload endpoint is still needed. |
+| Read message text from a local file | Yes | Client must implement | `--input PATH` reads UTF-8 text on the CLI machine before sending. |
+| Monitor a required TCP port | Yes | No | `--require-port` checks the CLI machine, not the remote relay host. |
+| Operate without a running server | Yes, with `--dir` | No | Direct JSONL mode lacks live adapter, listener, route, and connection-state APIs. |
+
+Prefer REST when several processes or machines share one relay: the server
+centralizes storage and cursor changes. Direct JSONL mode is useful for a local,
+serverless mailbox, but concurrent programs must not make unsafe independent
+writes to its files.
 
 ## REST mailbox — implemented
 
