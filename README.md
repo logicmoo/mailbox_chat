@@ -41,6 +41,8 @@ exponential backoff while verbose output identifies the affected service.
 On an interactive terminal, consecutive identical verbose messages are
 collapsed into one in-place `last message repeated N times` counter. Redirected
 logs emit periodic repeat summaries without terminal control characters.
+The same state is available from `/v1/status` as `lastVerboseMessage`,
+`lastVerboseMessageRepeatCount`, and `lastVerboseMessageAt`.
 Adapter startup, connection, and failure transitions are also delivered to
 each listener's bridge agent and mailbox recipients as durable
 `chat_server_status` messages from `local-ADAPTER-server`. This lets agents

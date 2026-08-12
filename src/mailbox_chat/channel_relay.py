@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import os
+import time
 from typing import Any
 
 from .mattermost_adapter import MattermostRelay, RELAY_PORT
@@ -83,6 +84,11 @@ class ChannelRelay(MattermostRelay):
             return
         if message == self._last_log_message:
             self._last_log_repeats += 1
+            self.status.update({
+                "lastVerboseMessage": message,
+                "lastVerboseMessageRepeatCount": self._last_log_repeats,
+                "lastVerboseMessageAt": time.time(),
+            })
             summary = f"[relay] last message repeated {self._last_log_repeats} times"
             if sys.stderr.isatty():
                 print(f"\r\x1b[2K{summary}", file=sys.stderr, end="", flush=True)
@@ -95,6 +101,11 @@ class ChannelRelay(MattermostRelay):
             self._repeat_summary_open = False
         self._last_log_message = message
         self._last_log_repeats = 0
+        self.status.update({
+            "lastVerboseMessage": message,
+            "lastVerboseMessageRepeatCount": 0,
+            "lastVerboseMessageAt": time.time(),
+        })
         print(f"[relay] {message}", file=sys.stderr, flush=True)
 
     @staticmethod

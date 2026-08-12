@@ -118,6 +118,7 @@ def test_verbose_logging_coalesces_repeated_messages(monkeypatch, capsys) -> Non
     relay._last_log_message = ""
     relay._last_log_repeats = 0
     relay._repeat_summary_open = False
+    relay.status = {}
     monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.channel_relay.sys.stderr.isatty", lambda: True)
 
     relay._log("mattermost adapter poll completed", level=2)
@@ -130,3 +131,22 @@ def test_verbose_logging_coalesces_repeated_messages(monkeypatch, capsys) -> Non
     assert "\r\x1b[2K[relay] last message repeated 1 times" in output
     assert "\r\x1b[2K[relay] last message repeated 2 times" in output
     assert output.endswith("\n[relay] discord adapter connected\n")
+    assert relay.status["lastVerboseMessage"] == "discord adapter connected"
+    assert relay.status["lastVerboseMessageRepeatCount"] == 0
+    assert isinstance(relay.status["lastVerboseMessageAt"], float)
+
+
+def test_status_tracks_repeated_verbose_message_count(monkeypatch) -> None:
+    relay = ChannelRelay.__new__(ChannelRelay)
+    relay.verbose = 2
+    relay.status = {}
+    relay._last_log_message = ""
+    relay._last_log_repeats = 0
+    relay._repeat_summary_open = False
+    monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.channel_relay.sys.stderr.isatty", lambda: False)
+
+    for _ in range(21):
+        relay._log("mattermost adapter poll completed", level=2)
+
+    assert relay.status["lastVerboseMessage"] == "mattermost adapter poll completed"
+    assert relay.status["lastVerboseMessageRepeatCount"] == 20
