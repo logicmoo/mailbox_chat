@@ -177,6 +177,14 @@ http://127.0.0.1:46667/AUTOMATION_PROMPT.md
 WebSocket console. The identity remains mandatory and must be unique per active
 consumer. `mailbox-chat` is retained as a compatibility alias.
 
+Give `--url` the relay's normal HTTP(S) address; Trusted Speaker derives the
+WebSocket endpoint automatically. A full `ws://` or `wss://` endpoint is also
+accepted:
+
+```bash
+trusted-speaker speaker-one --url http://127.0.0.1:46667 --to agent-beta
+```
+
 Trusted Speaker can also operate directly on a local JSONL mailbox without a
 running relay server:
 

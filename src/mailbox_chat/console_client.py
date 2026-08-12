@@ -7,13 +7,14 @@ import json
 import sys
 import threading
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import websocket
 
 from . import agent_mailbox
 
 CLIENT_NAME = "Trusted Speaker"
+CHAT_PATH = "/v1/chat/ws"
 
 
 def parser() -> argparse.ArgumentParser:
@@ -25,13 +26,29 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--to", dest="destination", default="local-agent",
                         help="initial destination mailbox identity (default: local-agent)")
     transport = result.add_mutually_exclusive_group()
-    transport.add_argument("--url", default="ws://127.0.0.1:46667/v1/chat/ws",
-                           help="relay WebSocket endpoint (default: local relay on port 46667)")
+    transport.add_argument("--url", default="http://127.0.0.1:46667",
+                           help="relay HTTP(S) base URL or full WebSocket endpoint "
+                                "(default: http://127.0.0.1:46667)")
     transport.add_argument("--dir", type=Path,
                            help="use this local JSONL mailbox directory instead of WebSocket")
     result.add_argument("--interval", type=float, default=0.5,
                         help="local mailbox polling interval in seconds (default: 0.5)")
     return result
+
+
+def websocket_url(value: str) -> str:
+    """Convert a relay server address into its chat WebSocket endpoint."""
+    parsed = urlsplit(value.strip())
+    schemes = {"http": "ws", "https": "wss", "ws": "ws", "wss": "wss"}
+    scheme = schemes.get(parsed.scheme.lower())
+    if scheme is None or not parsed.netloc:
+        raise ValueError("--url must be an HTTP(S) server address or WS(S) endpoint")
+    path = parsed.path.rstrip("/")
+    if not path:
+        path = CHAT_PATH
+    elif path != CHAT_PATH:
+        path = f"{path}{CHAT_PATH}"
+    return urlunsplit((scheme, parsed.netloc, path, parsed.query, ""))
 
 
 def display_event(raw: str) -> str:
@@ -69,7 +86,11 @@ def run(identity: str, destination: str, url: str, *, directory: Path | None = N
     connection: websocket.WebSocket | None = None
     if directory is None:
         try:
-            connection = websocket.create_connection(f"{url}?recipient={quote(identity, safe='')}", timeout=10)
+            endpoint = websocket_url(url)
+            separator = "&" if "?" in endpoint else "?"
+            connection = websocket.create_connection(
+                f"{endpoint}{separator}recipient={quote(identity, safe='')}", timeout=10
+            )
         except Exception as error:
             print(
                 f"{CLIENT_NAME} service unavailable: {error}. "
@@ -84,7 +105,7 @@ def run(identity: str, destination: str, url: str, *, directory: Path | None = N
     stop = threading.Event()
     if connection is not None:
         threading.Thread(target=_receive, args=(connection, stop), daemon=True).start()
-        transport = url
+        transport = endpoint
     else:
         threading.Thread(target=_receive_local, args=(directory, identity, stop, interval), daemon=True).start()
         transport = str(directory)

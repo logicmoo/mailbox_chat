@@ -2,7 +2,13 @@ import json
 from pathlib import Path
 
 from mailbox_channel_relay_bridging_proxy import agent_mailbox, console_client
-from mailbox_channel_relay_bridging_proxy.console_client import CLIENT_NAME, display_event, parser, run
+from mailbox_channel_relay_bridging_proxy.console_client import (
+    CLIENT_NAME,
+    display_event,
+    parser,
+    run,
+    websocket_url,
+)
 
 
 def test_console_client_arguments() -> None:
@@ -21,6 +27,12 @@ def test_console_client_formats_mailbox_message() -> None:
         "message": {"from": "irc:nick", "to": "console-one", "text": "hello"},
     }))
     assert rendered == "[irc:nick -> console-one] hello"
+
+
+def test_console_client_accepts_relay_base_urls() -> None:
+    assert websocket_url("http://127.0.0.1:46667") == "ws://127.0.0.1:46667/v1/chat/ws"
+    assert websocket_url("https://relay.example/") == "wss://relay.example/v1/chat/ws"
+    assert websocket_url("ws://relay.example/v1/chat/ws") == "ws://relay.example/v1/chat/ws"
 
 
 def test_console_client_reports_unavailable_service(monkeypatch, capsys) -> None:
