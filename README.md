@@ -162,7 +162,8 @@ The full client surface includes:
 - resilience: `--timeout`, `--retry`, `--retry-delay`, and repeatable
   `--require-port` on monitoring commands;
 - optional REST authentication: `--token` or `AGENT_MAILBOX_TOKEN`;
-- REST inspection: `--curl` prints a token-redacted equivalent command and
+- REST inspection: `--curl` may appear anywhere in the command line and prints
+  a token-redacted equivalent command and
   performs no network request;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
 `--verbose`;

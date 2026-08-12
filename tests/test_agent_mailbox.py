@@ -117,3 +117,16 @@ def test_curl_switch_shows_non_consuming_peek(capsys) -> None:
     ]) == 0
     command = capsys.readouterr().out
     assert "advance=false" in command and "cursor=audit" in command
+
+
+def test_curl_switch_is_accepted_anywhere(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("AGENT_MAILBOX_URL", "https://relay.example")
+    placements = [
+        ["--curl", "send", "planner", "done"],
+        ["send", "--curl", "planner", "done"],
+        ["send", "planner", "--curl", "done"],
+        ["send", "planner", "done", "--curl"],
+    ]
+    for arguments in placements:
+        assert agent_mailbox.main(arguments) == 0
+        assert "/v1/messages" in capsys.readouterr().out

@@ -524,9 +524,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
+    """Move position-independent global flags ahead of the subcommand."""
+    curl_requested = "--curl" in argv
+    normalized = [argument for argument in argv if argument != "--curl"]
+    return (["--curl"] if curl_requested else []) + normalized
+
+
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
-    args = build_parser().parse_args(argv)
+    supplied = list(sys.argv[1:] if argv is None else argv)
+    args = build_parser().parse_args(_normalize_anywhere_flags(supplied))
     if args.timeout <= 0 or args.retry < 0 or args.retry_delay < 0:
         build_parser().error("--timeout must be positive; retry values must be non-negative")
     REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY = args.timeout, args.retry, args.retry_delay
