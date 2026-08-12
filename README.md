@@ -41,7 +41,11 @@ exponential backoff while verbose output identifies the affected service.
 Adapter startup, connection, and failure transitions are also delivered to
 each listener's bridge agent and mailbox recipients as durable
 `chat_server_status` messages from `local-ADAPTER-server`. This lets agents
-observe or forward service state without scraping process logs.
+observe or forward service state without scraping process logs. Failure
+messages include a structured `diagnostic` object with the safe exception type
+and message, failed operation, enabled state, and automatic-retry flags. A
+`service_context` object supplies safe listener IDs, channel IDs, directions,
+connection state, and retry policy.
 
 The daemon is independent of FastAPI and survives development API reloads.
 Runtime PID, status, and logs are under `mailbox/runtime/channel-relay-PORT/`.

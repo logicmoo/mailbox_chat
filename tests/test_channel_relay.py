@@ -7,7 +7,10 @@ from mailbox_channel_relay_bridging_proxy.channel_relay import ChannelRelay, REL
 class FailingAdapter:
     def __init__(self) -> None:
         self.status = {"enabled": True, "connected": False, "lastError": None}
-        self.listeners = [{"bridge_agent": "discord-agent", "mailbox_recipients": ["worker"]}]
+        self.listeners = [{
+            "id": "discord-main", "direction": "bidirectional", "channel_ids": ["ops"],
+            "bridge_agent": "discord-agent", "mailbox_recipients": ["worker"],
+        }]
 
     def cycle(self, _mailbox) -> None:
         raise ConnectionError("service unavailable")
@@ -84,3 +87,26 @@ def test_adapter_failure_names_service_for_supervisor_retry(tmp_path: Path, monk
     assert event["channel_type"] == "discord"
     assert event["connection_state"] == "connection_failed"
     assert event["local_chat_server"] is True
+    assert event["service_context"] == {
+        "adapter": "discord",
+        "listener_ids": ["discord-main"],
+        "channel_ids": ["ops"],
+        "directions": ["bidirectional"],
+        "enabled": True,
+        "connected": False,
+        "retry_policy": {"strategy": "exponential", "initial_seconds": 1, "maximum_seconds": 30},
+    }
+    assert event["diagnostic"] == {
+        "error_type": "ConnectionError",
+        "error_message": "service unavailable",
+        "operation": "connect_or_poll",
+        "recoverable": True,
+        "will_retry": True,
+        "enabled": True,
+    }
+
+
+def test_adapter_diagnostics_redact_environment_secrets(monkeypatch) -> None:
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "do-not-publish-this")
+    error = RuntimeError("request rejected for do-not-publish-this")
+    assert ChannelRelay._safe_error(error) == "request rejected for <redacted>"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import os
 from typing import Any
 
 from .mattermost_adapter import MattermostRelay, RELAY_PORT
@@ -78,6 +79,15 @@ class ChannelRelay(MattermostRelay):
         if self.verbose >= level:
             print(f"[relay] {message}", file=sys.stderr, flush=True)
 
+    @staticmethod
+    def _safe_error(error: Exception) -> str:
+        message = str(error)
+        secret_markers = ("TOKEN", "SECRET", "PASSWORD", "API_KEY")
+        for key, value in os.environ.items():
+            if value and len(value) >= 4 and any(marker in key.upper() for marker in secret_markers):
+                message = message.replace(value, "<redacted>")
+        return message
+
     def _adapter_recipients(self, name: str, adapter: Any) -> list[str]:
         listeners = (listeners_for("mattermost") if name == "mattermost"
                      else list(getattr(adapter, "listeners", [])))
@@ -91,7 +101,28 @@ class ChannelRelay(MattermostRelay):
             recipients = self._inbound_recipients(__import__("os").environ.get("MM_CHANNEL_ID", ""))
         return list(dict.fromkeys(recipients))
 
-    def _publish_adapter_event(self, name: str, adapter: Any, state: str, text: str) -> None:
+    def _adapter_context(self, name: str, adapter: Any) -> dict[str, Any]:
+        listeners = (listeners_for("mattermost") if name == "mattermost"
+                     else list(getattr(adapter, "listeners", [])))
+        status = getattr(adapter, "status", {})
+        return {
+            "adapter": name,
+            "listener_ids": [str(item.get("id") or "") for item in listeners if item.get("id")],
+            "channel_ids": list(dict.fromkeys(
+                str(channel_id) for item in listeners for channel_id in item.get("channel_ids", [])
+            )),
+            "directions": list(dict.fromkeys(
+                str(item.get("direction") or "") for item in listeners if item.get("direction")
+            )),
+            "enabled": bool(status.get("enabled")),
+            "connected": bool(status.get("connected")),
+            "retry_policy": {"strategy": "exponential", "initial_seconds": 1, "maximum_seconds": 30},
+        }
+
+    def _publish_adapter_event(
+        self, name: str, adapter: Any, state: str, text: str,
+        *, diagnostic: dict[str, Any] | None = None,
+    ) -> None:
         if self._adapter_event_states.get(name) == state:
             return
         self._adapter_event_states[name] = state
@@ -108,6 +139,8 @@ class ChannelRelay(MattermostRelay):
                         "adapter": name,
                         "connection_state": state,
                         "local_chat_server": True,
+                        "service_context": self._adapter_context(name, adapter),
+                        **({"diagnostic": diagnostic} if diagnostic else {}),
                     },
                 )
             except (OSError, ValueError) as error:
@@ -131,11 +164,17 @@ class ChannelRelay(MattermostRelay):
         try:
             adapter.cycle(mailbox)
         except Exception as error:
-            adapter.status.update({"connected": False, "lastError": str(error)})
+            safe_error = self._safe_error(error)
+            adapter.status.update({"connected": False, "lastError": safe_error})
             self._publish_adapter_event(
-                name, adapter, "connection_failed", f"{name} chat server connection failed: {error}",
+                name, adapter, "connection_failed", f"{name} chat server connection failed: {safe_error}",
+                diagnostic={
+                    "error_type": type(error).__name__, "error_message": safe_error,
+                    "operation": "connect_or_poll", "recoverable": True, "will_retry": True,
+                    "enabled": bool(adapter.status.get("enabled")),
+                },
             )
-            raise RuntimeError(f"{name} connection/poll failed: {error}") from error
+            raise RuntimeError(f"{name} connection/poll failed: {safe_error}") from error
         if adapter.status.get("connected") and not was_connected:
             self._log(f"{name} adapter connected")
             self._publish_adapter_event(name, adapter, "connected", f"{name} chat server connected")
@@ -216,11 +255,17 @@ class ChannelRelay(MattermostRelay):
                 try:
                     self._connect()
                 except Exception as error:
+                    safe_error = self._safe_error(error)
                     self._publish_adapter_event(
                         "mattermost", self, "connection_failed",
-                        f"mattermost chat server connection failed: {error}",
+                        f"mattermost chat server connection failed: {safe_error}",
+                        diagnostic={
+                            "error_type": type(error).__name__, "error_message": safe_error,
+                            "operation": "connect", "recoverable": True, "will_retry": True,
+                            "enabled": self.mattermost_enabled,
+                        },
                     )
-                    raise RuntimeError(f"mattermost connection failed: {error}") from error
+                    raise RuntimeError(f"mattermost connection failed: {safe_error}") from error
             if self._bot_user_id and not was_connected:
                 self._log("mattermost adapter connected")
                 self._publish_adapter_event(
@@ -231,10 +276,17 @@ class ChannelRelay(MattermostRelay):
                 self._refresh_direct_channels(base_url)
                 self._poll_inbound(base_url)
             except Exception as error:
+                safe_error = self._safe_error(error)
                 self._publish_adapter_event(
-                    "mattermost", self, "connection_failed", f"mattermost chat server poll failed: {error}",
+                    "mattermost", self, "connection_failed",
+                    f"mattermost chat server poll failed: {safe_error}",
+                    diagnostic={
+                        "error_type": type(error).__name__, "error_message": safe_error,
+                        "operation": "poll", "recoverable": True, "will_retry": True,
+                        "enabled": self.mattermost_enabled,
+                    },
                 )
-                raise RuntimeError(f"mattermost poll failed: {error}") from error
+                raise RuntimeError(f"mattermost poll failed: {safe_error}") from error
             self._log("mattermost adapter poll completed", level=2)
         self._cycle_adapter("irc", self.irc, mailbox)
         self._cycle_adapter("discord", self.discord, mailbox)

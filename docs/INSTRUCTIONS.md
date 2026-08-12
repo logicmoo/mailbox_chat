@@ -37,6 +37,14 @@ chat-platform adapters, and channel-to-channel bridges. The daemon owns
 `127.0.0.1:46667`; a successful `GET /health` means an instance is already
 running on this machine.
 
+Adapter failures are delivered to configured bridge agents and mailbox
+recipients as `chat_server_status` messages. Their structured `diagnostic`
+object lets an agent such as Codex explain the exception type, error message,
+failed operation, and whether the relay will retry automatically. Credentials
+and authorization headers are never intentionally included in these events.
+The accompanying `service_context` includes safe listener IDs, channel IDs,
+directions, current enabled/connected state, and the bounded retry policy.
+
 The port is configurable. Precedence is `--port`, then `MAILBOX_RELAY_PORT`,
 then default `46667`. The host follows `--host`, `MAILBOX_RELAY_HOST`, then
 safe default `127.0.0.1`:
