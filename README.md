@@ -168,6 +168,9 @@ The full client surface includes:
 - option termination: `--` stops command-line processing so following text may
   contain switch-looking values, for example
   `agent-mailbox send planner -- "--curl is literal text"`;
+- file-backed text: `--file PATH` reads the complete UTF-8 file as the message
+  text and may appear anywhere before `--`, for example
+  `agent-mailbox send planner --file message.txt`;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
 `--verbose`;
 - diagnostics: `status`, `check`, and `--version`.
