@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_channel_relay_bridging_proxy.listener_registry import config_dir, listeners_file, load_listeners
+from mailbox_channel_relay_bridging_proxy.listener_registry import config_dir, listeners_file, load_listeners, relays_file
 
 
 def test_listener_registry_expands_environment_channel_lists(tmp_path: Path, monkeypatch) -> None:
@@ -39,4 +39,12 @@ def test_listener_registry_rejects_duplicate_ids(tmp_path: Path) -> None:
 def test_config_directory_environment_selects_listener_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(tmp_path))
     assert config_dir() == tmp_path.resolve()
-    assert listeners_file() == tmp_path.resolve() / "listeners.json"
+    assert relays_file() == tmp_path.resolve() / "relays.json"
+    assert listeners_file() == tmp_path.resolve() / "relays.json"
+
+
+def test_registry_falls_back_to_legacy_listeners_file(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(tmp_path))
+    legacy = tmp_path / "listeners.json"
+    legacy.write_text('{"version": 1, "listeners": []}', encoding="utf-8")
+    assert relays_file() == legacy

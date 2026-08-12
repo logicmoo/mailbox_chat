@@ -79,13 +79,13 @@ python server.py `
 Equivalent environment variables are `AGENT_MAILBOX_DIR` and
 `MAILBOX_RELAY_CONFIG_DIR`. The mailbox directory owns `messages.jsonl`,
 `attachments/`, `cursors/`, `runtime/`, and the delivery ledger. The config
-directory owns `.env`, `listeners.json`, and `mailboxes.json`. This permits shared
+directory owns `.env`, `relays.json`, and `mailboxes.json`. This permits shared
 or read-only configuration with machine-local data, or several isolated proxy
 instances without state overlap.
 
 ## Configuration boundaries
 
-- `config/listeners.json` contains non-secret routing configuration.
+- `config/relays.json` contains non-secret routing configuration.
 - `config/.env` contains tokens, passwords, server URLs, and deployment identifiers.
 - `mailbox/messages.jsonl`, `mailbox/attachments/`, and `mailbox/cursors/` are runtime data.
 - Never place credentials in listener records, messages, workflow resources,
@@ -212,7 +212,7 @@ is desired.
 | `preserve_threads` | Preserve source thread/root IDs when supported |
 | `presences` | Optional authorized platform identities exposed by the listener |
 
-The daemon reloads `listeners.json` while evaluating routes. Normal routing
+The daemon reloads `relays.json` while evaluating routes. Normal routing
 changes therefore do not require a daemon restart. Credential changes may
 require reconnecting the affected adapter.
 

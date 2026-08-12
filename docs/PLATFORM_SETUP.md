@@ -1,6 +1,6 @@
 # Platform setup
 
-This relay never stores platform secrets in `listeners.json`. Put tokens in
+This relay never stores platform secrets in `relays.json`. Put tokens in
 `config/.env` (or the process environment), then reference their environment
 variable names from listener entries.
 
@@ -72,7 +72,7 @@ the official [Matrix Client-Server API](https://spec.matrix.org/latest/client-se
    the permissions required to read and send the intended content.
 3. Put the numeric chat IDs or `@channelusername` values in
    `TELEGRAM_ALLOWED_CHAT_IDS`, then enable `telegram-primary` in
-   `config/listeners.json`.
+   `config/relays.json`.
 4. Set `include_direct_messages` only when private conversations are explicitly
    in scope.
 
@@ -112,7 +112,7 @@ channels, and set `MM_URL`, `MM_BOT_TOKEN`, `MM_CHANNEL_ID`, and optional
 
 ## Channel-to-channel controllers
 
-Routes under `routes` in `config/listeners.json` choose one controller:
+Routes under `routes` in `config/relays.json` choose one controller:
 
 - `relay_agent` sends a `channel_route_request` to any mailbox identity.
 - `presence_controller` immediately emits mailbox delivery requests using the

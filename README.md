@@ -374,13 +374,13 @@ are declared roadmap adapters; they are not falsely reported as operational.
 
 ## Listener registry
 
-[`config/listeners.json`](config/listeners.json) is the non-secret source of truth for what
+[`config/relays.json`](config/relays.json) is the non-secret source of truth for what
 the proxy monitors and where inbound messages are mailboxed. Each listener has
 an adapter, direction (`inbound`, `outbound`, or `bidirectional`), channel IDs,
 and mailbox recipients. A channel ID beginning with `$` expands an environment
 variable, so deployment-specific identifiers can stay in `.env`.
 
-Credentials never belong in `listeners.json`. Adding Discord, IRC, or another
+Credentials never belong in `relays.json`. Adding Discord, IRC, or another
 adapter means adding its implementation and then declaring its listeners in
 the same registry. The daemon reloads the file as it evaluates listener routing,
 so ordinary routing edits do not require a restart.

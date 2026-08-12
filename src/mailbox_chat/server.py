@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"server TCP port (environment: {PORT_ENV}; default: {RELAY_PORT})",
     )
     parser.add_argument("--mailbox-dir", type=Path, help="mailbox data directory")
-    parser.add_argument("--config-dir", type=Path, help="directory containing .env, listeners.json, and mailboxes.json")
+    parser.add_argument("--config-dir", type=Path, help="directory containing .env, relays.json, and mailboxes.json")
     parser.add_argument(
         "--public-address", "--public-url", dest="public_url", default=os.environ.get(PUBLIC_URL_ENV),
         help=f"externally reachable base URL advertised to clients and used for attachment links "

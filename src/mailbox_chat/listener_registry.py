@@ -21,8 +21,16 @@ def config_dir() -> Path:
     return local.resolve() if local.is_dir() else PROJECT_ROOT / "config"
 
 
+def relays_file() -> Path:
+    """Return the canonical registry, falling back to its legacy filename."""
+    canonical = config_dir() / "relays.json"
+    legacy = config_dir() / "listeners.json"
+    return legacy if not canonical.exists() and legacy.exists() else canonical
+
+
 def listeners_file() -> Path:
-    return config_dir() / "listeners.json"
+    """Compatibility alias for callers using the former helper name."""
+    return relays_file()
 
 
 def _expand_channel_ids(value: str) -> list[str]:
@@ -37,7 +45,7 @@ def load_listeners(path: Path | None = None) -> list[dict[str, Any]]:
         return []
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("version") != 1 or not isinstance(payload.get("listeners"), list):
-        raise ValueError("listeners.json must contain version 1 and a listeners array")
+        raise ValueError(f"{path.name} must contain version 1 and a listeners array")
     listeners: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, raw in enumerate(payload["listeners"]):
