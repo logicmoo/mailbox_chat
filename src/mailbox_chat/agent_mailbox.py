@@ -509,7 +509,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     send_parser = commands.add_parser(
         "send", help="append a message", description="Append one durable mailbox message.",
-        epilog="Example: agent-mailbox send planner 'Task complete' --type result",
+        epilog="Example: agent-mailbox send agent-beta 'Task complete' --type result",
     )
     send_parser.add_argument("recipient", nargs="?", help="destination identity; alternatively use --to")
     send_parser.add_argument("text", nargs="?", help="message text; alternatively use global --input PATH")

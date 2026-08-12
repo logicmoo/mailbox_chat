@@ -95,15 +95,15 @@ works from any current directory:
 
 ```powershell
 C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd status
-C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd send planner --input message.txt
+C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd send agent-beta --input message.txt
 ```
 
 Linux, macOS, and WSL checkouts include the equivalent POSIX launcher:
 
 ```bash
 ./agent-mailbox status
-./agent-mailbox send planner --input message.txt
-./agent-mailbox send planner -- '--curl is literal text'
+./agent-mailbox send agent-beta --input message.txt
+./agent-mailbox send agent-beta -- '--curl is literal text'
 ```
 
 After package installation, use the cross-platform `agent-mailbox` command.
@@ -185,10 +185,10 @@ The full client surface includes:
   performs no network request;
 - option termination: `--` stops command-line processing so following text may
   contain switch-looking values, for example
-  `agent-mailbox send planner -- "--curl is literal text"`;
+  `agent-mailbox send agent-beta -- "--curl is literal text"`;
 - file-backed text: `--input PATH` reads the complete UTF-8 file as the message
   text and may appear anywhere before `--`, for example
-  `agent-mailbox send planner --input message.txt`;
+  `agent-mailbox send agent-beta --input message.txt`;
 - command documents: `--run command.json` executes an entire command described
   as JSON, without mixing additional CLI arguments;
 - destination: `send` accepts either positional `RECIPIENT` or `--to RECIPIENT`,
@@ -204,7 +204,7 @@ A complete command document uses normal option names without leading dashes:
 {
   "command": "send",
   "url": "https://relay.example.com",
-  "recipient": "planner",
+  "recipient": "agent-beta",
   "text": "Finished --curl verification",
   "channel_type": "telegram",
   "channel_id": "123"
@@ -271,7 +271,7 @@ client, set the displayed value without committing it:
 ```powershell
 $env:AGENT_MAILBOX_TOKEN='<the displayed token>'
 agent-mailbox --url https://relay.example.com --from worker-1 `
-  send planner 'Finished the task'
+  send agent-beta 'Finished the task'
 ```
 
 For automated deployment, an existing secret of at least 32 characters can be

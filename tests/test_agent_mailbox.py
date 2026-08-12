@@ -103,7 +103,7 @@ def test_curl_switch_prints_redacted_send_without_network(monkeypatch, capsys) -
                         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("network called")))
     assert agent_mailbox.main([
         "--url", "https://relay.example", "--token", "super-secret", "--curl",
-        "--from", "worker-1", "send", "planner", "done", "--channel-type", "slack",
+        "--from", "worker-1", "send", "agent-beta", "done", "--channel-type", "slack",
         "--channel-id", "C1",
     ]) == 0
     command = capsys.readouterr().out
@@ -124,10 +124,10 @@ def test_curl_switch_shows_non_consuming_peek(capsys) -> None:
 def test_curl_switch_is_accepted_anywhere(monkeypatch, capsys) -> None:
     monkeypatch.setenv("AGENT_MAILBOX_URL", "https://relay.example")
     placements = [
-        ["--curl", "send", "planner", "done"],
-        ["send", "--curl", "planner", "done"],
-        ["send", "planner", "--curl", "done"],
-        ["send", "planner", "done", "--curl"],
+        ["--curl", "send", "agent-beta", "done"],
+        ["send", "--curl", "agent-beta", "done"],
+        ["send", "agent-beta", "--curl", "done"],
+        ["send", "agent-beta", "done", "--curl"],
     ]
     for arguments in placements:
         assert agent_mailbox.main(arguments) == 0
@@ -136,7 +136,7 @@ def test_curl_switch_is_accepted_anywhere(monkeypatch, capsys) -> None:
 
 def test_double_dash_preserves_switch_looking_message_text(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
-        "--dir", str(tmp_path), "send", "planner", "--", "--curl --token secret --verbose",
+        "--dir", str(tmp_path), "send", "agent-beta", "--", "--curl --token secret --verbose",
     ]) == 0
     sent = json.loads(capsys.readouterr().out)
     assert sent["text"] == "--curl --token secret --verbose"
@@ -144,7 +144,7 @@ def test_double_dash_preserves_switch_looking_message_text(tmp_path, capsys) -> 
 
 def test_curl_after_double_dash_is_not_treated_as_flag(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
-        "--dir", str(tmp_path), "send", "planner", "--", "--curl",
+        "--dir", str(tmp_path), "send", "agent-beta", "--", "--curl",
     ]) == 0
     sent = json.loads(capsys.readouterr().out)
     assert sent["text"] == "--curl"
@@ -155,9 +155,9 @@ def test_input_supplies_send_text_from_any_option_position(tmp_path, capsys) -> 
     source.write_text("first line\n--curl remains text\n", encoding="utf-8")
     mailbox = tmp_path / "mailbox"
     placements = [
-        ["--dir", str(mailbox), "--input", str(source), "send", "planner"],
-        ["--dir", str(mailbox), "send", "--input", str(source), "planner"],
-        ["--dir", str(mailbox), "send", "planner", "--input", str(source)],
+        ["--dir", str(mailbox), "--input", str(source), "send", "agent-beta"],
+        ["--dir", str(mailbox), "send", "--input", str(source), "agent-beta"],
+        ["--dir", str(mailbox), "send", "agent-beta", "--input", str(source)],
     ]
     for arguments in placements:
         assert agent_mailbox.main(arguments) == 0
@@ -167,7 +167,7 @@ def test_input_supplies_send_text_from_any_option_position(tmp_path, capsys) -> 
 
 def test_input_after_double_dash_is_literal_text(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
-        "--dir", str(tmp_path), "send", "planner", "--", "--input message.txt",
+        "--dir", str(tmp_path), "send", "agent-beta", "--", "--input message.txt",
     ]) == 0
     assert json.loads(capsys.readouterr().out)["text"] == "--input message.txt"
 
@@ -175,13 +175,13 @@ def test_input_after_double_dash_is_literal_text(tmp_path, capsys) -> None:
 def test_removed_file_option_is_rejected_before_double_dash(tmp_path) -> None:
     with pytest.raises(SystemExit):
         agent_mailbox.main([
-            "--dir", str(tmp_path), "send", "planner", "--file", "message.txt",
+            "--dir", str(tmp_path), "send", "agent-beta", "--file", "message.txt",
         ])
 
 
 def test_removed_file_option_remains_literal_after_double_dash(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
-        "--dir", str(tmp_path), "send", "planner", "--", "--file message.txt",
+        "--dir", str(tmp_path), "send", "agent-beta", "--", "--file message.txt",
     ]) == 0
     assert json.loads(capsys.readouterr().out)["text"] == "--file message.txt"
 
@@ -192,7 +192,7 @@ def test_run_executes_complete_json_command_document(tmp_path, capsys) -> None:
     command_file.write_text(json.dumps({
         "command": "send",
         "dir": str(mailbox),
-        "recipient": "planner",
+        "recipient": "agent-beta",
         "text": "--curl is message text",
         "channel_type": "telegram",
         "channel_id": "123",
@@ -233,7 +233,7 @@ def test_nobuffer_is_accepted_anywhere(monkeypatch, tmp_path, capsys) -> None:
 
 def test_nobuffer_after_double_dash_is_literal_text(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
-        "--dir", str(tmp_path), "send", "planner", "--", "--nobuffer",
+        "--dir", str(tmp_path), "send", "agent-beta", "--", "--nobuffer",
     ]) == 0
     assert json.loads(capsys.readouterr().out)["text"] == "--nobuffer"
 
@@ -252,26 +252,26 @@ def test_run_document_supports_nobuffer(monkeypatch, tmp_path, capsys) -> None:
 
 def test_to_supplies_send_recipient_from_any_option_position(tmp_path, capsys) -> None:
     placements = [
-        ["--dir", str(tmp_path), "--to", "planner", "send", "hello"],
-        ["--dir", str(tmp_path), "send", "--to", "planner", "hello"],
-        ["--dir", str(tmp_path), "send", "hello", "--to", "planner"],
+        ["--dir", str(tmp_path), "--to", "agent-beta", "send", "hello"],
+        ["--dir", str(tmp_path), "send", "--to", "agent-beta", "hello"],
+        ["--dir", str(tmp_path), "send", "hello", "--to", "agent-beta"],
     ]
     for arguments in placements:
         assert agent_mailbox.main(arguments) == 0
-        assert json.loads(capsys.readouterr().out)["to"] == "planner"
+        assert json.loads(capsys.readouterr().out)["to"] == "agent-beta"
 
 
 def test_to_and_positional_recipient_are_mutually_exclusive(tmp_path) -> None:
     with pytest.raises(SystemExit):
         agent_mailbox.main([
-            "--dir", str(tmp_path), "send", "planner", "hello", "--to", "other",
+            "--dir", str(tmp_path), "send", "agent-beta", "hello", "--to", "other",
         ])
 
 
 def test_run_document_accepts_to_alias(tmp_path, capsys) -> None:
     command_file = tmp_path / "send.json"
     command_file.write_text(json.dumps({
-        "command": "send", "dir": str(tmp_path), "to": "planner", "text": "hello",
+        "command": "send", "dir": str(tmp_path), "to": "agent-beta", "text": "hello",
     }), encoding="utf-8")
     assert agent_mailbox.main(["--run", str(command_file)]) == 0
-    assert json.loads(capsys.readouterr().out)["to"] == "planner"
+    assert json.loads(capsys.readouterr().out)["to"] == "agent-beta"
