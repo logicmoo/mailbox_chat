@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "mailboxes": {
+    "local": {
+      "dir": "../mailbox"
+    },
+    "local-rest": {
+      "url": "http://127.0.0.1:46667"
+    }
+  }
+}

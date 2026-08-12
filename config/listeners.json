@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "listeners": [
+    {
+      "id": "mattermost-primary",
+      "adapter": "mattermost",
+      "enabled": true,
+      "direction": "bidirectional",
+      "channel_ids": ["$MM_CHANNEL_ID", "$MM_CHANNEL_IDS"],
+      "bridge_agent": "mattermost-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench", "omegaclaw-core", "omegaclaw-min"],
+      "trusted_admins": [],
+      "include_direct_messages": true,
+      "preserve_threads": true
+    },
+    {
+      "id": "irc-primary",
+      "adapter": "irc",
+      "enabled": false,
+      "direction": "bidirectional",
+      "server": "$IRC_SERVER",
+      "port": 6697,
+      "tls": true,
+      "nickname": "mailbox-relay",
+      "channel_ids": ["$IRC_CHANNELS"],
+      "bridge_agent": "irc-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench"],
+      "trusted_admins": [],
+      "preserve_threads": false
+    },
+    {
+      "id": "discord-primary",
+      "adapter": "discord",
+      "enabled": false,
+      "direction": "bidirectional",
+      "token_env": "DISCORD_BOT_TOKEN",
+      "channel_ids": ["$DISCORD_CHANNEL_IDS"],
+      "bridge_agent": "discord-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench"],
+      "trusted_admins": [],
+      "preserve_threads": true
+    },
+    {
+      "id": "matrix-primary",
+      "adapter": "matrix",
+      "enabled": false,
+      "direction": "bidirectional",
+      "homeserver": "$MATRIX_HOMESERVER",
+      "token_env": "MATRIX_ACCESS_TOKEN",
+      "channel_ids": ["$MATRIX_ROOM_IDS"],
+      "bridge_agent": "matrix-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench"],
+      "trusted_admins": [],
+      "preserve_threads": true
+    },
+    {
+      "id": "slack-primary",
+      "adapter": "slack",
+      "enabled": false,
+      "direction": "bidirectional",
+      "token_env": "SLACK_BOT_TOKEN",
+      "channel_ids": ["$SLACK_CHANNEL_IDS"],
+      "bridge_agent": "slack-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench"],
+      "trusted_admins": [],
+      "preserve_threads": true,
+      "presence_id": "slack-primary-bot"
+    },
+    {
+      "id": "telegram-primary",
+      "adapter": "telegram",
+      "enabled": false,
+      "direction": "bidirectional",
+      "token_env": "TELEGRAM_BOT_TOKEN",
+      "channel_ids": ["$TELEGRAM_ALLOWED_CHAT_IDS"],
+      "bridge_agent": "telegram-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench"],
+      "trusted_admins": [],
+      "include_direct_messages": false,
+      "preserve_threads": true
+    },
+    {
+      "id": "whatsapp-business-primary",
+      "adapter": "whatsapp",
+      "enabled": false,
+      "direction": "bidirectional",
+      "phone_number_id": "$WHATSAPP_PHONE_NUMBER_ID",
+      "token_env": "WHATSAPP_ACCESS_TOKEN",
+      "channel_ids": ["$WHATSAPP_ALLOWED_CONVERSATIONS"],
+      "bridge_agent": "whatsapp-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench"],
+      "trusted_admins": [],
+      "preserve_threads": false
+    },
+    {
+      "id": "facebook-messenger-primary",
+      "adapter": "facebook_messenger",
+      "enabled": false,
+      "direction": "bidirectional",
+      "page_id": "$FACEBOOK_PAGE_ID",
+      "token_env": "FACEBOOK_PAGE_ACCESS_TOKEN",
+      "channel_ids": ["$FACEBOOK_ALLOWED_CONVERSATIONS"],
+      "bridge_agent": "facebook-messenger-bridge-agent",
+      "mailbox_recipients": ["symbolic-workbench"],
+      "trusted_admins": [],
+      "preserve_threads": false
+    }
+  ],
+  "routes": [
+    {
+      "id": "mattermost-to-irc-via-presence",
+      "enabled": false,
+      "source": {"listener_id": "mattermost-primary", "channel_id": "$MM_CHANNEL_ID"},
+      "destinations": [
+        {"adapter": "irc", "listener_id": "irc-primary", "channel_id": "#agents"}
+      ],
+      "controller": {"type": "presence_controller", "presence_id": "relay-presence"}
+    },
+    {
+      "id": "discord-to-matrix-via-agent",
+      "enabled": false,
+      "source": {"listener_id": "discord-primary"},
+      "destinations": [
+        {"adapter": "matrix", "listener_id": "matrix-primary", "channel_id": "!room:example.org"}
+      ],
+      "controller": {"type": "relay_agent", "mailbox_recipient": "cross-channel-router"}
+    }
+  ]
+}
