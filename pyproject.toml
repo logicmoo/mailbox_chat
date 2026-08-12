@@ -18,7 +18,7 @@ dependencies = [
 dev = ["pytest>=8"]
 
 [project.scripts]
-mailbox-channel-relay-proxy = "mailbox_channel_relay_bridging_proxy.server:main"
+mailbox-relay-server = "mailbox_channel_relay_bridging_proxy.server:main"
 agent-mailbox = "mailbox_channel_relay_bridging_proxy.agent_mailbox:main"
 mailbox-chat = "mailbox_channel_relay_bridging_proxy.console_client:main"
 trusted-speaker = "mailbox_channel_relay_bridging_proxy.console_client:main"

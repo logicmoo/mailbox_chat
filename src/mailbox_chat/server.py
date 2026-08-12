@@ -92,7 +92,7 @@ def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="mailbox-channel-relay-proxy",
+        prog="mailbox-relay-server",
         description=__doc__,
         epilog="Bind address controls where the server listens; public address is the URL clients can reach.",
     )

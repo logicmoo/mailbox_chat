@@ -41,7 +41,7 @@ then default `46667`. The host follows `--host`, `MAILBOX_RELAY_HOST`, then
 safe default `127.0.0.1`:
 
 ```powershell
-.\run.bat --port 47667
+.\mailbox-relay-server.cmd --port 47667
 python server.py --host 127.0.0.1 --port 47667
 $env:MAILBOX_RELAY_PORT='47667'
 python server.py
@@ -52,7 +52,7 @@ The configuration syntax recognizes an all-interface request:
 ```powershell
 python server.py --host 0.0.0.0 --port 46667
 $env:MAILBOX_RELAY_HOST='0.0.0.0'
-.\run.bat
+.\mailbox-relay-server.cmd
 ```
 
 `0.0.0.0` is only a server bind address. Local clients connect to
@@ -568,7 +568,7 @@ cd C:\path\to\mailbox_channel_relay_bridging_proxy
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 Copy-Item config\.env.example config\.env
-.\run.bat
+.\mailbox-relay-server.cmd
 ```
 
 Give every concurrent Codex task a unique mailbox identity:

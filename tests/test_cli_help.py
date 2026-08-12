@@ -6,6 +6,7 @@ from mailbox_channel_relay_bridging_proxy.token_admin import parser as token_par
 
 def test_server_help_lists_every_public_configuration_option() -> None:
     help_text = server_parser().format_help()
+    assert help_text.startswith("usage: mailbox-relay-server")
     for option in (
         "--host", "--port", "--mailbox-dir", "--config-dir", "--public-address",
         "--public-url", "--token", "MAILBOX_RELAY_HOST", "MAILBOX_RELAY_PORT",

@@ -32,7 +32,7 @@ Copy-Item config\.env.example config\.env
 Start directly on Windows (the `.env` file is optional for mailbox-only use):
 
 ```powershell
-run.bat
+mailbox-relay-server.cmd
 ```
 
 Other applications may discover and control the same external daemon through
@@ -280,7 +280,7 @@ secret on the command line may expose it in shell history. Supplying
 Then expose the authenticated relay behind TLS:
 
 ```powershell
-mailbox-channel-relay-proxy --host 0.0.0.0 --port 46667 `
+mailbox-relay-server --host 0.0.0.0 --port 46667 `
   --public-url https://relay.example.com
 ```
 
