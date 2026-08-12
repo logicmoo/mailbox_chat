@@ -391,6 +391,7 @@ credentials when required by the network.
   "channel_ids": ["$WHATSAPP_ALLOWED_CONVERSATIONS"],
   "bridge_agent": "whatsapp-bridge-agent",
   "mailbox_recipients": ["customer-agent"],
+  "groups_enabled": false,
   "preserve_threads": false
 }
 ```
@@ -398,7 +399,10 @@ credentials when required by the network.
 Expected secrets: `WHATSAPP_ACCESS_TOKEN` and webhook verification/signing
 secrets. The adapter accepts signature-verified Cloud API webhooks at
 `/v1/webhooks/whatsapp`, preserves contact and message identifiers, sends text,
-uploads documents, and sends uploaded media by ID.
+uploads documents, and sends uploaded media by ID. Eligible WhatsApp Business
+Groups API accounts may set `groups_enabled` and use group IDs as channel IDs;
+group messages preserve both the group ID and participant ID. This does not
+provide access to ordinary personal-account groups.
 
 ## Facebook Messenger — implemented adapter
 

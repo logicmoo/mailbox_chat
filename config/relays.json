@@ -90,6 +90,7 @@
       "bridge_agent": "whatsapp-bridge-agent",
       "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
+      "groups_enabled": false,
       "preserve_threads": false
     },
     {

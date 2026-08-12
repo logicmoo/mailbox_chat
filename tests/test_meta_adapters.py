@@ -99,3 +99,26 @@ def test_whatsapp_business_inbound_outbound_and_media(monkeypatch, tmp_path: Pat
     assert session.posts[0][1]["json"]["type"] == "text"
     assert session.posts[1][0].endswith("/media")
     assert session.posts[2][1]["json"]["document"]["id"] == "media-1"
+
+
+def test_whatsapp_business_group_preserves_group_and_participant(monkeypatch, tmp_path: Path) -> None:
+    listener = {"id": "whatsapp-one", "direction": "bidirectional", "phone_number_id": "phone-1",
+                "channel_ids": ["group-1"], "groups_enabled": True,
+                "bridge_agent": "whatsapp-agent", "mailbox_recipients": []}
+    monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "secret")
+    monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.whatsapp_adapter.listeners_for",
+                        lambda adapter: [listener])
+    session, mailbox = Session(), Mailbox(tmp_path)
+    adapter = WhatsAppAdapter(session=session)
+    assert adapter.configure()
+    adapter.handle_webhook({"entry": [{"changes": [{"value": {
+        "metadata": {"phone_number_id": "phone-1"},
+        "contacts": [{"wa_id": "15551234567", "profile": {"name": "Douglas"}}],
+        "messages": [{"from": "15551234567", "id": "wamid-group", "group_id": "group-1",
+                      "type": "text", "text": {"body": "hello group"}}],
+    }}]}]}, mailbox)
+    assert mailbox.sent[0][2]["channel_id"] == "group-1"
+    assert mailbox.sent[0][2]["extra_fields"]["whatsapp_participant_id"] == "15551234567"
+    adapter.send_message({"listener_id": "whatsapp-one", "channel_id": "group-1",
+                          "whatsapp_group": True, "text": "reply"})
+    assert session.posts[-1][1]["json"]["recipient_type"] == "group"

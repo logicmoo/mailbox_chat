@@ -60,8 +60,11 @@ class WhatsAppAdapter:
                 for message in value.get("messages") or []:
                     sender_id = str(message.get("from") or "")
                     source_id = str(message.get("id") or "")
+                    group_id = str(message.get("group_id") or (message.get("group") or {}).get("id") or "")
+                    conversation_id = group_id or sender_id
                     allowed = set(str(item) for item in listener.get("channel_ids", []))
-                    if not sender_id or not source_id or (allowed and sender_id not in allowed):
+                    if (not sender_id or not source_id or (group_id and not listener.get("groups_enabled"))
+                            or (allowed and conversation_id not in allowed)):
                         continue
                     author = names.get(sender_id) or sender_id
                     if names.get(sender_id):
@@ -72,20 +75,23 @@ class WhatsAppAdapter:
                     origin = with_origin({"author": author, "author_id": sender_id,
                                           "whatsapp_message_type": message_type},
                                          adapter="whatsapp", listener_id=listener["id"],
-                                         source_id=source_id, channel_id=sender_id)
+                                         source_id=source_id, channel_id=conversation_id)
                     if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-                        "whatsapp", listener_id=listener["id"], channel_id=sender_id,
+                        "whatsapp", listener_id=listener["id"], channel_id=conversation_id,
                     )):
                         continue
                     recipients = list(dict.fromkeys([listener.get("bridge_agent"),
                                                       *listener.get("mailbox_recipients", [])]))
                     for recipient in filter(None, recipients):
                         mailbox.send(recipient, text, sender=f"whatsapp:{author}",
-                                     message_type="whatsapp_message", channel_id=sender_id,
+                                     message_type="whatsapp_message", channel_id=conversation_id,
                                      channel_type="whatsapp", source_id=source_id,
-                                     extra_fields={**origin, "whatsapp_payload": message.get(message_type) or {}})
-                    dispatch_routes(mailbox, listener_id=listener["id"], channel_id=sender_id,
-                                    message={**origin, "text": text, "source_id": source_id})
+                                     extra_fields={**origin, "whatsapp_payload": message.get(message_type) or {},
+                                                   "whatsapp_group_id": group_id,
+                                                   "whatsapp_participant_id": sender_id})
+                    dispatch_routes(mailbox, listener_id=listener["id"], channel_id=conversation_id,
+                                    message={**origin, "text": text, "source_id": source_id,
+                                             "whatsapp_group_id": group_id})
 
     def _listener_for(self, message: dict[str, Any]) -> dict[str, Any]:
         listener_id = str(message.get("listener_id") or "")
@@ -107,10 +113,14 @@ class WhatsAppAdapter:
         if not recipient or not phone_id:
             raise ValueError("WhatsApp outbound message requires channel_id and phone_number_id")
         endpoint = f"{GRAPH_API}/{phone_id}/messages"
+        is_group = bool(message.get("whatsapp_group") or message.get("whatsapp_group_id"))
+        if is_group and not listener.get("groups_enabled"):
+            raise ValueError("WhatsApp Business Groups API is not enabled for this listener")
+        recipient_type = "group" if is_group else "individual"
         text = str(message.get("text") or "")
         if text:
             response = self.session.post(endpoint, headers=self._headers(listener), json={
-                "messaging_product": "whatsapp", "recipient_type": "individual", "to": recipient,
+                "messaging_product": "whatsapp", "recipient_type": recipient_type, "to": recipient,
                 "type": "text", "text": {"body": text},
             }, timeout=30)
             response.raise_for_status()
@@ -124,7 +134,8 @@ class WhatsAppAdapter:
             upload.raise_for_status()
             media_id = str(upload.json()["id"])
             response = self.session.post(endpoint, headers=self._headers(listener), json={
-                "messaging_product": "whatsapp", "to": recipient, "type": "document",
+                "messaging_product": "whatsapp", "recipient_type": recipient_type,
+                "to": recipient, "type": "document",
                 "document": {"id": media_id, "filename": path.name},
             }, timeout=30)
             response.raise_for_status()

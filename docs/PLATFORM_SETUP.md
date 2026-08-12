@@ -89,6 +89,11 @@ verification token, and app secret through `config/.env`. Register the public
 HTTPS callback as `/v1/webhooks/whatsapp`. Meta template and 24-hour conversation
 rules still apply to outbound business messages.
 
+For a Meta account approved for the restricted WhatsApp Business Groups API,
+set `groups_enabled: true` and place approved group IDs in the listener's
+`channel_ids`. Ordinary WhatsApp and WhatsApp Business App groups are handled
+by the separate `whatsapp_personal` companion, not by Cloud API credentials.
+
 ## Facebook Messenger
 
 Configure a Facebook Page ID and permitted PSIDs on
