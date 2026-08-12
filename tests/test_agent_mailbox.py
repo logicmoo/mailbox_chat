@@ -184,3 +184,35 @@ def test_removed_file_option_remains_literal_after_double_dash(tmp_path, capsys)
         "--dir", str(tmp_path), "send", "planner", "--", "--file message.txt",
     ]) == 0
     assert json.loads(capsys.readouterr().out)["text"] == "--file message.txt"
+
+
+def test_run_executes_complete_json_command_document(tmp_path, capsys) -> None:
+    mailbox = tmp_path / "mailbox"
+    command_file = tmp_path / "send.json"
+    command_file.write_text(json.dumps({
+        "command": "send",
+        "dir": str(mailbox),
+        "recipient": "planner",
+        "text": "--curl is message text",
+        "channel_type": "telegram",
+        "channel_id": "123",
+    }), encoding="utf-8")
+
+    assert agent_mailbox.main(["--run", str(command_file)]) == 0
+    sent = json.loads(capsys.readouterr().out)
+    assert sent["text"] == "--curl is message text"
+    assert sent["channel_type"] == "telegram"
+
+
+def test_run_accepts_exact_argument_array(tmp_path, capsys) -> None:
+    command_file = tmp_path / "status.json"
+    command_file.write_text(json.dumps({"args": ["--dir", str(tmp_path), "status"]}), encoding="utf-8")
+    assert agent_mailbox.main([f"--run={command_file}"]) == 0
+    assert Path(json.loads(capsys.readouterr().out)["directory"]) == tmp_path
+
+
+def test_run_rejects_mixed_cli_arguments(tmp_path) -> None:
+    command_file = tmp_path / "status.json"
+    command_file.write_text(json.dumps({"command": "status", "dir": str(tmp_path)}), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        agent_mailbox.main(["--run", str(command_file), "--verbose"])

@@ -189,8 +189,32 @@ The full client surface includes:
 - file-backed text: `--input PATH` reads the complete UTF-8 file as the message
   text and may appear anywhere before `--`, for example
   `agent-mailbox send planner --input message.txt`;
+- command documents: `--run command.json` executes an entire command described
+  as JSON, without mixing additional CLI arguments;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
 `--verbose`;
+
+A complete command document uses normal option names without leading dashes:
+
+```json
+{
+  "command": "send",
+  "url": "https://relay.example.com",
+  "recipient": "planner",
+  "text": "Finished --curl verification",
+  "channel_type": "telegram",
+  "channel_id": "123"
+}
+```
+
+Run it with:
+
+```bash
+agent-mailbox --run command.json
+```
+
+For exact argument control, use `{"args": ["--dir", "mailbox", "status"]}`.
+Do not store Bearer tokens in command documents; use `AGENT_MAILBOX_TOKEN`.
 - diagnostics: `status`, `check`, and `--version`.
 
 Use a stable `--cursor` name for each independent consumer. `peek` and

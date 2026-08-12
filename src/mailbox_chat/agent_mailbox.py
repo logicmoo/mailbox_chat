@@ -34,6 +34,21 @@ REST_RETRIES = 0
 REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
 UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+GLOBAL_RUN_FIELDS = (
+    "dir", "url", "mailbox", "config", "from", "format", "output", "timeout", "token",
+    "curl", "input", "retry", "retry_delay", "quiet", "verbose",
+)
+COMMAND_POSITIONALS = {
+    "send": ("recipient", "text"),
+    "receive": ("recipient",),
+    "peek": ("recipient",),
+    "poll": ("recipient",),
+    "follow": ("recipient",),
+    "unread-count": ("recipient",),
+    "ack": ("recipient", "message_id"),
+    "status": (),
+    "check": (),
+}
 
 
 def default_mailbox_dir() -> Path:
@@ -459,6 +474,8 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run", type=Path, metavar="COMMAND.json",
+                        help="execute the entire command from a JSON document")
     transport = parser.add_mutually_exclusive_group()
     transport.add_argument("--dir", type=Path, help="use this JSONL mailbox directory")
     transport.add_argument("--url", help=f"use REST instead of JSONL (default service: {DEFAULT_MAILBOX_URL})")
@@ -528,6 +545,90 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _option_arguments(name: str, value: Any) -> list[str]:
+    option = f"--{name.replace('_', '-')}"
+    if isinstance(value, bool):
+        return [option] if value else []
+    if isinstance(value, list):
+        result: list[str] = []
+        for item in value:
+            result.extend([option, str(item)])
+        return result
+    if value is None:
+        return []
+    return [option, str(value)]
+
+
+def _command_document_argv(document: Any) -> list[str]:
+    if isinstance(document, list):
+        if not all(isinstance(item, str) for item in document):
+            raise ValueError("command JSON array must contain only strings")
+        return list(document)
+    if not isinstance(document, dict):
+        raise ValueError("command JSON must be an object, string array, or object containing args")
+    if "args" in document:
+        if set(document) != {"args"}:
+            raise ValueError("a command document containing args cannot contain other fields")
+        return _command_document_argv(document["args"])
+    command = str(document.get("command") or "").strip()
+    if command not in COMMAND_POSITIONALS:
+        raise ValueError(f"unknown or missing command: {command or '<empty>'}")
+    known_positionals = COMMAND_POSITIONALS[command]
+    known_fields = {"command", *GLOBAL_RUN_FIELDS, *known_positionals}
+    command_fields = set(document) - known_fields
+    command_options = {
+        "sender", "type", "channel_id", "channel_type", "source_id", "thread_id", "root_id",
+        "attach", "cursor", "ack", "interval", "checks", "require_port", "wait", "limit",
+        "contains", "message_type", "no_advance",
+    }
+    unknown = command_fields - command_options
+    if unknown:
+        raise ValueError(f"unknown command document fields: {', '.join(sorted(unknown))}")
+    arguments: list[str] = []
+    for name in GLOBAL_RUN_FIELDS:
+        if name in document:
+            arguments.extend(_option_arguments(name, document[name]))
+    arguments.append(command)
+    for name in known_positionals:
+        if name == "text":
+            continue
+        if name not in document:
+            raise ValueError(f"{command} command document requires {name}")
+        arguments.append(str(document[name]))
+    for name in sorted(command_fields):
+        arguments.extend(_option_arguments(name, document[name]))
+    if "text" in known_positionals and document.get("text") is not None:
+        arguments.extend(["--", str(document["text"])])
+    return arguments
+
+
+def _expand_run_document(argv: list[str]) -> list[str]:
+    boundary = argv.index("--") if "--" in argv else len(argv)
+    active = argv[:boundary]
+    matches = [index for index, value in enumerate(active) if value == "--run" or value.startswith("--run=")]
+    if not matches:
+        return argv
+    if len(matches) != 1:
+        raise ValueError("--run may be specified only once")
+    index = matches[0]
+    if active[index] == "--run":
+        if index + 1 >= len(active):
+            raise ValueError("--run requires a JSON file")
+        path_text = active[index + 1]
+        consumed = {index, index + 1}
+    else:
+        path_text = active[index].partition("=")[2]
+        consumed = {index}
+    if any(position not in consumed for position in range(len(active))) or boundary != len(argv):
+        raise ValueError("--run defines the entire command and cannot be combined with other arguments")
+    path = Path(path_text).expanduser()
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot load --run command document: {error}") from error
+    return _command_document_argv(document)
+
+
 def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     """Move position-independent global options ahead of the subcommand."""
     boundary = argv.index("--") if "--" in argv else len(argv)
@@ -561,6 +662,10 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
+    try:
+        supplied = _expand_run_document(supplied)
+    except ValueError as error:
+        build_parser().error(str(error))
     args = build_parser().parse_args(_normalize_anywhere_flags(supplied))
     if args.command != "send" and args.input_file:
         build_parser().error("--input is only valid with send")
