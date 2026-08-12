@@ -2,6 +2,7 @@
 config/.env
 .venv/
 .pytest-tmp/
+.pytest-*/
 .pytest_cache/
 build/
 *.egg-info/

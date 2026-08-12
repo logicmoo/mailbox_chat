@@ -33,6 +33,7 @@ def test_server_help_lists_every_public_configuration_option() -> None:
         "MAILBOX_RELAY_MAX_ATTACHMENT_STORAGE_BYTES",
         "--max-jsonl-mb", "MAILBOX_RELAY_MAX_JSONL_BYTES", "--max-sqlite-mb",
         "MAILBOX_RELAY_MAX_SQLITE_BYTES",
+        "--verbose", "LEVEL", "HTTP requests",
     ):
         assert option in help_text
     _assert_actions_documented(parser)

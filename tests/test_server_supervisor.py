@@ -64,3 +64,11 @@ def test_server_accepts_all_interfaces_bind_address() -> None:
     arguments = build_parser().parse_args(["--host", "0.0.0.0", "--port", "46667"])
     assert arguments.host == "0.0.0.0"
     assert arguments.port == 46667
+
+
+def test_server_accepts_optional_verbose_level() -> None:
+    parser = build_parser()
+    assert parser.parse_args([]).verbose == 0
+    assert parser.parse_args(["--verbose"]).verbose == 1
+    assert parser.parse_args(["--verbose", "2"]).verbose == 2
+    assert parser.parse_args(["-v", "0"]).verbose == 0

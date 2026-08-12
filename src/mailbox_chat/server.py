@@ -61,7 +61,7 @@ def _safe_write_status(relay: ChannelRelay) -> None:
         relay.status["statusWriteError"] = str(error)
 
 
-def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep) -> None:
+def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep, verbose: int = 0) -> None:
     """Keep adapters alive until explicitly stopped, despite recoverable failures."""
     retry_delay = 1.0
     configured = False
@@ -78,6 +78,12 @@ def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep) -> None:
             _safe_write_status(relay)
             sleep(1.0)
         except Exception as error:
+            if verbose >= 1:
+                print(
+                    f"Relay supervisor {type(error).__name__}: {error}; retrying in {retry_delay:g}s",
+                    file=sys.stderr,
+                    flush=True,
+                )
             relay.status.update({
                 "running": True,
                 "connected": False,
@@ -117,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
              f"(environment: {PUBLIC_URL_ENV})",
     )
     parser.add_argument("--token", help=f"require this REST Bearer token (or {TOKEN_ENV})")
+    parser.add_argument(
+        "-v", "--verbose", nargs="?", const=1, default=0, type=int, choices=range(3),
+        metavar="LEVEL",
+        help="logging detail: 0=errors only, 1=lifecycle and retries, 2=include HTTP requests; "
+             "using --verbose without LEVEL selects 1",
+    )
     parser.add_argument(
         "--max-attachment-mb", type=int,
         default=int(os.environ.get(MAX_FILE_ENV, DEFAULT_MAX_FILE_BYTES)) // (1024 * 1024),
@@ -184,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         "maxAttachmentStorageBytes": arguments.max_attachment_storage_mb * 1024 * 1024,
         "maxJsonlBytes": arguments.max_jsonl_mb * 1024 * 1024,
         "maxSqliteBytes": arguments.max_sqlite_mb * 1024 * 1024,
+        "verboseLevel": arguments.verbose,
     })
 
     class HealthHandler(BaseHTTPRequestHandler):
@@ -506,7 +519,8 @@ def main(argv: list[str] | None = None) -> int:
             self._json(201, {"message": identifiers.enrich(message)})
 
         def log_message(self, _format: str, *_args) -> None:
-            return
+            if arguments.verbose >= 2:
+                super().log_message(_format, *_args)
 
     try:
         health_server = ThreadingHTTPServer((arguments.host, arguments.port), HealthHandler)
@@ -516,6 +530,13 @@ def main(argv: list[str] | None = None) -> int:
     pid_file.write_text(str(os.getpid()), encoding="ascii")
     health_thread = threading.Thread(target=health_server.serve_forever, name="mattermost-relay-health", daemon=True)
     health_thread.start()
+    if arguments.verbose >= 1:
+        print(
+            f"Mailbox relay listening on {arguments.host}:{arguments.port} "
+            f"(public URL: {os.environ[PUBLIC_URL_ENV]})",
+            file=sys.stderr,
+            flush=True,
+        )
 
     def stop(_signum=None, _frame=None) -> None:
         relay.stop()
@@ -523,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     try:
-        run_relay_supervisor(relay)
+        run_relay_supervisor(relay, verbose=arguments.verbose)
         return 0
     finally:
         try:
