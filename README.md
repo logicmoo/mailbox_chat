@@ -98,6 +98,14 @@ C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd status
 C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd send planner --file message.txt
 ```
 
+Linux, macOS, and WSL checkouts include the equivalent POSIX launcher:
+
+```bash
+./agent-mailbox status
+./agent-mailbox send planner --file message.txt
+./agent-mailbox send planner -- '--curl is literal text'
+```
+
 After package installation, use the cross-platform `agent-mailbox` command.
 
 ```powershell
