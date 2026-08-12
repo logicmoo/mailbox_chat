@@ -88,6 +88,8 @@ instances without state overlap.
 - `config/relays.json` contains non-secret routing configuration.
 - `config/.env` contains tokens, passwords, server URLs, and deployment identifiers.
 - `mailbox/messages.jsonl`, `mailbox/attachments/`, and `mailbox/cursors/` are runtime data.
+- `mailbox/runtime/identifier-directory.sqlite3` durably retains system-scoped
+  UUID, contact, channel, group, and readable-name mappings between runs.
 - Attachment storage defaults to 1 GiB per file and 25 GiB total; configure
   `--max-attachment-mb` and `--max-attachment-storage-mb` on the relay server.
 - `messages.jsonl` defaults to a 5 GiB limit and each SQLite database to 1 GiB;

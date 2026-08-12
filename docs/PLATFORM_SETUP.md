@@ -94,6 +94,25 @@ set `groups_enabled: true` and place approved group IDs in the listener's
 `channel_ids`. Ordinary WhatsApp and WhatsApp Business App groups are handled
 by the separate `whatsapp_personal` companion, not by Cloud API credentials.
 
+### Personal WhatsApp and ordinary groups
+
+The optional `companions/whatsapp-personal` Node.js process uses
+`whatsapp-web.js`, persistent `LocalAuth`, and a linked-device QR login. This is
+not an official Meta API. It can access the account's existing direct and group
+chats, import discovered names and chat IDs, relay inbound media, and send text
+or attachments. It binds only to `127.0.0.1:46668`; a Bearer token protects its
+control API and an independent HMAC secret signs callbacks to
+`/v1/webhooks/whatsapp-personal`.
+
+Set `WHATSAPP_PERSONAL_COMPANION_TOKEN`,
+`WHATSAPP_PERSONAL_WEBHOOK_SECRET`, and optionally
+`WHATSAPP_PERSONAL_SESSION_DIR`. Install with `npm install` in the companion
+directory, start `whatsapp-personal-relay`, scan the QR code, then use its
+authenticated `GET /chats` response to obtain stable `@g.us` group IDs for
+`relays.json`. WhatsApp Web changes can break this integration and account
+restrictions are possible; never use a business-critical account without
+accepting that operational risk.
+
 ## Facebook Messenger
 
 Configure a Facebook Page ID and permitted PSIDs on

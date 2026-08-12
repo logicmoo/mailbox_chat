@@ -14,4 +14,6 @@ runtime/
 *.sqlite3-wal
 messages.jsonl
 mailbox/
+companions/whatsapp-personal/node_modules/
+companions/whatsapp-personal/.session/
 *.cursor

@@ -149,6 +149,22 @@
       "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": true
+    },
+    {
+      "id": "whatsapp-personal-primary",
+      "adapter": "whatsapp_personal",
+      "enabled": false,
+      "direction": "bidirectional",
+      "companion_url": "http://127.0.0.1:46668",
+      "companion_token_env": "WHATSAPP_PERSONAL_COMPANION_TOKEN",
+      "webhook_secret_env": "WHATSAPP_PERSONAL_WEBHOOK_SECRET",
+      "channel_ids": ["$WHATSAPP_PERSONAL_CHAT_IDS"],
+      "bridge_agent": "whatsapp-personal-bridge-agent",
+      "mailbox_recipients": ["local-agent"],
+      "trusted_admins": [],
+      "include_groups": true,
+      "include_direct_messages": false,
+      "preserve_threads": true
     }
   ],
   "routes": [

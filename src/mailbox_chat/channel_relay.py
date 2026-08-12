@@ -15,12 +15,14 @@ from .whatsapp_adapter import WhatsAppAdapter
 from .viber_adapter import ViberAdapter
 from .line_adapter import LineAdapter
 from .discourse_adapter import DiscourseAdapter
+from .whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 
 
 RELAY_RECIPIENT = "channel-relay"
 SUPPORTED_CHANNEL_TYPES = ("mattermost", "irc", "discord", "matrix", "slack", "telegram",
-                           "whatsapp", "facebook_messenger", "viber", "line", "discourse")
+                           "whatsapp", "whatsapp_personal", "facebook_messenger", "viber", "line",
+                           "discourse")
 PLANNED_CHANNEL_TYPES: tuple[str, ...] = ()
 ADAPTER_CAPABILITIES = {
     "mattermost": {"presence": "single", "threads": True, "attachments": True},
@@ -33,6 +35,8 @@ ADAPTER_CAPABILITIES = {
     "telegram": {"presence": "single", "threads": True, "attachments": True},
     "whatsapp": {"presence": "single", "threads": False, "attachments": True,
                  "interaction": "business"},
+    "whatsapp_personal": {"presence": "single", "threads": True, "attachments": True,
+                          "interaction": "unofficial-web-companion", "official": False},
     "facebook_messenger": {"presence": "single", "threads": False, "attachments": True,
                            "interaction": "page"},
     "viber": {"presence": "single", "threads": False, "attachments": True,
@@ -62,6 +66,7 @@ class ChannelRelay(MattermostRelay):
         self.viber = viber_adapter or ViberAdapter()
         self.line = LineAdapter()
         self.discourse = DiscourseAdapter()
+        self.whatsapp_personal = WhatsAppPersonalAdapter()
         self.mattermost_enabled = False
         self.delivery_ledger = DeliveryLedger(self._mailbox().mailbox_dir())
 
@@ -77,10 +82,11 @@ class ChannelRelay(MattermostRelay):
         viber_enabled = self.viber.configure()
         line_enabled = self.line.configure()
         discourse_enabled = self.discourse.configure()
+        whatsapp_personal_enabled = self.whatsapp_personal.configure()
         self.status["enabled"] = (self.mattermost_enabled or irc_enabled or discord_enabled
                                   or matrix_enabled or slack_enabled or telegram_enabled
                                   or whatsapp_enabled or facebook_enabled or viber_enabled or line_enabled
-                                  or discourse_enabled)
+                                  or discourse_enabled or whatsapp_personal_enabled)
         self.status["adapters"] = {"mattermost": dict(self.status), "irc": dict(self.irc.status),
                                    "discord": dict(self.discord.status), "matrix": dict(self.matrix.status),
                                    "slack": dict(self.slack.status), "telegram": dict(self.telegram.status),
@@ -89,6 +95,7 @@ class ChannelRelay(MattermostRelay):
                                    "viber": dict(self.viber.status)}
         self.status["adapters"]["line"] = dict(self.line.status)
         self.status["adapters"]["discourse"] = dict(self.discourse.status)
+        self.status["adapters"]["whatsapp_personal"] = dict(self.whatsapp_personal.status)
         return bool(self.status["enabled"])
 
     def stop(self) -> None:
@@ -102,6 +109,7 @@ class ChannelRelay(MattermostRelay):
         self.viber.close()
         self.line.close()
         self.discourse.close()
+        self.whatsapp_personal.close()
         super().stop()
 
     def reset_after_failure(self) -> None:
@@ -116,6 +124,7 @@ class ChannelRelay(MattermostRelay):
         self.viber.close()
         self.line.close()
         self.discourse.close()
+        self.whatsapp_personal.close()
         self._bot_user_id = ""
         self._latest_create_at.clear()
         self._next_dm_refresh = 0.0
@@ -139,6 +148,7 @@ class ChannelRelay(MattermostRelay):
         self.viber.cycle(mailbox)
         self.line.cycle(mailbox)
         self.discourse.cycle(mailbox)
+        self.whatsapp_personal.cycle(mailbox)
         self._dispatch_outbound()
         self.status.update({
             "connected": bool((self.mattermost_enabled and self._bot_user_id) or self.irc.status["connected"]
@@ -148,7 +158,8 @@ class ChannelRelay(MattermostRelay):
                               or self.facebook_messenger.status["connected"]
                               or self.viber.status["connected"]
                               or self.line.status["connected"]
-                              or self.discourse.status["connected"]),
+                              or self.discourse.status["connected"]
+                              or self.whatsapp_personal.status["connected"]),
             "lastCycleAt": __import__("time").time(),
             "lastError": None,
             "adapters": {
@@ -163,6 +174,7 @@ class ChannelRelay(MattermostRelay):
                 "viber": dict(self.viber.status),
                 "line": dict(self.line.status),
                 "discourse": dict(self.discourse.status),
+                "whatsapp_personal": dict(self.whatsapp_personal.status),
             },
         })
 
@@ -212,6 +224,8 @@ class ChannelRelay(MattermostRelay):
                     self.line.send_message(message)
                 elif channel_type == "discourse" and self.discourse.status["enabled"]:
                     self.discourse.send_message(message)
+                elif channel_type == "whatsapp_personal" and self.whatsapp_personal.status["enabled"]:
+                    self.whatsapp_personal.send_message(message)
                 else:
                     raise RuntimeError(f"Channel adapter is not enabled: {channel_type}")
             except Exception as error:

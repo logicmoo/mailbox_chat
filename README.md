@@ -432,6 +432,35 @@ to `#agents` to match only that channel:
 This sends a separate Business API conversation to that WhatsApp recipient; it
 does not claim to join an ordinary personal WhatsApp group.
 
+### Ordinary WhatsApp groups (explicitly unofficial)
+
+`whatsapp_personal` connects an ordinary WhatsApp or WhatsApp Business App
+account through a separate WhatsApp Web companion. It supports existing DMs and
+groups but is not a Meta-supported automation API and may break or put the
+account at risk. Use a non-critical account and accept that risk explicitly.
+The pinned upstream browser stack currently reports an unresolved high-severity
+archive-extraction advisory during `npm audit`; install and run the companion
+only on a controlled machine and reassess the audit when upgrading it.
+
+```powershell
+cd companions\whatsapp-personal
+npm install
+$env:WHATSAPP_PERSONAL_COMPANION_TOKEN = "two-independent-random-secrets"
+$env:WHATSAPP_PERSONAL_WEBHOOK_SECRET = "use-a-different-random-secret"
+$env:WHATSAPP_PERSONAL_RELAY_URL = "http://127.0.0.1:46667"
+..\..\whatsapp-personal-relay.cmd
+```
+
+Scan the terminal QR code with Linked Devices. Session state stays in
+`companions/whatsapp-personal/.session/` and is ignored by Git. Enable
+`whatsapp-personal-primary` in `relays.json`, using the same two secrets for the
+relay server and companion. Run only one companion per saved session.
+
+Opaque identifier dictionaries are durable across runs. They are stored in
+`mailbox/runtime/identifier-directory.sqlite3`; keep the same `--mailbox-dir`
+and include that database in backups when UUID/contact/chat labels must survive
+migration to another server.
+
 See [`INSTRUCTIONS.md`](docs/INSTRUCTIONS.md) for the implementation checklist,
 complete operational contract, and Mattermost, Discord, Slack, IRC, Matrix/Element, Discourse,
 WhatsApp, Viber, Telegram, LINE, REST, JSONL, and generic future-adapter examples.

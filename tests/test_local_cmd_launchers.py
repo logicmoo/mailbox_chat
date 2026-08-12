@@ -45,3 +45,9 @@ def test_every_published_command_has_windows_and_posix_launchers() -> None:
         assert posix.startswith("#!/usr/bin/env sh\n")
     assert "trusted-speaker.cmd" in (root / "mailbox-chat.cmd").read_text(encoding="utf-8")
     assert "trusted-speaker" in (root / "mailbox-chat").read_text(encoding="utf-8")
+
+
+def test_whatsapp_personal_companion_has_root_launchers() -> None:
+    root = Path(__file__).resolve().parents[1]
+    assert "companions/whatsapp-personal" in (root / "whatsapp-personal-relay").read_text(encoding="utf-8")
+    assert "companions\\whatsapp-personal" in (root / "whatsapp-personal-relay.cmd").read_text(encoding="utf-8")

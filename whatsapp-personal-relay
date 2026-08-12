@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+relay_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+companion="$relay_root/companions/whatsapp-personal"
+if [ ! -d "$companion/node_modules" ]; then
+  echo "Run: cd companions/whatsapp-personal && npm install" >&2
+  exit 2
+fi
+cd "$companion"
+exec npm start -- "$@"
