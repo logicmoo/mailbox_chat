@@ -90,6 +90,16 @@ must therefore use a unique, stable identity.
 The client supports both direct filesystem access and the REST daemon. Set
 `AGENT_MAILBOX_URL` or pass `--url` before the subcommand:
 
+On Windows, an uninstalled checkout includes a repository-local launcher that
+works from any current directory:
+
+```powershell
+C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd status
+C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd send planner --file message.txt
+```
+
+After package installation, use the cross-platform `agent-mailbox` command.
+
 ```powershell
 $env:AGENT_MAILBOX_URL='http://127.0.0.1:46667'
 python agent_mailbox.py status
