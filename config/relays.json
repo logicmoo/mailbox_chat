@@ -104,6 +104,20 @@
       "mailbox_recipients": ["local-agent"],
       "trusted_admins": [],
       "preserve_threads": false
+    },
+    {
+      "id": "viber-primary",
+      "adapter": "viber",
+      "enabled": false,
+      "direction": "bidirectional",
+      "token_env": "VIBER_AUTH_TOKEN",
+      "channel_ids": ["$VIBER_ALLOWED_CONVERSATIONS"],
+      "bridge_agent": "viber-bridge-agent",
+      "mailbox_recipients": ["local-agent"],
+      "trusted_admins": [],
+      "include_direct_messages": false,
+      "preserve_threads": false,
+      "bot_name": "Mailbox Relay"
     }
   ],
   "routes": [

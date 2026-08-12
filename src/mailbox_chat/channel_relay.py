@@ -12,13 +12,14 @@ from .slack_adapter import SlackAdapter
 from .telegram_adapter import TelegramAdapter
 from .facebook_messenger_adapter import FacebookMessengerAdapter
 from .whatsapp_adapter import WhatsAppAdapter
+from .viber_adapter import ViberAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 
 
 RELAY_RECIPIENT = "channel-relay"
 SUPPORTED_CHANNEL_TYPES = ("mattermost", "irc", "discord", "matrix", "slack", "telegram",
-                           "whatsapp", "facebook_messenger")
-PLANNED_CHANNEL_TYPES = ("viber", "line", "discourse")
+                           "whatsapp", "facebook_messenger", "viber")
+PLANNED_CHANNEL_TYPES = ("line", "discourse")
 ADAPTER_CAPABILITIES = {
     "mattermost": {"presence": "single", "threads": True, "attachments": True},
     "irc": {"presence": "single", "threads": False, "attachments": False},
@@ -32,6 +33,8 @@ ADAPTER_CAPABILITIES = {
                  "interaction": "business"},
     "facebook_messenger": {"presence": "single", "threads": False, "attachments": True,
                            "interaction": "page"},
+    "viber": {"presence": "single", "threads": False, "attachments": True,
+              "interaction": "bot"},
 }
 
 
@@ -42,7 +45,8 @@ class ChannelRelay(MattermostRelay):
                  discord_adapter: DiscordAdapter | None = None,
                  matrix_adapter: MatrixAdapter | None = None,
                  slack_adapter: SlackAdapter | None = None,
-                 telegram_adapter: TelegramAdapter | None = None, **kwargs: Any) -> None:
+                 telegram_adapter: TelegramAdapter | None = None,
+                 viber_adapter: ViberAdapter | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.irc = irc_adapter or IrcAdapter()
         self.discord = discord_adapter or DiscordAdapter()
@@ -51,6 +55,7 @@ class ChannelRelay(MattermostRelay):
         self.telegram = telegram_adapter or TelegramAdapter()
         self.whatsapp = WhatsAppAdapter()
         self.facebook_messenger = FacebookMessengerAdapter()
+        self.viber = viber_adapter or ViberAdapter()
         self.mattermost_enabled = False
         self.delivery_ledger = DeliveryLedger(self._mailbox().mailbox_dir())
 
@@ -63,14 +68,16 @@ class ChannelRelay(MattermostRelay):
         telegram_enabled = self.telegram.configure()
         whatsapp_enabled = self.whatsapp.configure()
         facebook_enabled = self.facebook_messenger.configure()
+        viber_enabled = self.viber.configure()
         self.status["enabled"] = (self.mattermost_enabled or irc_enabled or discord_enabled
                                   or matrix_enabled or slack_enabled or telegram_enabled
-                                  or whatsapp_enabled or facebook_enabled)
+                                  or whatsapp_enabled or facebook_enabled or viber_enabled)
         self.status["adapters"] = {"mattermost": dict(self.status), "irc": dict(self.irc.status),
                                    "discord": dict(self.discord.status), "matrix": dict(self.matrix.status),
                                    "slack": dict(self.slack.status), "telegram": dict(self.telegram.status),
                                    "whatsapp": dict(self.whatsapp.status),
-                                   "facebook_messenger": dict(self.facebook_messenger.status)}
+                                   "facebook_messenger": dict(self.facebook_messenger.status),
+                                   "viber": dict(self.viber.status)}
         return bool(self.status["enabled"])
 
     def stop(self) -> None:
@@ -81,6 +88,7 @@ class ChannelRelay(MattermostRelay):
         self.telegram.close()
         self.whatsapp.close()
         self.facebook_messenger.close()
+        self.viber.close()
         super().stop()
 
     def reset_after_failure(self) -> None:
@@ -92,6 +100,7 @@ class ChannelRelay(MattermostRelay):
         self.telegram.close()
         self.whatsapp.close()
         self.facebook_messenger.close()
+        self.viber.close()
         self._bot_user_id = ""
         self._latest_create_at.clear()
         self._next_dm_refresh = 0.0
@@ -112,13 +121,15 @@ class ChannelRelay(MattermostRelay):
         self.telegram.cycle(mailbox)
         self.whatsapp.cycle(mailbox)
         self.facebook_messenger.cycle(mailbox)
+        self.viber.cycle(mailbox)
         self._dispatch_outbound()
         self.status.update({
             "connected": bool((self.mattermost_enabled and self._bot_user_id) or self.irc.status["connected"]
                               or self.discord.status["connected"] or self.matrix.status["connected"]
                               or self.slack.status["connected"] or self.telegram.status["connected"]
                               or self.whatsapp.status["connected"]
-                              or self.facebook_messenger.status["connected"]),
+                              or self.facebook_messenger.status["connected"]
+                              or self.viber.status["connected"]),
             "lastCycleAt": __import__("time").time(),
             "lastError": None,
             "adapters": {
@@ -130,6 +141,7 @@ class ChannelRelay(MattermostRelay):
                 "telegram": dict(self.telegram.status),
                 "whatsapp": dict(self.whatsapp.status),
                 "facebook_messenger": dict(self.facebook_messenger.status),
+                "viber": dict(self.viber.status),
             },
         })
 
@@ -173,6 +185,8 @@ class ChannelRelay(MattermostRelay):
                     self.whatsapp.send_message(message)
                 elif channel_type == "facebook_messenger" and self.facebook_messenger.status["enabled"]:
                     self.facebook_messenger.send_message(message)
+                elif channel_type == "viber" and self.viber.status["enabled"]:
+                    self.viber.send_message(message)
                 else:
                     raise RuntimeError(f"Channel adapter is not enabled: {channel_type}")
             except Exception as error:

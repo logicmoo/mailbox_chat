@@ -13,8 +13,8 @@ owns loopback port `46667`. If `GET /health` answers, another instance must not
 be started on that machine.
 
 The durable JSONL/REST mailbox and the Mattermost, IRC, Discord, Slack,
-Matrix/Element, Telegram, WhatsApp Business, and Facebook Messenger adapters
-are implemented. The routing envelope is designed for future Viber, Discourse,
+Matrix/Element, Telegram, WhatsApp Business, Facebook Messenger, and Viber adapters
+are implemented. The routing envelope is designed for future Discourse,
 LINE, and other adapters,
 including direct bidirectional chat-platform bridges.
 The REST mailbox remains available when no external chat adapter is configured.
@@ -386,9 +386,9 @@ authentication and authorization.
 
 `GET /v1/adapters` distinguishes installed adapters from planned adapters.
 Currently `mattermost`, `irc`, `discord`, `matrix` (including Element clients),
-`slack`, `telegram`, `whatsapp`, and `facebook_messenger` are implemented.
-Discourse and Viber
-are declared roadmap adapters; they are not falsely reported as operational.
+`slack`, `telegram`, `whatsapp`, `facebook_messenger`, and `viber` are implemented.
+Discourse and LINE are declared roadmap adapters; they are not falsely reported
+as operational.
 
 ## Listener registry
 

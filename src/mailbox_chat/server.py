@@ -356,6 +356,22 @@ def main(argv: list[str] | None = None) -> int:
                     return
                 self._json(200, {"accepted": True})
                 return
+            if request_path == "/v1/webhooks/viber":
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length)
+                listener = relay.viber.authenticate_webhook(
+                    body, self.headers.get("X-Viber-Content-Signature", ""),
+                )
+                if listener is None:
+                    self._json(401, {"error": "invalid Viber webhook signature"})
+                    return
+                try:
+                    relay.viber.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, listener)
+                except (ValueError, OSError, json.JSONDecodeError) as error:
+                    self._json(400, {"error": str(error)})
+                    return
+                self._json(200, {"accepted": True})
+                return
             if not self._authorized():
                 return
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/identifiers",

@@ -22,7 +22,7 @@
   - [WhatsApp Business](#whatsapp-business--implemented-adapter)
   - [Facebook Messenger](#facebook-messenger--implemented-adapter)
 - Planned platform contracts
-  - [Viber](#viber--planned-contract)
+  - [Viber](#viber--implemented-adapter)
   - [LINE](#line--planned-contract)
 - Mailbox interfaces
   - [REST](#rest-mailbox--implemented)
@@ -133,7 +133,7 @@ travel as plaintext.
 - [x] IRC
 - [x] WhatsApp Business
 - [x] Facebook Messenger
-- [ ] Viber
+- [x] Viber
 - [x] Telegram
 - [ ] LINE
 - [x] Matrix protocol (including Element clients)
@@ -420,7 +420,7 @@ Meta webhooks at `/v1/webhooks/facebook-messenger`; outbound delivery uses the
 Messenger Send API for text and file attachments. User profile names are
 resolved through Graph and cached by source system and identifier.
 
-## Viber — planned contract
+## Viber — implemented adapter
 
 ```json
 {
@@ -428,14 +428,22 @@ resolved through Graph and cached by source system and identifier.
   "adapter": "viber",
   "enabled": true,
   "direction": "bidirectional",
+  "token_env": "VIBER_AUTH_TOKEN",
   "channel_ids": ["$VIBER_ALLOWED_CONVERSATIONS"],
   "bridge_agent": "viber-bridge-agent",
   "mailbox_recipients": ["customer-agent"],
-  "preserve_threads": false
+  "include_direct_messages": true,
+  "preserve_threads": false,
+  "bot_name": "Mailbox Relay"
 }
 ```
 
-Expected secret: `VIBER_AUTH_TOKEN`.
+Expected secret: `VIBER_AUTH_TOKEN`. Viber posts callbacks to
+`/v1/webhooks/viber`; the relay verifies `X-Viber-Content-Signature` with the
+matching bot token. Inbound user IDs and names are retained in the identifier
+directory. Outbound text uses Viber's Bot API, while files up to Viber's 50 MiB
+limit use the relay's public attachment URLs. Register an HTTPS webhook with a
+trusted certificate; Viber does not accept self-signed webhook certificates.
 
 ## Telegram — implemented adapter
 

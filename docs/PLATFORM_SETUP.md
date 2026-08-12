@@ -97,6 +97,24 @@ token, and app secret through `config/.env`. Register the public HTTPS callback
 as `/v1/webhooks/facebook-messenger` and grant the Page messaging permissions
 required by the deployment.
 
+## Viber
+
+Enable `viber-primary` in `config/relays.json`, put the commercial bot token in
+`VIBER_AUTH_TOKEN`, and set either `VIBER_ALLOWED_CONVERSATIONS` or
+`include_direct_messages: true`. Register the public HTTPS callback with Viber:
+
+```bash
+curl -X POST https://chatapi.viber.com/pa/set_webhook \
+  -H "X-Viber-Auth-Token: $VIBER_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://relay.example.com/v1/webhooks/viber","event_types":["subscribed","unsubscribed","failed"],"send_name":true}'
+```
+
+Viber signs callbacks with `X-Viber-Content-Signature`; the relay verifies it
+before accepting a callback. Viber requires a publicly trusted HTTPS
+certificate and does not accept a self-signed webhook certificate. Outbound
+files use the relay's public attachment URL and are limited by Viber to 50 MiB.
+
 ## IRC
 
 Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password/NickServ settings. IRC
