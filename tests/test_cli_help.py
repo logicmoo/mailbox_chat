@@ -79,5 +79,7 @@ def test_trusted_speaker_and_token_help_are_complete() -> None:
     assert all(item in contacts.format_help() for item in ("--dir", "--url", "--token", "import", "list"))
     _assert_actions_documented(contacts)
     routes = route_parser()
-    assert all(item in routes.format_help() for item in ("--config-dir", "--json", "list", "attach", "detach"))
+    assert all(item in routes.format_help() for item in (
+        "--config-dir", "--url", "--token", "--json", "list", "attach", "detach",
+    ))
     _assert_actions_documented(routes)

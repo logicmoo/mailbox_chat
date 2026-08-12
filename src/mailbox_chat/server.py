@@ -30,7 +30,7 @@ from .channel_relay import (
     SUPPORTED_CHANNEL_TYPES,
 )
 from . import agent_mailbox
-from .listener_registry import CONFIG_DIR_ENV, config_dir, public_registry
+from .listener_registry import CONFIG_DIR_ENV, config_dir, load_routes, public_registry
 from .websocket_chat import accept_value, handle_chat
 from .attachment_gateway import ATTACHMENT_PREFIX, PUBLIC_URL_ENV
 from .attachment_storage import (
@@ -39,6 +39,7 @@ from .attachment_storage import (
 from .sqlite_limits import DEFAULT_MAX_SQLITE_BYTES, MAX_SQLITE_ENV
 from .identifier_directory import IdentifierDirectory
 from .meta_webhooks import verify_challenge, verify_signature
+from .route_admin import attach as attach_route, detach as detach_route
 
 
 def runtime_paths(port: int, mailbox_root: Path | None = None) -> tuple[Path, Path, Path]:
@@ -299,6 +300,12 @@ def main(argv: list[str] | None = None) -> int:
                 except (OSError, ValueError, json.JSONDecodeError) as error:
                     self._json(500, {"error": str(error)})
                 return
+            if parsed.path == "/v1/routes":
+                try:
+                    self._json(200, {"routes": load_routes()})
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    self._json(500, {"error": str(error)})
+                return
             if parsed.path == "/v1/identifiers":
                 query = parse_qs(parsed.query)
                 try:
@@ -427,12 +434,29 @@ def main(argv: list[str] | None = None) -> int:
             if not self._authorized():
                 return
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/identifiers",
-                                     "/v1/identifier-resolution-requests"}:
+                                     "/v1/identifier-resolution-requests", "/v1/routes"}:
                 self._json(404, {"error": "not found"})
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if request_path == "/v1/routes":
+                    action = str(payload.get("action") or "")
+                    if action == "attach":
+                        route = attach_route(
+                            str(payload.get("source_listener") or ""),
+                            str(payload.get("source_channel") or ""),
+                            str(payload.get("destination_listener") or ""),
+                            str(payload.get("destination_channel") or ""),
+                            controller=str(payload.get("controller") or "presence"),
+                            route_id=str(payload.get("route_id") or ""),
+                        )
+                        self._json(201, {"route": route})
+                        return
+                    if action == "detach":
+                        self._json(200, {"detached": detach_route(str(payload.get("route_id") or ""))})
+                        return
+                    raise ValueError("route action must be attach or detach")
                 if request_path == "/v1/identifiers":
                     entries = payload.get("entries") if isinstance(payload, dict) else None
                     if entries is None:

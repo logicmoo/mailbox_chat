@@ -441,6 +441,16 @@ mailbox-relay-route list
 mailbox-relay-route detach irc-to-family
 ```
 
+Manage the configuration of a running local or remote relay with `--url`; add
+`--token` when the server requires a Bearer token. Both switches may appear
+anywhere before or after the subcommand:
+
+```powershell
+mailbox-relay-route attach irc-primary "#agents" `
+  whatsapp-personal-primary "123456789@g.us" `
+  --url http://127.0.0.1:46667 --token $env:AGENT_MAILBOX_TOKEN
+```
+
 Use a quoted `"*"` source channel to match every channel heard by the source
 listener. Use `--controller agent:MAILBOX_RECIPIENT` when an agent should review
 or transform traffic; the default `presence` controller forwards immediately.

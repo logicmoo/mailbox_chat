@@ -8,6 +8,8 @@ import os
 import re
 import uuid
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -88,14 +90,39 @@ def detach(route_id: str) -> bool:
     return found
 
 
+def _request(base_url: str, method: str, *, token: str = "", payload: Any = None) -> Any:
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"{base_url.rstrip('/')}/v1/routes", data=body,
+                                     headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.loads(error.read().decode("utf-8")).get("error")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            detail = None
+        raise ValueError(str(detail or f"relay returned HTTP {error.code}")) from error
+    except urllib.error.URLError as error:
+        raise ValueError(f"cannot reach relay: {error.reason}") from error
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="mailbox-relay-route",
         description="List, attach, or detach persistent routes in relays.json",
         epilog="Use '*' as SOURCE_CHANNEL to match every channel heard by the source listener.",
     )
-    result.add_argument("--config-dir", type=Path,
-                        help="directory containing relays.json (default: project config directory)")
+    transport = result.add_mutually_exclusive_group()
+    transport.add_argument("--config-dir", type=Path,
+                           help="directory containing relays.json (default: project config directory)")
+    transport.add_argument("--url", help="manage routes through this relay HTTP base URL")
+    result.add_argument("--token", help="REST Bearer token (or AGENT_MAILBOX_TOKEN)")
     result.add_argument("--json", action="store_true", help="render machine-readable JSON output")
     commands = result.add_subparsers(dest="command", required=True, metavar="COMMAND")
     commands.add_parser("list", help="list all configured routes",
@@ -124,10 +151,10 @@ def _normalize_global_options(argv: list[str]) -> list[str]:
         if argument == "--json":
             leading.append(argument)
             index += 1
-        elif argument == "--config-dir" and index + 1 < len(argv):
+        elif argument in {"--config-dir", "--url", "--token"} and index + 1 < len(argv):
             leading.extend(argv[index:index + 2])
             index += 2
-        elif argument.startswith("--config-dir="):
+        elif any(argument.startswith(f"{option}=") for option in ("--config-dir", "--url", "--token")):
             leading.append(argument)
             index += 1
         else:
@@ -141,9 +168,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(_normalize_global_options(supplied))
     if args.config_dir:
         os.environ[CONFIG_DIR_ENV] = str(args.config_dir.expanduser().resolve())
+    token = args.token or os.environ.get("AGENT_MAILBOX_TOKEN", "")
     try:
         if args.command == "list":
-            routes = _load(relays_file())["routes"]
+            routes = (_request(args.url, "GET", token=token)["routes"] if args.url
+                      else _load(relays_file())["routes"])
             if args.json:
                 print(json.dumps({"routes": routes}, ensure_ascii=False, indent=2))
             elif routes:
@@ -154,12 +183,24 @@ def main(argv: list[str] | None = None) -> int:
                 print("No routes configured.")
             return 0
         if args.command == "attach":
-            route = attach(args.source_listener, args.source_channel, args.destination_listener,
-                           args.destination_channel, controller=args.controller, route_id=args.route_id)
+            if args.url:
+                route = _request(args.url, "POST", token=token, payload={
+                    "action": "attach", "source_listener": args.source_listener,
+                    "source_channel": args.source_channel,
+                    "destination_listener": args.destination_listener,
+                    "destination_channel": args.destination_channel,
+                    "controller": args.controller, "route_id": args.route_id,
+                })["route"]
+            else:
+                route = attach(args.source_listener, args.source_channel, args.destination_listener,
+                               args.destination_channel, controller=args.controller, route_id=args.route_id)
             print(json.dumps(route, ensure_ascii=False, indent=2) if args.json else
                   f"Attached route {route['id']}")
             return 0
-        if not detach(args.route_id):
+        detached = (_request(args.url, "POST", token=token,
+                             payload={"action": "detach", "route_id": args.route_id})["detached"]
+                    if args.url else detach(args.route_id))
+        if not detached:
             print(f"Unknown route: {args.route_id}")
             return 1
         print(json.dumps({"detached": args.route_id}) if args.json else f"Detached route {args.route_id}")

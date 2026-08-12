@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from mailbox_channel_relay_bridging_proxy import route_admin
 from mailbox_channel_relay_bridging_proxy.route_admin import main
 
 
@@ -35,3 +36,24 @@ def test_route_command_star_omits_source_channel(tmp_path: Path) -> None:
     route = json.loads(path.read_text(encoding="utf-8"))["routes"][0]
     assert route["source"] == {"listener_id": "irc-one"}
     assert route["controller"] == {"type": "relay_agent", "mailbox_recipient": "router"}
+
+
+def test_route_command_manages_remote_relay_with_token(monkeypatch, capsys) -> None:
+    calls = []
+
+    def request(url, method, **kwargs):
+        calls.append((url, method, kwargs))
+        if method == "GET":
+            return {"routes": [{"id": "remote", "enabled": True, "source": {}, "destinations": []}]}
+        if kwargs["payload"]["action"] == "attach":
+            return {"route": {"id": "remote-new"}}
+        return {"detached": True}
+
+    monkeypatch.setattr(route_admin, "_request", request)
+    assert main(["list", "--url", "http://relay:46667", "--token", "secret"]) == 0
+    assert main(["attach", "irc", "*", "wa", "group@g.us",
+                 "--url", "http://relay:46667", "--token", "secret"]) == 0
+    assert main(["detach", "remote-new", "--url", "http://relay:46667", "--token", "secret"]) == 0
+    assert all(call[2]["token"] == "secret" for call in calls)
+    assert calls[1][2]["payload"]["source_channel"] == "*"
+    assert "remote" in capsys.readouterr().out
