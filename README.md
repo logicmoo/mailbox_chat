@@ -191,6 +191,8 @@ The full client surface includes:
   `agent-mailbox send planner --input message.txt`;
 - command documents: `--run command.json` executes an entire command described
   as JSON, without mixing additional CLI arguments;
+- destination: `send` accepts either positional `RECIPIENT` or `--to RECIPIENT`,
+  and `--to` may appear anywhere before `--`;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
   `--verbose`;
 - streaming: `--nobuffer` may appear anywhere before `--` and makes stdout and

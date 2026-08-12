@@ -248,3 +248,30 @@ def test_run_document_supports_nobuffer(monkeypatch, tmp_path, capsys) -> None:
     assert agent_mailbox.main(["--run", str(command_file)]) == 0
     capsys.readouterr()
     assert calls == [True]
+
+
+def test_to_supplies_send_recipient_from_any_option_position(tmp_path, capsys) -> None:
+    placements = [
+        ["--dir", str(tmp_path), "--to", "planner", "send", "hello"],
+        ["--dir", str(tmp_path), "send", "--to", "planner", "hello"],
+        ["--dir", str(tmp_path), "send", "hello", "--to", "planner"],
+    ]
+    for arguments in placements:
+        assert agent_mailbox.main(arguments) == 0
+        assert json.loads(capsys.readouterr().out)["to"] == "planner"
+
+
+def test_to_and_positional_recipient_are_mutually_exclusive(tmp_path) -> None:
+    with pytest.raises(SystemExit):
+        agent_mailbox.main([
+            "--dir", str(tmp_path), "send", "planner", "hello", "--to", "other",
+        ])
+
+
+def test_run_document_accepts_to_alias(tmp_path, capsys) -> None:
+    command_file = tmp_path / "send.json"
+    command_file.write_text(json.dumps({
+        "command": "send", "dir": str(tmp_path), "to": "planner", "text": "hello",
+    }), encoding="utf-8")
+    assert agent_mailbox.main(["--run", str(command_file)]) == 0
+    assert json.loads(capsys.readouterr().out)["to"] == "planner"

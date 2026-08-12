@@ -18,7 +18,7 @@ def test_server_help_lists_every_public_configuration_option() -> None:
 def test_agent_help_lists_every_global_option() -> None:
     help_text = agent_parser().format_help()
     for option in (
-        "--run", "--dir", "--url", "--mailbox", "--config", "--from", "--format",
+        "--run", "--dir", "--url", "--mailbox", "--config", "--from", "--to", "--format",
         "--output", "--timeout", "--token", "--curl", "--input", "--retry",
         "--retry-delay", "--quiet", "--verbose", "--nobuffer", "--version",
     ):

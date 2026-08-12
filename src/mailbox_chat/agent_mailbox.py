@@ -486,6 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
     transport.add_argument("--mailbox", help="use a named mailbox from the mailbox config")
     parser.add_argument("--config", type=Path, help="mailbox configuration file")
     parser.add_argument("--from", dest="global_sender", help="default sender identity")
+    parser.add_argument("--to", dest="global_recipient", help="send destination identity")
     parser.add_argument("--format", choices=("jsonl", "json", "text"), default="jsonl",
                         help="output rendering format (default: jsonl)")
     parser.add_argument("--output", type=Path, help="write rendered output to this file instead of stdout")
@@ -506,7 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     commands = parser.add_subparsers(dest="command", required=True)
     send_parser = commands.add_parser("send", help="append a message")
-    send_parser.add_argument("recipient")
+    send_parser.add_argument("recipient", nargs="?")
     send_parser.add_argument("text", nargs="?")
     send_parser.add_argument("--sender")
     send_parser.add_argument("--type", dest="message_type", default="message")
@@ -581,7 +582,7 @@ def _command_document_argv(document: Any) -> list[str]:
     if command not in COMMAND_POSITIONALS:
         raise ValueError(f"unknown or missing command: {command or '<empty>'}")
     known_positionals = COMMAND_POSITIONALS[command]
-    known_fields = {"command", *GLOBAL_RUN_FIELDS, *known_positionals}
+    known_fields = {"command", "to", *GLOBAL_RUN_FIELDS, *known_positionals}
     command_fields = set(document) - known_fields
     command_options = {
         "sender", "type", "channel_id", "channel_type", "source_id", "thread_id", "root_id",
@@ -598,6 +599,11 @@ def _command_document_argv(document: Any) -> list[str]:
     arguments.append(command)
     for name in known_positionals:
         if name == "text":
+            continue
+        if command == "send" and name == "recipient" and "to" in document:
+            if "recipient" in document:
+                raise ValueError("send command document accepts either to or recipient, not both")
+            arguments.extend(["--to", str(document["to"])])
             continue
         if name not in document:
             raise ValueError(f"{command} command document requires {name}")
@@ -644,6 +650,7 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     nobuffer_requested = "--nobuffer" in options
     normalized: list[str] = []
     input_option: list[str] = []
+    to_option: list[str] = []
     index = 0
     while index < len(options):
         argument = options[index]
@@ -658,6 +665,18 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
             input_option = [argument, options[index + 1]]
             index += 2
             continue
+        if argument == "--to":
+            if index + 1 >= len(options):
+                normalized.append(argument)
+                index += 1
+                continue
+            to_option = [argument, options[index + 1]]
+            index += 2
+            continue
+        if argument.startswith("--to="):
+            to_option = [argument]
+            index += 1
+            continue
         if argument.startswith("--input="):
             input_option = [argument]
             index += 1
@@ -665,7 +684,7 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
         normalized.append(argument)
         index += 1
     leading = (["--curl"] if curl_requested else []) + (["--nobuffer"] if nobuffer_requested else [])
-    return leading + input_option + normalized + literal_arguments
+    return leading + input_option + to_option + normalized + literal_arguments
 
 
 def _enable_unbuffered_output() -> None:
@@ -688,6 +707,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command != "send" and args.input_file:
         build_parser().error("--input is only valid with send")
     if args.command == "send":
+        if args.global_recipient and args.recipient:
+            if args.text is not None:
+                build_parser().error("send accepts either positional recipient or --to, not both")
+            args.text, args.recipient = args.recipient, None
+        args.recipient = args.global_recipient or args.recipient
+        if not args.recipient:
+            build_parser().error("send requires positional recipient or --to RECIPIENT")
         if args.input_file and args.text is not None:
             build_parser().error("send accepts either inline text or --input, not both")
         if args.input_file:
@@ -697,6 +723,8 @@ def main(argv: list[str] | None = None) -> int:
                 build_parser().error(f"cannot read --input: {error}")
         if args.text is None:
             build_parser().error("send requires inline text or --input PATH")
+    elif args.global_recipient:
+        build_parser().error("--to is only valid with send")
     if args.timeout <= 0 or args.retry < 0 or args.retry_delay < 0:
         build_parser().error("--timeout must be positive; retry values must be non-negative")
     REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY = args.timeout, args.retry, args.retry_delay
