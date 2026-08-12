@@ -12,6 +12,7 @@
   - [Platform presences](#platform-presence-capability)
 - [Listener configuration](#common-listener-fields)
 - [Register a relay token](#register-a-relay-token)
+- [Platform-side setup](#platform-side-setup)
 - Implemented platform adapters
   - [Mattermost](#mattermost--implemented)
   - [Discord](#discord--implemented-adapter)
@@ -366,8 +367,8 @@ Expected secrets: `SLACK_BOT_TOKEN` and, for Socket Mode, `SLACK_APP_TOKEN`.
 ## Matrix / Element — implemented adapter
 
 The Matrix adapter uses the Client-Server API and works with rooms administered
-through Element or another Matrix client. See `PLATFORM_SETUP.md` for account,
-token, room, and encryption requirements.
+through Element or another Matrix client. Account, token, room, and encryption
+requirements are documented under [Platform-side setup](#matrix--element-setup).
 
 ## IRC — implemented
 
@@ -509,6 +510,135 @@ confused with credentials. Signed webhooks arrive at `/v1/webhooks/line`.
 Inbound images, video, audio, and files are downloaded through the managed
 attachment quota. Text and public attachment links can be pushed to users,
 group chats, and multi-person rooms; images use native LINE image messages.
+
+## Platform-side setup
+
+Never store platform secrets in `relays.json`. Put tokens and signing secrets
+in `config/.env` or the process environment, and reference only their environment
+variable names from listener entries.
+
+### Mattermost setup
+
+Create a bot account in the Mattermost system console, add it to the required
+channels, then set `MM_URL`, `MM_BOT_TOKEN`, `MM_CHANNEL_ID`, and optional
+`MM_CHANNEL_IDS`. Keep the token only in `config/.env` or a secret manager.
+
+### Discord setup
+
+1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Follow Discord's [bot guide](https://docs.discord.com/developers/quick-start/getting-started), create the bot user, and store its token as `DISCORD_BOT_TOKEN`.
+3. Generate an installation URL with the `bot` scope and install it into the server. See [OAuth2 and permissions](https://docs.discord.com/developers/platform/oauth2-and-permissions).
+4. Grant only View Channel, Read Message History, Send Messages, and Attach Files where needed.
+5. Enable Developer Mode, copy the channel IDs into `DISCORD_CHANNEL_IDS`, and enable the listener.
+
+A webhook URL is only sufficient for outbound posting and is not the transport
+used by this bidirectional adapter. Never place a bot token in an install URL,
+listener file, mailbox message, or commit.
+
+### Slack setup
+
+1. Create a Slack app and bot installation using Slack's [authentication guide](https://api.slack.com/authentication).
+2. Add `chat:write`, `files:write`, and the applicable `channels:history`, `groups:history`, `im:history`, or `mpim:history` scopes. See [`conversations.history`](https://docs.slack.dev/reference/methods/conversations.history/).
+3. Install or reinstall the app and store its `xoxb-...` token as `SLACK_BOT_TOKEN`. See [OAuth installation](https://api.slack.com/authentication/oauth-v2).
+4. Invite the bot to each required channel, copy channel IDs into `SLACK_CHANNEL_IDS`, and enable the listener.
+
+Outbound messages use [`chat.postMessage`](https://docs.slack.dev/reference/methods/chat.postmessage).
+Separate listeners may use different `token_env` and `presence_id` values for
+multiple bot presences or workspaces.
+
+### Matrix / Element setup
+
+1. Create a dedicated Matrix account on the selected homeserver.
+2. Obtain its access token and store it as `MATRIX_ACCESS_TOKEN`. See the [Matrix bot introduction](https://matrix.org/docs/older/matrix-bot-sdk-intro/).
+3. Invite or join the account to every relayed room.
+4. Set `MATRIX_HOMESERVER`, put the canonical `!room:server` IDs—not display aliases—in `MATRIX_ROOM_IDS`, and enable the listener.
+
+The implementation uses `/sync`, room-message events, and media uploads from
+the [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/).
+
+### Telegram setup
+
+1. Create a bot with BotFather and store its token as `TELEGRAM_BOT_TOKEN`.
+2. Add it to each required group, supergroup, or channel with the minimum read/send permissions.
+3. Put numeric chat IDs or `@channelusername` values in `TELEGRAM_ALLOWED_CHAT_IDS` and enable the listener.
+4. Enable `include_direct_messages` only when private conversations are explicitly in scope.
+
+The adapter uses the [Telegram Bot API](https://core.telegram.org/bots/api),
+long-polls `getUpdates`, resolves chat labels with `getChat`, and preserves forum
+topic `message_thread_id` values.
+
+### WhatsApp Business setup
+
+Configure a Meta WhatsApp Business phone-number ID and conversation allowlist.
+Store the system-user access token, webhook verification token, and app secret
+in `config/.env`; register the public HTTPS callback at
+`/v1/webhooks/whatsapp`. Meta template and 24-hour conversation rules apply.
+
+Accounts approved for the restricted WhatsApp Business Groups API may set
+`groups_enabled: true` and use approved group IDs as `channel_ids`. Ordinary
+WhatsApp groups require the separate personal companion.
+
+### Personal WhatsApp and ordinary groups
+
+The optional `companions/whatsapp-personal` process uses `whatsapp-web.js`,
+persistent `LocalAuth`, and linked-device QR login. It is not an official Meta
+API. Set `WHATSAPP_PERSONAL_COMPANION_TOKEN`,
+`WHATSAPP_PERSONAL_WEBHOOK_SECRET`, and optionally
+`WHATSAPP_PERSONAL_SESSION_DIR`; run `npm install` in the companion directory,
+start `whatsapp-personal-relay`, scan the QR code, and query authenticated
+`GET /chats` for stable `@g.us` group IDs.
+
+The companion binds to `127.0.0.1:46668`, protects its API with a Bearer token,
+and signs callbacks to `/v1/webhooks/whatsapp-personal`. WhatsApp Web changes or
+account restrictions can break this unofficial integration.
+
+### Facebook Messenger setup
+
+Configure a Facebook Page ID and permitted PSIDs. Store the Page access token,
+webhook verification token, and app secret in `config/.env`; register the public
+HTTPS callback at `/v1/webhooks/facebook-messenger` and grant the required Page
+messaging permissions.
+
+### Viber setup
+
+Enable the listener, store the commercial bot token as `VIBER_AUTH_TOKEN`, and
+configure `VIBER_ALLOWED_CONVERSATIONS` or `include_direct_messages`. Register:
+
+```bash
+curl -X POST https://chatapi.viber.com/pa/set_webhook \
+  -H "X-Viber-Auth-Token: $VIBER_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://relay.example.com/v1/webhooks/viber","event_types":["subscribed","unsubscribed","failed"],"send_name":true}'
+```
+
+Viber requires publicly trusted HTTPS, signs callbacks with
+`X-Viber-Content-Signature`, and limits outbound files to 50 MiB.
+
+### LINE setup
+
+Create a LINE Official Account and Messaging API channel. Store its long-lived
+token as `LINE_CHANNEL_ACCESS_TOKEN` and secret as `LINE_CHANNEL_SECRET`.
+Enable the listener, configure `LINE_ALLOWED_SOURCE_IDS`, permit the Official
+Account to join group and multi-person chats, and register this webhook with
+redelivery enabled:
+
+```text
+https://relay.example.com/v1/webhooks/line
+```
+
+### Discourse setup
+
+Enable the listener and set `DISCOURSE_URL`, `DISCOURSE_API_KEY`, and
+`DISCOURSE_WEBHOOK_SECRET`. Configure a Discourse post webhook pointing to
+`https://relay.example.com/v1/webhooks/discourse` with the same secret. Topic
+IDs are channel IDs and post numbers are thread/reply IDs. The API-key user
+must be able to read configured topics and create posts.
+
+### IRC setup
+
+Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password or NickServ settings.
+IRC has no native attachment upload, so configure `MAILBOX_RELAY_PUBLIC_URL`;
+the adapter publishes managed files through `/v1/attachments/`.
 
 ## `agent-mailbox` CLI versus direct REST
 
@@ -733,6 +863,28 @@ A bridge combines two agent-mediated listener endpoints. The endpoint agents
 must preserve `source_id`, `channel_type`, `channel_id`, `thread_id`, `root_id`,
 attachments, and correlation fields whenever the destination supports them.
 Every adapter must suppress its own outbound echoes to prevent relay loops.
+
+Routes in `config/relays.json` select one controller:
+
+- `relay_agent` sends a `channel_route_request` to a mailbox identity for
+  reasoning, moderation, translation, or approval.
+- `presence_controller` emits deterministic mailbox delivery requests through
+  the selected destination listener and presence without requiring an agent.
+
+Trusted speakers listed in a listener's `trusted_admins` may manage routes from
+chat with the portable ASCII command prefix:
+
+```text
+!relay routes
+!relay attach slack-primary C0123456789 presence
+!relay attach matrix-primary !room:example.org agent:moderating-router
+!relay detach runtime-discord-primary-slack-primary-ab12cd34
+```
+
+The default `!relay` prefix works in IRC and every implemented chat adapter.
+Override it with `MAILBOX_RELAY_COMMAND_PREFIX` or a listener-specific
+`command_prefix`. Mailbox identities are open identifiers and do not require a
+separate registration file.
 
 A future generic adapter entry starts disabled until implementation exists:
 

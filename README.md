@@ -466,10 +466,10 @@ and include that database in backups when UUID/contact/chat labels must survive
 migration to another server.
 
 See [`INSTRUCTIONS.md`](docs/INSTRUCTIONS.md) for the implementation checklist,
-complete operational contract, and Mattermost, Discord, Slack, IRC, Matrix/Element, Discourse,
-WhatsApp, Viber, Telegram, LINE, REST, JSONL, and generic future-adapter examples.
-See [`PLATFORM_SETUP.md`](docs/PLATFORM_SETUP.md) for the platform-side application,
-bot, token, permission, channel/room ID, and installation steps.
+complete operational contract; platform-side application, bot, token,
+permission, channel/room ID, and installation steps; and Mattermost, Discord,
+Slack, IRC, Matrix/Element, Discourse, WhatsApp, Viber, Telegram, LINE, REST,
+JSONL, and generic future-adapter examples.
 
 ## Message envelope
 
