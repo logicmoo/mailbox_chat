@@ -471,7 +471,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", help=f"REST Bearer token (or {MAILBOX_TOKEN_ENV})")
     parser.add_argument("--curl", action="store_true",
                         help="print the equivalent REST curl command without executing it")
-    parser.add_argument("--file", type=Path, help="read send message text from a UTF-8 file")
+    parser.add_argument(
+        "--input", "--file", dest="input_file", type=Path,
+        help="read send message text from a UTF-8 file (--file is a compatibility alias)",
+    )
     parser.add_argument("--retry", type=int, default=0)
     parser.add_argument("--retry-delay", type=float, default=1.0)
     parser.add_argument("--quiet", action="store_true")
@@ -531,46 +534,46 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     options, literal_arguments = argv[:boundary], argv[boundary:]
     curl_requested = "--curl" in options
     normalized: list[str] = []
-    file_option: list[str] = []
+    input_option: list[str] = []
     index = 0
     while index < len(options):
         argument = options[index]
         if argument == "--curl":
             index += 1
             continue
-        if argument == "--file":
+        if argument in {"--input", "--file"}:
             if index + 1 >= len(options):
                 normalized.append(argument)
                 index += 1
                 continue
-            file_option = [argument, options[index + 1]]
+            input_option = [argument, options[index + 1]]
             index += 2
             continue
-        if argument.startswith("--file="):
-            file_option = [argument]
+        if argument.startswith("--input=") or argument.startswith("--file="):
+            input_option = [argument]
             index += 1
             continue
         normalized.append(argument)
         index += 1
-    return (["--curl"] if curl_requested else []) + file_option + normalized + literal_arguments
+    return (["--curl"] if curl_requested else []) + input_option + normalized + literal_arguments
 
 
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(_normalize_anywhere_flags(supplied))
-    if args.command != "send" and args.file:
-        build_parser().error("--file is only valid with send")
+    if args.command != "send" and args.input_file:
+        build_parser().error("--input is only valid with send")
     if args.command == "send":
-        if args.file and args.text is not None:
-            build_parser().error("send accepts either inline text or --file, not both")
-        if args.file:
+        if args.input_file and args.text is not None:
+            build_parser().error("send accepts either inline text or --input, not both")
+        if args.input_file:
             try:
-                args.text = args.file.expanduser().read_text(encoding="utf-8")
+                args.text = args.input_file.expanduser().read_text(encoding="utf-8")
             except OSError as error:
-                build_parser().error(f"cannot read --file: {error}")
+                build_parser().error(f"cannot read --input: {error}")
         if args.text is None:
-            build_parser().error("send requires inline text or --file PATH")
+            build_parser().error("send requires inline text or --input PATH")
     if args.timeout <= 0 or args.retry < 0 or args.retry_delay < 0:
         build_parser().error("--timeout must be positive; retry values must be non-negative")
     REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY = args.timeout, args.retry, args.retry_delay

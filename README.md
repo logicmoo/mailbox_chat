@@ -95,14 +95,14 @@ works from any current directory:
 
 ```powershell
 C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd status
-C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd send planner --file message.txt
+C:\path\to\mailbox_channel_relay_bridging_proxy\agent-mailbox.cmd send planner --input message.txt
 ```
 
 Linux, macOS, and WSL checkouts include the equivalent POSIX launcher:
 
 ```bash
 ./agent-mailbox status
-./agent-mailbox send planner --file message.txt
+./agent-mailbox send planner --input message.txt
 ./agent-mailbox send planner -- '--curl is literal text'
 ```
 
@@ -186,9 +186,9 @@ The full client surface includes:
 - option termination: `--` stops command-line processing so following text may
   contain switch-looking values, for example
   `agent-mailbox send planner -- "--curl is literal text"`;
-- file-backed text: `--file PATH` reads the complete UTF-8 file as the message
+- file-backed text: `--input PATH` reads the complete UTF-8 file as the message
   text and may appear anywhere before `--`, for example
-  `agent-mailbox send planner --file message.txt`;
+  `agent-mailbox send planner --input message.txt`; `--file` remains an alias;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
 `--verbose`;
 - diagnostics: `status`, `check`, and `--version`.

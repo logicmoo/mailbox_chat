@@ -148,13 +148,14 @@ def test_curl_after_double_dash_is_not_treated_as_flag(tmp_path, capsys) -> None
     assert sent["text"] == "--curl"
 
 
-def test_file_supplies_send_text_from_any_option_position(tmp_path, capsys) -> None:
+def test_input_supplies_send_text_from_any_option_position(tmp_path, capsys) -> None:
     source = tmp_path / "message.txt"
     source.write_text("first line\n--curl remains text\n", encoding="utf-8")
     mailbox = tmp_path / "mailbox"
     placements = [
-        ["--dir", str(mailbox), "--file", str(source), "send", "planner"],
-        ["--dir", str(mailbox), "send", "--file", str(source), "planner"],
+        ["--dir", str(mailbox), "--input", str(source), "send", "planner"],
+        ["--dir", str(mailbox), "send", "--input", str(source), "planner"],
+        ["--dir", str(mailbox), "send", "planner", "--input", str(source)],
         ["--dir", str(mailbox), "send", "planner", "--file", str(source)],
     ]
     for arguments in placements:
@@ -163,8 +164,8 @@ def test_file_supplies_send_text_from_any_option_position(tmp_path, capsys) -> N
         assert sent["text"] == "first line\n--curl remains text\n"
 
 
-def test_file_after_double_dash_is_literal_text(tmp_path, capsys) -> None:
+def test_input_after_double_dash_is_literal_text(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
-        "--dir", str(tmp_path), "send", "planner", "--", "--file message.txt",
+        "--dir", str(tmp_path), "send", "planner", "--", "--input message.txt",
     ]) == 0
-    assert json.loads(capsys.readouterr().out)["text"] == "--file message.txt"
+    assert json.loads(capsys.readouterr().out)["text"] == "--input message.txt"
