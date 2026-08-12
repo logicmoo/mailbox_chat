@@ -430,7 +430,8 @@ def _add_read_options(parser: argparse.ArgumentParser, *, waiting: bool = True) 
     parser.add_argument("--cursor", help="independent cursor name")
     parser.add_argument("--since", help="only return records after a timestamp or message ID")
     parser.add_argument("--limit", type=int, help="maximum records to return")
-    parser.add_argument("--where", action="append", default=[], metavar="FIELD=VALUE")
+    parser.add_argument("--where", action="append", default=[], metavar="FIELD=VALUE",
+                        help="filter by an envelope field; repeatable")
     parser.add_argument("--no-advance", action="store_true", help="do not advance the cursor")
     if waiting:
         parser.add_argument("--wait", type=float, default=0.0, help="wait up to this many seconds for mail")
@@ -505,17 +506,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--nobuffer", action="store_true",
                         help="write stdout and stderr immediately without block buffering")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
-    commands = parser.add_subparsers(dest="command", required=True)
-    send_parser = commands.add_parser("send", help="append a message")
-    send_parser.add_argument("recipient", nargs="?")
-    send_parser.add_argument("text", nargs="?")
-    send_parser.add_argument("--sender")
-    send_parser.add_argument("--type", dest="message_type", default="message")
-    send_parser.add_argument("--channel-id")
-    send_parser.add_argument("--channel-type")
-    send_parser.add_argument("--source-id")
-    send_parser.add_argument("--thread-id")
-    send_parser.add_argument("--root-id")
+    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    send_parser = commands.add_parser(
+        "send", help="append a message", description="Append one durable mailbox message.",
+        epilog="Example: agent-mailbox send planner 'Task complete' --type result",
+    )
+    send_parser.add_argument("recipient", nargs="?", help="destination identity; alternatively use --to")
+    send_parser.add_argument("text", nargs="?", help="message text; alternatively use global --input PATH")
+    send_parser.add_argument("--sender", help="sender identity overriding global --from")
+    send_parser.add_argument("--type", dest="message_type", default="message",
+                             help="mailbox message type (default: message)")
+    send_parser.add_argument("--channel-id", help="external channel or conversation identifier")
+    send_parser.add_argument("--channel-type", help="external adapter type, such as telegram or slack")
+    send_parser.add_argument("--source-id", help="source platform message/event identifier")
+    send_parser.add_argument("--thread-id", help="source or destination thread identifier")
+    send_parser.add_argument("--root-id", help="root message identifier for threaded transports")
     send_parser.add_argument(
         "--attach",
         action="append",
@@ -523,33 +528,70 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="copy a file into this message (repeatable)",
     )
-    receive_parser = commands.add_parser("receive", help="consume unread messages")
-    receive_parser.add_argument("recipient")
+    receive_parser = commands.add_parser(
+        "receive", help="consume unread messages",
+        description="Read unread messages and advance the selected durable cursor.",
+        epilog="Example: agent-mailbox receive worker-1 --limit 10 --where type=result",
+    )
+    receive_parser.add_argument("recipient", help="mailbox identity whose unread messages are consumed")
     _add_read_options(receive_parser)
     receive_parser.add_argument("--ack", metavar="MESSAGE_ID", help="acknowledge through this message ID")
-    peek_parser = commands.add_parser("peek", help="show unread messages without advancing the cursor")
-    peek_parser.add_argument("recipient")
+    peek_parser = commands.add_parser(
+        "peek", help="show unread messages without advancing the cursor",
+        description="Inspect unread messages without changing any cursor.",
+        epilog="Example: agent-mailbox peek worker-1 --cursor audit --limit 20",
+    )
+    peek_parser.add_argument("recipient", help="mailbox identity to inspect")
     _add_read_options(peek_parser, waiting=False)
-    poll_parser = commands.add_parser("poll", help="poll for unread messages")
-    poll_parser.add_argument("recipient")
-    poll_parser.add_argument("--interval", type=float, default=30.0)
-    poll_parser.add_argument("--checks", type=int, default=10)
-    poll_parser.add_argument("--require-port", action="append", default=[], type=int)
+    poll_parser = commands.add_parser(
+        "poll", help="poll for unread messages",
+        description="Check repeatedly until mail arrives or the bounded check count is exhausted.",
+        epilog="Example: agent-mailbox poll worker-1 --interval 5 --checks 12 --nobuffer",
+    )
+    poll_parser.add_argument("recipient", help="mailbox identity to poll")
+    poll_parser.add_argument("--interval", type=float, default=30.0,
+                             help="seconds between checks (default: 30)")
+    poll_parser.add_argument("--checks", type=int, default=10,
+                             help="maximum checks before exiting (default: 10)")
+    poll_parser.add_argument("--require-port", action="append", default=[], type=int,
+                             help="fail when this local TCP port stops listening; repeatable")
     _add_read_options(poll_parser, waiting=False)
-    follow_parser = commands.add_parser("follow", help="continuously stream incoming messages")
-    follow_parser.add_argument("recipient")
-    follow_parser.add_argument("--interval", type=float, default=1.0)
-    follow_parser.add_argument("--require-port", action="append", default=[], type=int)
+    follow_parser = commands.add_parser(
+        "follow", help="continuously stream incoming messages",
+        description="Continuously read new messages, advancing the selected cursor as they arrive.",
+        epilog="Example: agent-mailbox follow worker-1 --interval 1 --nobuffer",
+    )
+    follow_parser.add_argument("recipient", help="mailbox identity to follow")
+    follow_parser.add_argument("--interval", type=float, default=1.0,
+                               help="seconds between checks (default: 1)")
+    follow_parser.add_argument("--require-port", action="append", default=[], type=int,
+                               help="exit when this local TCP port stops listening; repeatable")
     _add_read_options(follow_parser, waiting=False)
-    unread_parser = commands.add_parser("unread-count", help="count unread messages without consuming them")
-    unread_parser.add_argument("recipient")
-    unread_parser.add_argument("--cursor")
-    ack_parser = commands.add_parser("ack", help="advance a cursor through a specific message")
-    ack_parser.add_argument("recipient")
-    ack_parser.add_argument("message_id")
-    ack_parser.add_argument("--cursor")
-    commands.add_parser("status", help="show mailbox configuration")
-    commands.add_parser("check", help="validate mailbox access without consuming messages")
+    unread_parser = commands.add_parser(
+        "unread-count", help="count unread messages without consuming them",
+        description="Count unread messages without advancing the selected cursor.",
+        epilog="Example: agent-mailbox unread-count worker-1 --cursor monitor",
+    )
+    unread_parser.add_argument("recipient", help="mailbox identity whose unread messages are counted")
+    unread_parser.add_argument("--cursor", help="independent cursor name")
+    ack_parser = commands.add_parser(
+        "ack", help="advance a cursor through a specific message",
+        description="Explicitly acknowledge through a message ID on a durable cursor.",
+        epilog="Example: agent-mailbox ack worker-1 MESSAGE_ID --cursor audit",
+    )
+    ack_parser.add_argument("recipient", help="mailbox identity owning the cursor")
+    ack_parser.add_argument("message_id", help="message ID through which the cursor advances")
+    ack_parser.add_argument("--cursor", help="independent cursor name")
+    commands.add_parser(
+        "status", help="show mailbox configuration",
+        description="Show the selected mailbox or REST service status without consuming messages.",
+        epilog="Example: agent-mailbox --url http://127.0.0.1:46667 status",
+    )
+    commands.add_parser(
+        "check", help="validate mailbox access without consuming messages",
+        description="Validate mailbox access and report a nonzero exit status on failure.",
+        epilog="Example: agent-mailbox --url http://127.0.0.1:46667 check",
+    )
     return parser
 
 
