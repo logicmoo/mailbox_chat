@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailbox-channel-relay-bridging-proxy"
+version = "0.1.0"
+description = "A durable mailbox and chat-channel relay bridging proxy"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "python-dotenv>=1.0",
+  "requests>=2.32",
+  "websocket-client>=1.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+mailbox-channel-relay-proxy = "mailbox_channel_relay_bridging_proxy.server:main"
+agent-mailbox = "mailbox_channel_relay_bridging_proxy.agent_mailbox:main"
+mailbox-chat = "mailbox_channel_relay_bridging_proxy.console_client:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mailbox_channel_relay_bridging_proxy = ["resources/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
