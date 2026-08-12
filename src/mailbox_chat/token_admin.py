@@ -55,9 +55,11 @@ def token_registered(configuration: Path) -> bool:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Register relay REST authentication locally")
-    result.add_argument("action", choices=("register", "status"))
-    result.add_argument("--config-dir", type=Path)
+    result = argparse.ArgumentParser(prog="mailbox-relay-token",
+                                     description="Register relay REST authentication locally")
+    result.add_argument("action", choices=("register", "status"),
+                        help="register/rotate a token or report whether one exists")
+    result.add_argument("--config-dir", type=Path, help="relay configuration directory")
     result.add_argument("--token", help="existing token; omit to securely generate one")
     return result
 

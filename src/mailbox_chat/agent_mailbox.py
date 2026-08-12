@@ -473,7 +473,11 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="agent-mailbox",
+        description=__doc__,
+        epilog="Use 'agent-mailbox COMMAND --help' for command-specific options. Global options may appear before or after COMMAND; -- stops option processing.",
+    )
     parser.add_argument("--run", type=Path, metavar="COMMAND.json",
                         help="execute the entire command from a JSON document")
     transport = parser.add_mutually_exclusive_group()
@@ -482,9 +486,10 @@ def build_parser() -> argparse.ArgumentParser:
     transport.add_argument("--mailbox", help="use a named mailbox from the mailbox config")
     parser.add_argument("--config", type=Path, help="mailbox configuration file")
     parser.add_argument("--from", dest="global_sender", help="default sender identity")
-    parser.add_argument("--format", choices=("jsonl", "json", "text"), default="jsonl")
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--format", choices=("jsonl", "json", "text"), default="jsonl",
+                        help="output rendering format (default: jsonl)")
+    parser.add_argument("--output", type=Path, help="write rendered output to this file instead of stdout")
+    parser.add_argument("--timeout", type=float, default=15.0, help="REST request timeout in seconds")
     parser.add_argument("--token", help=f"REST Bearer token (or {MAILBOX_TOKEN_ENV})")
     parser.add_argument("--curl", action="store_true",
                         help="print the equivalent REST curl command without executing it")
@@ -492,10 +497,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--input", dest="input_file", type=Path,
         help="read send message text from a UTF-8 file",
     )
-    parser.add_argument("--retry", type=int, default=0)
-    parser.add_argument("--retry-delay", type=float, default=1.0)
-    parser.add_argument("--quiet", action="store_true")
-    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--retry", type=int, default=0, help="number of REST retries")
+    parser.add_argument("--retry-delay", type=float, default=1.0, help="delay between REST retries")
+    parser.add_argument("--quiet", action="store_true", help="suppress normal rendered output")
+    parser.add_argument("--verbose", action="store_true", help="report selected transport and target")
     parser.add_argument("--nobuffer", action="store_true",
                         help="write stdout and stderr immediately without block buffering")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")

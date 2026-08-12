@@ -91,13 +91,26 @@ def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default=os.environ.get(HOST_ENV, DEFAULT_HOST))
-    parser.add_argument("--port", type=int, default=int(os.environ.get(PORT_ENV, RELAY_PORT)))
+    parser = argparse.ArgumentParser(
+        prog="mailbox-channel-relay-proxy",
+        description=__doc__,
+        epilog="Bind address controls where the server listens; public address is the URL clients can reach.",
+    )
+    parser.add_argument(
+        "--host", default=os.environ.get(HOST_ENV, DEFAULT_HOST),
+        help=f"server bind address (environment: {HOST_ENV}; default: {DEFAULT_HOST})",
+    )
+    parser.add_argument(
+        "--port", type=int, default=int(os.environ.get(PORT_ENV, RELAY_PORT)),
+        help=f"server TCP port (environment: {PORT_ENV}; default: {RELAY_PORT})",
+    )
     parser.add_argument("--mailbox-dir", type=Path, help="mailbox data directory")
     parser.add_argument("--config-dir", type=Path, help="directory containing .env, listeners.json, and mailboxes.json")
-    parser.add_argument("--public-url", default=os.environ.get(PUBLIC_URL_ENV),
-                        help="externally reachable base URL used for attachment links")
+    parser.add_argument(
+        "--public-address", "--public-url", dest="public_url", default=os.environ.get(PUBLIC_URL_ENV),
+        help=f"externally reachable base URL advertised to clients and used for attachment links "
+             f"(environment: {PUBLIC_URL_ENV})",
+    )
     parser.add_argument("--token", help=f"require this REST Bearer token (or {TOKEN_ENV})")
     return parser
 

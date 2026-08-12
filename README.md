@@ -230,10 +230,11 @@ adapter must publish mailbox attachments as links:
 
 ```powershell
 python server.py --host 0.0.0.0 --port 46667 `
-  --public-url https://relay.example.com
+  --public-address https://relay.example.com
 ```
 
-The equivalent environment variable is `MAILBOX_RELAY_PUBLIC_URL`. Managed
+`--public-url` remains an alias. The equivalent environment variable is
+`MAILBOX_RELAY_PUBLIC_URL`. Managed
 files are served below `/v1/attachments/`; paths outside the mailbox's
 `attachments/` directory are rejected. IRC automatically appends one public
 URL per attachment. Configure the firewall, TLS reverse proxy, and public DNS
