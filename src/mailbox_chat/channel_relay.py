@@ -18,6 +18,7 @@ from .line_adapter import LineAdapter
 from .discourse_adapter import DiscourseAdapter
 from .whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
+from .listener_registry import listeners_for
 
 
 RELAY_RECIPIENT = "channel-relay"
@@ -71,10 +72,46 @@ class ChannelRelay(MattermostRelay):
         self.whatsapp_personal = WhatsAppPersonalAdapter()
         self.mattermost_enabled = False
         self.delivery_ledger = DeliveryLedger(self._mailbox().mailbox_dir())
+        self._adapter_event_states: dict[str, str] = {}
 
     def _log(self, message: str, *, level: int = 1) -> None:
         if self.verbose >= level:
             print(f"[relay] {message}", file=sys.stderr, flush=True)
+
+    def _adapter_recipients(self, name: str, adapter: Any) -> list[str]:
+        listeners = (listeners_for("mattermost") if name == "mattermost"
+                     else list(getattr(adapter, "listeners", [])))
+        recipients = [
+            recipient
+            for listener in listeners
+            for recipient in [listener.get("bridge_agent"), *listener.get("mailbox_recipients", [])]
+            if recipient
+        ]
+        if name == "mattermost" and not recipients:
+            recipients = self._inbound_recipients(__import__("os").environ.get("MM_CHANNEL_ID", ""))
+        return list(dict.fromkeys(recipients))
+
+    def _publish_adapter_event(self, name: str, adapter: Any, state: str, text: str) -> None:
+        if self._adapter_event_states.get(name) == state:
+            return
+        self._adapter_event_states[name] = state
+        mailbox = self._mailbox()
+        for recipient in self._adapter_recipients(name, adapter):
+            try:
+                mailbox.send(
+                    recipient,
+                    text,
+                    sender=f"local-{name}-server",
+                    message_type="chat_server_status",
+                    channel_type=name,
+                    extra_fields={
+                        "adapter": name,
+                        "connection_state": state,
+                        "local_chat_server": True,
+                    },
+                )
+            except (OSError, ValueError) as error:
+                self._log(f"could not publish {name} status to {recipient}: {error}")
 
     def _configure_adapter(self, name: str, adapter: Any) -> bool:
         try:
@@ -83,6 +120,8 @@ class ChannelRelay(MattermostRelay):
             raise RuntimeError(f"{name} configuration failed: {error}") from error
         if enabled:
             self._log(f"starting {name} adapter")
+            if name not in self._adapter_event_states:
+                self._publish_adapter_event(name, adapter, "starting", f"Starting {name} chat server connection")
         elif adapter.status.get("lastError"):
             self._log(f"{name} adapter disabled: {adapter.status['lastError']}")
         return enabled
@@ -93,9 +132,13 @@ class ChannelRelay(MattermostRelay):
             adapter.cycle(mailbox)
         except Exception as error:
             adapter.status.update({"connected": False, "lastError": str(error)})
+            self._publish_adapter_event(
+                name, adapter, "connection_failed", f"{name} chat server connection failed: {error}",
+            )
             raise RuntimeError(f"{name} connection/poll failed: {error}") from error
         if adapter.status.get("connected") and not was_connected:
             self._log(f"{name} adapter connected")
+            self._publish_adapter_event(name, adapter, "connected", f"{name} chat server connected")
         elif adapter.status.get("enabled"):
             self._log(f"{name} adapter poll completed", level=2)
 
@@ -103,6 +146,10 @@ class ChannelRelay(MattermostRelay):
         self.mattermost_enabled = super().configure()
         if self.mattermost_enabled:
             self._log("starting mattermost adapter")
+            if "mattermost" not in self._adapter_event_states:
+                self._publish_adapter_event(
+                    "mattermost", self, "starting", "Starting mattermost chat server connection",
+                )
         irc_enabled = self._configure_adapter("irc", self.irc)
         discord_enabled = self._configure_adapter("discord", self.discord)
         matrix_enabled = self._configure_adapter("matrix", self.matrix)
@@ -169,14 +216,24 @@ class ChannelRelay(MattermostRelay):
                 try:
                     self._connect()
                 except Exception as error:
+                    self._publish_adapter_event(
+                        "mattermost", self, "connection_failed",
+                        f"mattermost chat server connection failed: {error}",
+                    )
                     raise RuntimeError(f"mattermost connection failed: {error}") from error
             if self._bot_user_id and not was_connected:
                 self._log("mattermost adapter connected")
+                self._publish_adapter_event(
+                    "mattermost", self, "connected", "mattermost chat server connected",
+                )
             base_url = __import__("os").environ["MM_URL"].rstrip("/")
             try:
                 self._refresh_direct_channels(base_url)
                 self._poll_inbound(base_url)
             except Exception as error:
+                self._publish_adapter_event(
+                    "mattermost", self, "connection_failed", f"mattermost chat server poll failed: {error}",
+                )
                 raise RuntimeError(f"mattermost poll failed: {error}") from error
             self._log("mattermost adapter poll completed", level=2)
         self._cycle_adapter("irc", self.irc, mailbox)

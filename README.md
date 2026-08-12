@@ -38,6 +38,10 @@ Add `--verbose` for adapter startup, connection, failure, and retry messages,
 or `--verbose 2` to include successful adapter polls and HTTP request logging.
 Level `0` reports errors only. Failed adapters continue retrying with bounded
 exponential backoff while verbose output identifies the affected service.
+Adapter startup, connection, and failure transitions are also delivered to
+each listener's bridge agent and mailbox recipients as durable
+`chat_server_status` messages from `local-ADAPTER-server`. This lets agents
+observe or forward service state without scraping process logs.
 
 The daemon is independent of FastAPI and survives development API reloads.
 Runtime PID, status, and logs are under `mailbox/runtime/channel-relay-PORT/`.
