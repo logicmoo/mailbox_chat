@@ -130,3 +130,19 @@ def test_curl_switch_is_accepted_anywhere(monkeypatch, capsys) -> None:
     for arguments in placements:
         assert agent_mailbox.main(arguments) == 0
         assert "/v1/messages" in capsys.readouterr().out
+
+
+def test_double_dash_preserves_switch_looking_message_text(tmp_path, capsys) -> None:
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "send", "planner", "--", "--curl --token secret --verbose",
+    ]) == 0
+    sent = json.loads(capsys.readouterr().out)
+    assert sent["text"] == "--curl --token secret --verbose"
+
+
+def test_curl_after_double_dash_is_not_treated_as_flag(tmp_path, capsys) -> None:
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "send", "planner", "--", "--curl",
+    ]) == 0
+    sent = json.loads(capsys.readouterr().out)
+    assert sent["text"] == "--curl"

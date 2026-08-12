@@ -165,6 +165,9 @@ The full client surface includes:
 - REST inspection: `--curl` may appear anywhere in the command line and prints
   a token-redacted equivalent command and
   performs no network request;
+- option termination: `--` stops command-line processing so following text may
+  contain switch-looking values, for example
+  `agent-mailbox send planner -- "--curl is literal text"`;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
 `--verbose`;
 - diagnostics: `status`, `check`, and `--version`.

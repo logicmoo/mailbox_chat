@@ -526,9 +526,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     """Move position-independent global flags ahead of the subcommand."""
-    curl_requested = "--curl" in argv
-    normalized = [argument for argument in argv if argument != "--curl"]
-    return (["--curl"] if curl_requested else []) + normalized
+    boundary = argv.index("--") if "--" in argv else len(argv)
+    options, literal_arguments = argv[:boundary], argv[boundary:]
+    curl_requested = "--curl" in options
+    normalized = [argument for argument in options if argument != "--curl"]
+    return (["--curl"] if curl_requested else []) + normalized + literal_arguments
 
 
 def main(argv: list[str] | None = None) -> int:
