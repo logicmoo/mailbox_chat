@@ -137,14 +137,16 @@ travel as plaintext.
 - [x] Telegram
 - [x] LINE
 - [x] Matrix protocol (including Element clients)
-- [ ] Discourse forums
+- [x] Discourse forums
 
 Matrix is the adapter/protocol name. Element is one supported Matrix client,
 so listener entries use `"adapter": "matrix"` rather than `"element"`.
 
 Discourse listener entries use `"adapter": "discourse"`. Their channel IDs
 represent topic, category, or tag scopes; inbound delivery should use webhooks
-and outbound delivery should use the Discourse REST API.
+and outbound delivery uses the Discourse REST API. Configure signed post
+webhooks at `/v1/webhooks/discourse`; topic IDs map to channels and post numbers
+map to reply threads. Outbound messages can reply or create a new topic.
 
 Agent integrations:
 

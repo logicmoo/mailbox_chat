@@ -14,20 +14,21 @@ from .facebook_messenger_adapter import FacebookMessengerAdapter
 from .whatsapp_adapter import WhatsAppAdapter
 from .viber_adapter import ViberAdapter
 from .line_adapter import LineAdapter
+from .discourse_adapter import DiscourseAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 
 
 RELAY_RECIPIENT = "channel-relay"
 SUPPORTED_CHANNEL_TYPES = ("mattermost", "irc", "discord", "matrix", "slack", "telegram",
-                           "whatsapp", "facebook_messenger", "viber", "line")
-PLANNED_CHANNEL_TYPES = ("discourse",)
+                           "whatsapp", "facebook_messenger", "viber", "line", "discourse")
+PLANNED_CHANNEL_TYPES: tuple[str, ...] = ()
 ADAPTER_CAPABILITIES = {
     "mattermost": {"presence": "single", "threads": True, "attachments": True},
     "irc": {"presence": "single", "threads": False, "attachments": False},
     "discord": {"presence": "single", "threads": True, "attachments": True},
     "matrix": {"presence": "single", "threads": True, "attachments": True},
     "discourse": {"presence": "single", "threads": True, "attachments": True,
-                  "interaction": "forum", "implemented": False},
+                  "interaction": "forum"},
     "slack": {"presence": "multiple", "threads": True, "attachments": True},
     "telegram": {"presence": "single", "threads": True, "attachments": True},
     "whatsapp": {"presence": "single", "threads": False, "attachments": True,
@@ -60,6 +61,7 @@ class ChannelRelay(MattermostRelay):
         self.facebook_messenger = FacebookMessengerAdapter()
         self.viber = viber_adapter or ViberAdapter()
         self.line = LineAdapter()
+        self.discourse = DiscourseAdapter()
         self.mattermost_enabled = False
         self.delivery_ledger = DeliveryLedger(self._mailbox().mailbox_dir())
 
@@ -74,9 +76,11 @@ class ChannelRelay(MattermostRelay):
         facebook_enabled = self.facebook_messenger.configure()
         viber_enabled = self.viber.configure()
         line_enabled = self.line.configure()
+        discourse_enabled = self.discourse.configure()
         self.status["enabled"] = (self.mattermost_enabled or irc_enabled or discord_enabled
                                   or matrix_enabled or slack_enabled or telegram_enabled
-                                  or whatsapp_enabled or facebook_enabled or viber_enabled or line_enabled)
+                                  or whatsapp_enabled or facebook_enabled or viber_enabled or line_enabled
+                                  or discourse_enabled)
         self.status["adapters"] = {"mattermost": dict(self.status), "irc": dict(self.irc.status),
                                    "discord": dict(self.discord.status), "matrix": dict(self.matrix.status),
                                    "slack": dict(self.slack.status), "telegram": dict(self.telegram.status),
@@ -84,6 +88,7 @@ class ChannelRelay(MattermostRelay):
                                    "facebook_messenger": dict(self.facebook_messenger.status),
                                    "viber": dict(self.viber.status)}
         self.status["adapters"]["line"] = dict(self.line.status)
+        self.status["adapters"]["discourse"] = dict(self.discourse.status)
         return bool(self.status["enabled"])
 
     def stop(self) -> None:
@@ -96,6 +101,7 @@ class ChannelRelay(MattermostRelay):
         self.facebook_messenger.close()
         self.viber.close()
         self.line.close()
+        self.discourse.close()
         super().stop()
 
     def reset_after_failure(self) -> None:
@@ -109,6 +115,7 @@ class ChannelRelay(MattermostRelay):
         self.facebook_messenger.close()
         self.viber.close()
         self.line.close()
+        self.discourse.close()
         self._bot_user_id = ""
         self._latest_create_at.clear()
         self._next_dm_refresh = 0.0
@@ -131,6 +138,7 @@ class ChannelRelay(MattermostRelay):
         self.facebook_messenger.cycle(mailbox)
         self.viber.cycle(mailbox)
         self.line.cycle(mailbox)
+        self.discourse.cycle(mailbox)
         self._dispatch_outbound()
         self.status.update({
             "connected": bool((self.mattermost_enabled and self._bot_user_id) or self.irc.status["connected"]
@@ -139,7 +147,8 @@ class ChannelRelay(MattermostRelay):
                               or self.whatsapp.status["connected"]
                               or self.facebook_messenger.status["connected"]
                               or self.viber.status["connected"]
-                              or self.line.status["connected"]),
+                              or self.line.status["connected"]
+                              or self.discourse.status["connected"]),
             "lastCycleAt": __import__("time").time(),
             "lastError": None,
             "adapters": {
@@ -153,6 +162,7 @@ class ChannelRelay(MattermostRelay):
                 "facebook_messenger": dict(self.facebook_messenger.status),
                 "viber": dict(self.viber.status),
                 "line": dict(self.line.status),
+                "discourse": dict(self.discourse.status),
             },
         })
 
@@ -200,6 +210,8 @@ class ChannelRelay(MattermostRelay):
                     self.viber.send_message(message)
                 elif channel_type == "line" and self.line.status["enabled"]:
                     self.line.send_message(message)
+                elif channel_type == "discourse" and self.discourse.status["enabled"]:
+                    self.discourse.send_message(message)
                 else:
                     raise RuntimeError(f"Channel adapter is not enabled: {channel_type}")
             except Exception as error:

@@ -132,6 +132,15 @@ The relay verifies `X-Line-Signature`, deduplicates `webhookEventId`, learns
 user and conversation IDs, downloads inbound content into quota-managed
 storage, and pushes replies to users, groups, or rooms.
 
+## Discourse
+
+Enable `discourse-primary`, set `DISCOURSE_URL`, `DISCOURSE_API_KEY`, and
+`DISCOURSE_WEBHOOK_SECRET`, and configure a Discourse post webhook pointing to
+`https://relay.example.com/v1/webhooks/discourse` with the same secret. Topic
+IDs become relay channel IDs; post numbers become thread/reply IDs. The API key
+user must be allowed to read configured topics and create posts. Outbound
+messages can reply to a topic or create a topic when `topic_title` is supplied.
+
 ## IRC
 
 Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password/NickServ settings. IRC

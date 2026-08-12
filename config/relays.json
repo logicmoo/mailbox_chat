@@ -132,6 +132,22 @@
       "trusted_admins": [],
       "include_direct_messages": false,
       "preserve_threads": true
+    },
+    {
+      "id": "discourse-primary",
+      "adapter": "discourse",
+      "enabled": false,
+      "direction": "bidirectional",
+      "base_url": "$DISCOURSE_URL",
+      "api_key_env": "DISCOURSE_API_KEY",
+      "webhook_secret_env": "DISCOURSE_WEBHOOK_SECRET",
+      "api_username": "system",
+      "channel_ids": ["$DISCOURSE_TOPIC_IDS"],
+      "category_ids": [],
+      "bridge_agent": "discourse-bridge-agent",
+      "mailbox_recipients": ["local-agent"],
+      "trusted_admins": [],
+      "preserve_threads": true
     }
   ],
   "routes": [

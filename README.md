@@ -14,7 +14,7 @@ be started on that machine.
 
 The durable JSONL/REST mailbox and the Mattermost, IRC, Discord, Slack,
 Matrix/Element, Telegram, WhatsApp Business, Facebook Messenger, Viber, and LINE
-adapters are implemented. The routing envelope is designed for future Discourse and other adapters,
+adapters are implemented, including Discourse forums. The routing envelope supports other adapters,
 including direct bidirectional chat-platform bridges.
 The REST mailbox remains available when no external chat adapter is configured.
 
@@ -386,8 +386,7 @@ authentication and authorization.
 `GET /v1/adapters` distinguishes installed adapters from planned adapters.
 Currently `mattermost`, `irc`, `discord`, `matrix` (including Element clients),
 `slack`, `telegram`, `whatsapp`, `facebook_messenger`, `viber`, and `line` are implemented.
-Discourse is declared as a roadmap adapter; it is not falsely reported
-as operational.
+Discourse topics and replies are operational through signed webhooks and its REST API.
 
 ## Listener registry
 
