@@ -7,8 +7,8 @@ Python package/repository name: `mailbox_channel_relay_bridging_proxy`.
 
 Mailbox Channel Relay Bridging Proxy is a standalone, transport-neutral daemon for
 relaying messages between mailboxes and chat channels. It can serve automated
-workflows, OpenAI Codex tasks, agent runtimes, or ordinary channel-to-channel
-bridges without making any of those systems part of the daemon's identity. It
+consumers, agent runtimes, or ordinary channel-to-channel bridges without
+making any of those systems part of the daemon's identity. It
 owns loopback port `46667`. If `GET /health` answers, another instance must not
 be started on that machine.
 
@@ -34,16 +34,6 @@ Start directly on Windows (the `.env` file is optional for mailbox-only use):
 mailbox-relay-server.cmd
 ```
 
-Other applications may discover and control the same external daemon through
-its transport-neutral API:
-
-```text
-GET  http://127.0.0.1:8000/api/system/services
-POST http://127.0.0.1:8000/api/system/services/channel-relay/start
-POST http://127.0.0.1:8000/api/system/services/channel-relay/stop
-POST http://127.0.0.1:8000/api/system/services/channel-relay/restart
-```
-
 The daemon is independent of FastAPI and survives development API reloads.
 Runtime PID, status, and logs are under `mailbox/runtime/channel-relay-PORT/`.
 
@@ -63,7 +53,7 @@ Example send:
 
 ```powershell
 $body = @{
-  from = 'my-codex-task'
+  from = 'worker-1'
   to = 'channel-relay'
   type = 'channel_send'
   text = 'Workflow completed'
@@ -78,7 +68,7 @@ Invoke-RestMethod http://127.0.0.1:46667/v1/messages `
 Example receive:
 
 ```powershell
-Invoke-RestMethod 'http://127.0.0.1:46667/v1/messages?recipient=my-codex-task'
+Invoke-RestMethod 'http://127.0.0.1:46667/v1/messages?recipient=worker-1'
 ```
 
 Receiving advances that recipient's durable cursor. Each concurrent consumer
@@ -137,11 +127,8 @@ The launchers work from any current directory and prefer the repository's
 $env:AGENT_MAILBOX_URL='http://127.0.0.1:46667'
 python agent_mailbox.py status
 python agent_mailbox.py send channel-relay 'Hello Mattermost' `
-  --sender my-codex-task --channel-type mattermost --channel-id CHANNEL_ID
-python agent_mailbox.py receive my-codex-task
-
-python agent_mailbox.py --url http://127.0.0.1:46667 `
-  send omegaclaw-core 'Please inspect this run' --sender my-codex-task
+  --sender worker-1 --channel-type mattermost --channel-id CHANNEL_ID
+python agent_mailbox.py receive worker-1
 ```
 
 Download the matching standalone client directly from a running relay:
@@ -150,25 +137,8 @@ Download the matching standalone client directly from a running relay:
 Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox.py
 ```
 
-To make Codex poll the mailbox automatically, customize and paste
-[`AUTOMATION_PROMPT.md`](src/mailbox_channel_relay_bridging_proxy/resources/AUTOMATION_PROMPT.md) into a recurring Codex task. It
-contains PowerShell, WSL, Linux, REST, token, direct-JSONL, non-overlap, and
-required-port instructions. Copying the files alone does not enable a Codex
-automation; the user creates the recurring task once in Codex Desktop.
-
-For the shortest installation path, open the target workspace in Codex and
-paste the bootstrap prompt from
-[`INSTALL_WITH_CODEX.md`](src/mailbox_channel_relay_bridging_proxy/resources/INSTALL_WITH_CODEX.md). It tells that Codex to create
-`.codex/mailbox/`, inspect and download the client/template, validate both
-PowerShell and WSL/Linux commands, customize the automation prompt, and then
-show the user where to enable the recurring task in their own Codex UI.
-
-The live relay also serves both onboarding documents:
-
-```text
-http://127.0.0.1:46667/INSTALL_WITH_CODEX.md
-http://127.0.0.1:46667/AUTOMATION_PROMPT.md
-```
+Application-specific installation and automation guidance is in
+[`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md).
 
 ## Trusted Speaker console client
 
@@ -349,18 +319,6 @@ When no server token is configured, REST mailbox routes
 remain unauthenticated for backward-compatible local operation. Put TLS in
 front of any Internet-facing deployment so the Bearer token is encrypted in
 transit.
-
-This lets OpenAI Codex use the relay with only Python and HTTP access; it does
-not need the OmegaClaw repository or a shared filesystem mount.
-
-## OmegaClaw and MeTTaClaw
-
-Use stable transport-neutral recipients such as `omegaclaw-core`,
-`omegaclaw-min`, or a deployment-specific `mettaclaw-*` identity. Poll through
-REST or point existing JSONL adapters at `AGENT_MAILBOX_DIR`. To send to a chat
-channel, address the message to `channel-relay` and include `channel_type` plus
-`channel_id`. Preserve `thread_id`/`root_id`, `source_id`, attachments, and
-workflow/run correlation fields when forwarding.
 
 ## Configuration and security
 

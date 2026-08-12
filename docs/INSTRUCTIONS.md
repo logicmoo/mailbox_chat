@@ -29,6 +29,7 @@
   - [WebSocket chat](#websocket-chat--implemented)
   - [JSONL](#jsonl-mailbox--implemented)
 - [OpenAI Codex integration](#openai-codex-installation-and-mailbox-integration--implemented)
+- [Compatible agent runtimes](#compatible-agent-runtimes)
 - [Channel-to-channel bridges](#channel-to-channel-bridges)
 
 This document is the operational contract for configuring mailbox listeners,
@@ -585,6 +586,14 @@ The checked Codex integration means Codex can use the compatibility mailbox
 through the CLI or REST interface. Codex itself is installed separately using
 the [official OpenAI Codex CLI documentation](https://learn.chatgpt.com/docs/codex/cli).
 
+For recurring mailbox polling, customize
+[`AUTOMATION_PROMPT.md`](../src/mailbox_channel_relay_bridging_proxy/resources/AUTOMATION_PROMPT.md)
+and create the recurring task in Codex Desktop. Copying the file does not create
+the automation. For workspace bootstrap, use
+[`INSTALL_WITH_CODEX.md`](../src/mailbox_channel_relay_bridging_proxy/resources/INSTALL_WITH_CODEX.md).
+The running relay also serves both documents at `/AUTOMATION_PROMPT.md` and
+`/INSTALL_WITH_CODEX.md`.
+
 ### Windows
 
 After installing and signing in to Codex, install this proxy in PowerShell:
@@ -638,6 +647,41 @@ When the daemon runs on Windows, first try
 available, use the Windows host address visible to that WSL distribution and
 keep port 46667 protected. Prefer REST across the Windows/WSL boundary instead
 of concurrently writing JSONL through `/mnt/c`.
+
+## Compatible agent runtimes
+
+Applications with JSONL or HTTP clients can use stable, transport-neutral
+mailbox recipient names. OmegaClaw-compatible deployments commonly use
+identities such as `omegaclaw-core` and `omegaclaw-min`; MeTTaClaw-compatible
+deployments may use a deployment-specific `mettaclaw-*` identity. These are
+consumer conventions, not identities built into the relay.
+
+Poll through REST or point an existing JSONL adapter at `AGENT_MAILBOX_DIR`.
+To send to a chat channel, address the message to `channel-relay` and include
+`channel_type` plus `channel_id`. Forwarders should preserve
+`thread_id`/`root_id`, `source_id`, attachments, and workflow/run correlation
+fields. Python-and-HTTP clients do not require another application's repository
+or a shared filesystem mount.
+
+An external service manager may expose transport-neutral lifecycle endpoints
+for applications that need to discover or control the relay daemon:
+
+```text
+GET  http://127.0.0.1:8000/api/system/services
+POST http://127.0.0.1:8000/api/system/services/channel-relay/start
+POST http://127.0.0.1:8000/api/system/services/channel-relay/stop
+POST http://127.0.0.1:8000/api/system/services/channel-relay/restart
+```
+
+Port 8000 in this example belongs to that external service manager, not to the
+mailbox relay. The relay's default REST port is 46667.
+
+Example:
+
+```powershell
+agent-mailbox --url http://127.0.0.1:46667 `
+  send omegaclaw-core 'Please inspect this run' --sender worker-1
+```
 
 ## Channel-to-channel bridges
 
