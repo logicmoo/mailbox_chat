@@ -13,6 +13,7 @@
 - [Listener configuration](#common-listener-fields)
 - [Register a relay token](#register-a-relay-token)
 - [Platform-side setup](#platform-side-setup)
+- [Client setup](#client-setup)
 - Implemented platform adapters
   - [Mattermost](#mattermost--implemented)
   - [Discord](#discord--implemented-adapter)
@@ -639,6 +640,104 @@ must be able to read configured topics and create posts.
 Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password or NickServ settings.
 IRC has no native attachment upload, so configure `MAILBOX_RELAY_PUBLIC_URL`;
 the adapter publishes managed files through `/v1/attachments/`.
+
+## Client setup
+
+Every command is available from the repository root and prefers the local
+`.venv` when present:
+
+| Purpose | Windows launcher | Linux, macOS, or WSL launcher |
+|---|---|---|
+| Relay server | `mailbox-relay-server.cmd` | `./mailbox-relay-server` |
+| Mailbox CLI | `agent-mailbox.cmd` | `./agent-mailbox` |
+| Interactive console | `trusted-speaker.cmd` | `./trusted-speaker` |
+| Token administration | `mailbox-relay-token.cmd` | `./mailbox-relay-token` |
+| Route administration | `mailbox-relay-route.cmd` | `./mailbox-relay-route` |
+| Console compatibility alias | `mailbox-chat.cmd` | `./mailbox-chat` |
+
+After package installation, use the command names directly. Every command has
+comprehensive `--help` output.
+
+### `agent-mailbox`
+
+The CLI works through the REST server or directly against a JSONL mailbox:
+
+```powershell
+agent-mailbox --url http://127.0.0.1:46667 status
+agent-mailbox --url http://127.0.0.1:46667 send agent-beta "Hello"
+agent-mailbox --dir C:\relay\mailbox receive worker-1
+```
+
+Transport precedence is explicit `--dir`, `--url`, or `--mailbox`; then
+`AGENT_MAILBOX_DIR`; then `AGENT_MAILBOX_URL`; then the local `mailbox/`
+default. `--dir` and `--url` are mutually exclusive. Named mailboxes come from
+`config/mailboxes.json` or `--config PATH`:
+
+```powershell
+agent-mailbox --mailbox local status
+agent-mailbox --config C:\relay\groups.json --mailbox research follow worker-1
+```
+
+The client supports:
+
+- `send`, `receive`, `peek`, `poll`, `follow`, `unread-count`, `ack`, `status`,
+  and `check`;
+- `--cursor`, `--no-advance`, `--since`, `--limit`, `--where FIELD=VALUE`, and
+  bounded `--wait`;
+- `--timeout`, `--retry`, `--retry-delay`, and repeatable `--require-port`;
+- `--token` or `AGENT_MAILBOX_TOKEN` for REST authentication;
+- `--curl` anywhere before `--` to print a token-redacted equivalent REST call
+  without sending it;
+- `--input PATH` for UTF-8 message text and repeatable `--attach PATH`;
+- `--to` anywhere before `--`, or a positional recipient;
+- `--format jsonl|json|text`, `--output`, `--quiet`, `--verbose`, and
+  `--nobuffer`;
+- `--` to stop option processing so message text may contain switch-like text;
+- `--run command.json` to execute a complete JSON command document.
+
+Example command document:
+
+```json
+{
+  "command": "send",
+  "url": "https://relay.example.com",
+  "recipient": "agent-beta",
+  "text": "Finished --curl verification",
+  "channel_type": "telegram",
+  "channel_id": "123"
+}
+```
+
+Run it with `agent-mailbox --run command.json`. For exact argument control use
+`{"args":["--dir","mailbox","status"]}`. Keep Bearer tokens in
+`AGENT_MAILBOX_TOKEN`, not command documents. Assign a stable cursor to each
+independent consumer; `peek` and `--no-advance` do not persist progress, while
+`ack` advances through a specific message ID.
+
+Download the matching standalone client from a running relay:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox.py
+```
+
+### Trusted Speaker
+
+`trusted-speaker UNIQUE_IDENTITY --to DESTINATION` opens the interactive
+WebSocket console. The identity is mandatory and must be unique per concurrent
+consumer. An HTTP(S) relay URL is converted to WebSocket automatically:
+
+```powershell
+trusted-speaker speaker-one --url http://127.0.0.1:46667 --to agent-beta
+```
+
+It can also use a local mailbox without a server:
+
+```powershell
+trusted-speaker speaker-one --dir .\mailbox --to agent-beta
+```
+
+`mailbox-chat` is a compatibility alias. Interactive commands are `/to ID`,
+`/ping`, `/help`, and `/quit`.
 
 ## `agent-mailbox` CLI versus direct REST
 
