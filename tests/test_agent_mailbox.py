@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from mailbox_channel_relay_bridging_proxy import agent_mailbox
 
 
@@ -156,7 +158,6 @@ def test_input_supplies_send_text_from_any_option_position(tmp_path, capsys) -> 
         ["--dir", str(mailbox), "--input", str(source), "send", "planner"],
         ["--dir", str(mailbox), "send", "--input", str(source), "planner"],
         ["--dir", str(mailbox), "send", "planner", "--input", str(source)],
-        ["--dir", str(mailbox), "send", "planner", "--file", str(source)],
     ]
     for arguments in placements:
         assert agent_mailbox.main(arguments) == 0
@@ -169,3 +170,17 @@ def test_input_after_double_dash_is_literal_text(tmp_path, capsys) -> None:
         "--dir", str(tmp_path), "send", "planner", "--", "--input message.txt",
     ]) == 0
     assert json.loads(capsys.readouterr().out)["text"] == "--input message.txt"
+
+
+def test_removed_file_option_is_rejected_before_double_dash(tmp_path) -> None:
+    with pytest.raises(SystemExit):
+        agent_mailbox.main([
+            "--dir", str(tmp_path), "send", "planner", "--file", "message.txt",
+        ])
+
+
+def test_removed_file_option_remains_literal_after_double_dash(tmp_path, capsys) -> None:
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "send", "planner", "--", "--file message.txt",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["text"] == "--file message.txt"

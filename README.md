@@ -188,7 +188,7 @@ The full client surface includes:
   `agent-mailbox send planner -- "--curl is literal text"`;
 - file-backed text: `--input PATH` reads the complete UTF-8 file as the message
   text and may appear anywhere before `--`, for example
-  `agent-mailbox send planner --input message.txt`; `--file` remains an alias;
+  `agent-mailbox send planner --input message.txt`;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
 `--verbose`;
 - diagnostics: `status`, `check`, and `--version`.

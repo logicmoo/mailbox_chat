@@ -472,8 +472,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--curl", action="store_true",
                         help="print the equivalent REST curl command without executing it")
     parser.add_argument(
-        "--input", "--file", dest="input_file", type=Path,
-        help="read send message text from a UTF-8 file (--file is a compatibility alias)",
+        "--input", dest="input_file", type=Path,
+        help="read send message text from a UTF-8 file",
     )
     parser.add_argument("--retry", type=int, default=0)
     parser.add_argument("--retry-delay", type=float, default=1.0)
@@ -541,7 +541,7 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
         if argument == "--curl":
             index += 1
             continue
-        if argument in {"--input", "--file"}:
+        if argument == "--input":
             if index + 1 >= len(options):
                 normalized.append(argument)
                 index += 1
@@ -549,7 +549,7 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
             input_option = [argument, options[index + 1]]
             index += 2
             continue
-        if argument.startswith("--input=") or argument.startswith("--file="):
+        if argument.startswith("--input="):
             input_option = [argument]
             index += 1
             continue
