@@ -23,7 +23,7 @@
   - [Facebook Messenger](#facebook-messenger--implemented-adapter)
 - Planned platform contracts
   - [Viber](#viber--implemented-adapter)
-  - [LINE](#line--planned-contract)
+  - [LINE](#line--implemented-adapter)
 - Mailbox interfaces
   - [REST](#rest-mailbox--implemented)
   - [WebSocket chat](#websocket-chat--implemented)
@@ -135,7 +135,7 @@ travel as plaintext.
 - [x] Facebook Messenger
 - [x] Viber
 - [x] Telegram
-- [ ] LINE
+- [x] LINE
 - [x] Matrix protocol (including Element clients)
 - [ ] Discourse forums
 
@@ -467,7 +467,7 @@ inbound messages and channel posts, and sends outbound text and documents. It
 uses `getChat` to glean readable names for configured chat IDs and retains names
 learned from inbound updates in the durable identifier directory.
 
-## LINE — planned contract
+## LINE — implemented adapter
 
 ```json
 {
@@ -475,16 +475,22 @@ learned from inbound updates in the durable identifier directory.
   "adapter": "line",
   "enabled": true,
   "direction": "bidirectional",
+  "token_env": "LINE_CHANNEL_ACCESS_TOKEN",
+  "secret_env": "LINE_CHANNEL_SECRET",
   "channel_ids": ["$LINE_ALLOWED_SOURCE_IDS"],
   "bridge_agent": "line-bridge-agent",
   "mailbox_recipients": ["customer-agent"],
-  "preserve_threads": false
+  "include_direct_messages": true,
+  "preserve_threads": true
 }
 ```
 
 Expected secrets: `LINE_CHANNEL_ACCESS_TOKEN` and `LINE_CHANNEL_SECRET`.
 Allowed source IDs may represent users, groups, or rooms and must not be
-confused with credentials.
+confused with credentials. Signed webhooks arrive at `/v1/webhooks/line`.
+Inbound images, video, audio, and files are downloaded through the managed
+attachment quota. Text and public attachment links can be pushed to users,
+group chats, and multi-person rooms; images use native LINE image messages.
 
 ## REST mailbox — implemented
 

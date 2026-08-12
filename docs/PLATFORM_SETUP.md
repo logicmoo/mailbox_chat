@@ -115,6 +115,23 @@ before accepting a callback. Viber requires a publicly trusted HTTPS
 certificate and does not accept a self-signed webhook certificate. Outbound
 files use the relay's public attachment URL and are limited by Viber to 50 MiB.
 
+## LINE
+
+Create a LINE Official Account and Messaging API channel, then put its long-lived
+access token in `LINE_CHANNEL_ACCESS_TOKEN` and channel secret in
+`LINE_CHANNEL_SECRET`. Enable `line-primary` in `config/relays.json`, allow
+specific user/group/room IDs with `LINE_ALLOWED_SOURCE_IDS`, and register:
+
+```text
+https://relay.example.com/v1/webhooks/line
+```
+
+Enable webhooks and webhook redelivery in LINE Developers Console. Also enable
+the option allowing the Official Account to join group and multi-person chats.
+The relay verifies `X-Line-Signature`, deduplicates `webhookEventId`, learns
+user and conversation IDs, downloads inbound content into quota-managed
+storage, and pushes replies to users, groups, or rooms.
+
 ## IRC
 
 Set `IRC_SERVER`, `IRC_CHANNELS`, and optional password/NickServ settings. IRC

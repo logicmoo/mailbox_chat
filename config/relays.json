@@ -118,6 +118,20 @@
       "include_direct_messages": false,
       "preserve_threads": false,
       "bot_name": "Mailbox Relay"
+    },
+    {
+      "id": "line-primary",
+      "adapter": "line",
+      "enabled": false,
+      "direction": "bidirectional",
+      "token_env": "LINE_CHANNEL_ACCESS_TOKEN",
+      "secret_env": "LINE_CHANNEL_SECRET",
+      "channel_ids": ["$LINE_ALLOWED_SOURCE_IDS"],
+      "bridge_agent": "line-bridge-agent",
+      "mailbox_recipients": ["local-agent"],
+      "trusted_admins": [],
+      "include_direct_messages": false,
+      "preserve_threads": true
     }
   ],
   "routes": [
