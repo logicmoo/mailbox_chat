@@ -12,6 +12,7 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from .attachment_storage import write_bytes
 from .listener_registry import config_dir, listeners_for
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from .channel_routes import dispatch_routes
@@ -125,7 +126,7 @@ class MattermostRelay:
             if not target.exists():
                 file_response = self.session.get(f"{base_url}/api/v4/files/{file_id}", timeout=30)
                 file_response.raise_for_status()
-                target.write_bytes(file_response.content)
+                write_bytes(mailbox.mailbox_dir(), target, file_response.content)
             content = target.read_bytes()
             attachments.append({
                 "path": str(target),

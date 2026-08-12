@@ -11,6 +11,7 @@ from typing import Any
 
 import requests
 
+from .attachment_storage import write_bytes
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from .listener_registry import listeners_for
 from .channel_routes import dispatch_routes
@@ -150,7 +151,7 @@ class SlackAdapter:
             target_dir = mailbox.mailbox_dir() / "attachments" / source_id.replace(".", "-")
             target_dir.mkdir(parents=True, exist_ok=True)
             target = target_dir / name
-            target.write_bytes(response.content)
+            write_bytes(mailbox.mailbox_dir(), target, response.content)
             records.append({
                 "path": str(target), "name": name,
                 "mime_type": str(item.get("mimetype") or mimetypes.guess_type(name)[0]

@@ -283,6 +283,24 @@ files are served below `/v1/attachments/`; paths outside the mailbox's
 URL per attachment. Configure the firewall, TLS reverse proxy, and public DNS
 for the advertised URL as appropriate.
 
+Attachment storage is bounded by default to 1 GiB per file and 25 GiB total.
+Set different limits when starting the server:
+
+```powershell
+mailbox-relay-server --max-attachment-mb 1024 --max-attachment-storage-mb 25600
+```
+
+The byte-based environment equivalents are
+`MAILBOX_RELAY_MAX_ATTACHMENT_BYTES` and
+`MAILBOX_RELAY_MAX_ATTACHMENT_STORAGE_BYTES`. New local attachments and
+inbound platform downloads are rejected before either limit is exceeded.
+
+The other durable stores are bounded independently: `messages.jsonl` defaults
+to 5 GiB and each relay-owned SQLite database defaults to 1 GiB. Configure
+these with `--max-jsonl-mb` and `--max-sqlite-mb`, or the byte-valued
+`MAILBOX_RELAY_MAX_JSONL_BYTES` and `MAILBOX_RELAY_MAX_SQLITE_BYTES`
+environment variables.
+
 ### Register a server token
 
 Register a strong token locally in `config/.env`:

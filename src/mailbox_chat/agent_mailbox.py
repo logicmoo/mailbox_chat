@@ -12,6 +12,7 @@ import shlex
 import shutil
 import socket
 import sys
+import threading
 import time
 import uuid
 import urllib.error
@@ -20,6 +21,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from .attachment_storage import copy_file
 
 
 DEFAULT_SENDER = "local-agent"
@@ -33,6 +36,9 @@ REST_TIMEOUT = 15.0
 REST_RETRIES = 0
 REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
+MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
+DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
+_MESSAGE_WRITE_LOCK = threading.Lock()
 UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 GLOBAL_RUN_FIELDS = (
     "dir", "url", "mailbox", "config", "from", "format", "output", "timeout", "token",
@@ -105,23 +111,27 @@ def _copy_attachments(target: Path, message_id: str, paths: list[Path]) -> list[
     destination_dir.mkdir(parents=True, exist_ok=False)
     attachments: list[dict[str, Any]] = []
     used_names: set[str] = set()
-    for source in paths:
-        resolved = source.expanduser().resolve(strict=True)
-        if not resolved.is_file():
-            raise ValueError(f"attachment is not a file: {source}")
-        name = _safe_attachment_name(resolved, used_names)
-        destination = destination_dir / name
-        shutil.copyfile(resolved, destination)
-        mime_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
-        attachments.append(
-            {
-                "path": str(destination),
-                "name": name,
-                "mime_type": mime_type,
-                "size": destination.stat().st_size,
-                "sha256": _sha256(destination),
-            }
-        )
+    try:
+        for source in paths:
+            resolved = source.expanduser().resolve(strict=True)
+            if not resolved.is_file():
+                raise ValueError(f"attachment is not a file: {source}")
+            name = _safe_attachment_name(resolved, used_names)
+            destination = destination_dir / name
+            copy_file(target, resolved, destination)
+            mime_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+            attachments.append(
+                {
+                    "path": str(destination),
+                    "name": name,
+                    "mime_type": mime_type,
+                    "size": destination.stat().st_size,
+                    "sha256": _sha256(destination),
+                }
+            )
+    except Exception:
+        shutil.rmtree(destination_dir, ignore_errors=True)
+        raise
     return attachments
 
 
@@ -168,11 +178,23 @@ def send(
     if copied_attachments:
         record["attachments"] = copied_attachments
     payload = (json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
-    fd = os.open(target / "messages.jsonl", os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-    try:
-        os.write(fd, payload)
-    finally:
-        os.close(fd)
+    messages_path = target / "messages.jsonl"
+    maximum = int(os.environ.get(MAX_JSONL_ENV, DEFAULT_MAX_JSONL_BYTES))
+    if maximum < 1:
+        raise ValueError("JSONL mailbox size limit must be positive")
+    with _MESSAGE_WRITE_LOCK:
+        current = messages_path.stat().st_size if messages_path.exists() else 0
+        if current + len(payload) > maximum:
+            if copied_attachments:
+                shutil.rmtree(target / "attachments" / message_id, ignore_errors=True)
+            raise ValueError(
+                f"JSONL mailbox quota exceeded: {current} + {len(payload)} bytes is greater than {maximum} bytes"
+            )
+        fd = os.open(messages_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
     return record
 
 

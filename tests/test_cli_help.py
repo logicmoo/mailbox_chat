@@ -26,7 +26,11 @@ def test_server_help_lists_every_public_configuration_option() -> None:
     for option in (
         "--host", "--port", "--mailbox-dir", "--config-dir", "--public-address",
         "--public-url", "--token", "MAILBOX_RELAY_HOST", "MAILBOX_RELAY_PORT",
-        "MAILBOX_RELAY_PUBLIC_URL", "MAILBOX_RELAY_TOKEN",
+        "MAILBOX_RELAY_PUBLIC_URL", "MAILBOX_RELAY_TOKEN", "--max-attachment-mb",
+        "--max-attachment-storage-mb", "MAILBOX_RELAY_MAX_ATTACHMENT_BYTES",
+        "MAILBOX_RELAY_MAX_ATTACHMENT_STORAGE_BYTES",
+        "--max-jsonl-mb", "MAILBOX_RELAY_MAX_JSONL_BYTES", "--max-sqlite-mb",
+        "MAILBOX_RELAY_MAX_SQLITE_BYTES",
     ):
         assert option in help_text
     _assert_actions_documented(parser)

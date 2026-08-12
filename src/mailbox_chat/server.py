@@ -33,6 +33,10 @@ from . import agent_mailbox
 from .listener_registry import CONFIG_DIR_ENV, config_dir, public_registry
 from .websocket_chat import accept_value, handle_chat
 from .attachment_gateway import ATTACHMENT_PREFIX, PUBLIC_URL_ENV
+from .attachment_storage import (
+    DEFAULT_MAX_FILE_BYTES, DEFAULT_MAX_STORAGE_BYTES, MAX_FILE_ENV, MAX_STORAGE_ENV,
+)
+from .sqlite_limits import DEFAULT_MAX_SQLITE_BYTES, MAX_SQLITE_ENV
 from .identifier_directory import IdentifierDirectory
 from .meta_webhooks import verify_challenge, verify_signature
 
@@ -112,6 +116,28 @@ def build_parser() -> argparse.ArgumentParser:
              f"(environment: {PUBLIC_URL_ENV})",
     )
     parser.add_argument("--token", help=f"require this REST Bearer token (or {TOKEN_ENV})")
+    parser.add_argument(
+        "--max-attachment-mb", type=int,
+        default=int(os.environ.get(MAX_FILE_ENV, DEFAULT_MAX_FILE_BYTES)) // (1024 * 1024),
+        help=f"maximum size of one attachment in MiB (environment: {MAX_FILE_ENV}; default: 1024)",
+    )
+    parser.add_argument(
+        "--max-attachment-storage-mb", type=int,
+        default=int(os.environ.get(MAX_STORAGE_ENV, DEFAULT_MAX_STORAGE_BYTES)) // (1024 * 1024),
+        help=f"maximum total attachment storage in MiB (environment: {MAX_STORAGE_ENV}; default: 25600)",
+    )
+    parser.add_argument(
+        "--max-jsonl-mb", type=int,
+        default=int(os.environ.get(agent_mailbox.MAX_JSONL_ENV, agent_mailbox.DEFAULT_MAX_JSONL_BYTES))
+        // (1024 * 1024),
+        help=f"maximum messages.jsonl size in MiB (environment: {agent_mailbox.MAX_JSONL_ENV}; default: 5120)",
+    )
+    parser.add_argument(
+        "--max-sqlite-mb", type=int,
+        default=int(os.environ.get(MAX_SQLITE_ENV, DEFAULT_MAX_SQLITE_BYTES)) // (1024 * 1024),
+        help=f"maximum size of each relay SQLite database in MiB "
+             f"(environment: {MAX_SQLITE_ENV}; default: 1024)",
+    )
     return parser
 
 
@@ -119,6 +145,15 @@ def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     if not 1 <= arguments.port <= 65535:
         raise SystemExit("--port must be between 1 and 65535")
+    if any(value < 1 for value in (
+        arguments.max_attachment_mb, arguments.max_attachment_storage_mb,
+        arguments.max_jsonl_mb, arguments.max_sqlite_mb,
+    )):
+        raise SystemExit("storage size limits must be at least 1 MiB")
+    os.environ[MAX_FILE_ENV] = str(arguments.max_attachment_mb * 1024 * 1024)
+    os.environ[MAX_STORAGE_ENV] = str(arguments.max_attachment_storage_mb * 1024 * 1024)
+    os.environ[agent_mailbox.MAX_JSONL_ENV] = str(arguments.max_jsonl_mb * 1024 * 1024)
+    os.environ[MAX_SQLITE_ENV] = str(arguments.max_sqlite_mb * 1024 * 1024)
     if arguments.mailbox_dir:
         os.environ[agent_mailbox.MAILBOX_ENV] = str(arguments.mailbox_dir.expanduser().resolve())
     if arguments.config_dir:
@@ -144,6 +179,10 @@ def main(argv: list[str] | None = None) -> int:
         "mailboxDirectory": str(mailbox_root),
         "configDirectory": str(configuration_root),
         "publicUrl": os.environ[PUBLIC_URL_ENV],
+        "maxAttachmentBytes": arguments.max_attachment_mb * 1024 * 1024,
+        "maxAttachmentStorageBytes": arguments.max_attachment_storage_mb * 1024 * 1024,
+        "maxJsonlBytes": arguments.max_jsonl_mb * 1024 * 1024,
+        "maxSqliteBytes": arguments.max_sqlite_mb * 1024 * 1024,
     })
 
     class HealthHandler(BaseHTTPRequestHandler):

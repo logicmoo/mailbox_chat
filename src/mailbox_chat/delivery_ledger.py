@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .sqlite_limits import apply_sqlite_limit
+
 
 def origin_id(message: dict[str, Any]) -> str:
     """Return an immutable origin identity, preserving one supplied upstream."""
@@ -52,7 +54,9 @@ class DeliveryLedger:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.path, timeout=10, isolation_level=None)
+        connection = sqlite3.connect(self.path, timeout=10, isolation_level=None)
+        apply_sqlite_limit(connection, self.path)
+        return connection
 
     def claim(self, message: dict[str, Any], endpoint: str) -> bool:
         """Atomically claim an origin/endpoint pair; false means already traversed."""

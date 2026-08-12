@@ -88,6 +88,10 @@ instances without state overlap.
 - `config/relays.json` contains non-secret routing configuration.
 - `config/.env` contains tokens, passwords, server URLs, and deployment identifiers.
 - `mailbox/messages.jsonl`, `mailbox/attachments/`, and `mailbox/cursors/` are runtime data.
+- Attachment storage defaults to 1 GiB per file and 25 GiB total; configure
+  `--max-attachment-mb` and `--max-attachment-storage-mb` on the relay server.
+- `messages.jsonl` defaults to a 5 GiB limit and each SQLite database to 1 GiB;
+  configure `--max-jsonl-mb` and `--max-sqlite-mb` on the relay server.
 - Never place credentials in listener records, messages, workflow resources,
   logs, screenshots, or committed files.
 - A listener is not operational until its adapter appears in `GET /v1/adapters`

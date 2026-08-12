@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from .sqlite_limits import apply_sqlite_limit
+
 
 class IdentifierDirectory:
     """Persist opaque identifiers while exposing text usable by simple transports."""
@@ -31,6 +33,7 @@ class IdentifierDirectory:
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, timeout=10)
+        apply_sqlite_limit(connection, self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(
