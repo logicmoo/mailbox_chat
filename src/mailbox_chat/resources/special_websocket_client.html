@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Mailbox WebSocket Chat Client</title>
+<style>
+  body { font: 16px system-ui; max-width: 900px; margin: 2rem auto; }
+  input, button { font: inherit; padding: .5rem; }
+  #identity, #to { width: 14rem; }
+  #text { width: 28rem; }
+  pre { min-height: 20rem; padding: 1rem; background: #111; color: #ddd; overflow: auto; }
+</style>
+<h1>Mailbox WebSocket Chat</h1>
+<p>This client always sends and receives through the durable mailbox.</p>
+<label>Identity <input id="identity" value="special-websocket-client"></label>
+<button id="connect">Connect</button>
+<hr>
+<label>To <input id="to" value="symbolic-workbench"></label>
+<label>Text <input id="text" value="Hello"></label>
+<button id="send" disabled>Send</button>
+<pre id="log"></pre>
+<script>
+  let socket;
+  const log = value => document.querySelector('#log').textContent += `${value}\n`;
+  document.querySelector('#connect').onclick = () => {
+    const identity = encodeURIComponent(document.querySelector('#identity').value);
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    socket = new WebSocket(`${scheme}//${location.host}/v1/chat/ws?recipient=${identity}`);
+    socket.onopen = () => { log('connected'); document.querySelector('#send').disabled = false; };
+    socket.onmessage = event => log(event.data);
+    socket.onclose = () => { log('closed'); document.querySelector('#send').disabled = true; };
+    socket.onerror = () => log('Service unavailable. Check the proxy URL, network access, and any authentication requirements.');
+  };
+  document.querySelector('#send').onclick = () => socket.send(JSON.stringify({
+    action: 'send',
+    to: document.querySelector('#to').value,
+    text: document.querySelector('#text').value
+  }));
+</script>
+</html>
