@@ -36,7 +36,7 @@ REST_TOKEN: str | None = None
 UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 GLOBAL_RUN_FIELDS = (
     "dir", "url", "mailbox", "config", "from", "format", "output", "timeout", "token",
-    "curl", "input", "retry", "retry_delay", "quiet", "verbose",
+    "curl", "input", "retry", "retry_delay", "quiet", "verbose", "nobuffer",
 )
 COMMAND_POSITIONALS = {
     "send": ("recipient", "text"),
@@ -496,6 +496,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-delay", type=float, default=1.0)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--nobuffer", action="store_true",
+                        help="write stdout and stderr immediately without block buffering")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     commands = parser.add_subparsers(dest="command", required=True)
     send_parser = commands.add_parser("send", help="append a message")
@@ -634,12 +636,13 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     boundary = argv.index("--") if "--" in argv else len(argv)
     options, literal_arguments = argv[:boundary], argv[boundary:]
     curl_requested = "--curl" in options
+    nobuffer_requested = "--nobuffer" in options
     normalized: list[str] = []
     input_option: list[str] = []
     index = 0
     while index < len(options):
         argument = options[index]
-        if argument == "--curl":
+        if argument in {"--curl", "--nobuffer"}:
             index += 1
             continue
         if argument == "--input":
@@ -656,7 +659,15 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
             continue
         normalized.append(argument)
         index += 1
-    return (["--curl"] if curl_requested else []) + input_option + normalized + literal_arguments
+    leading = (["--curl"] if curl_requested else []) + (["--nobuffer"] if nobuffer_requested else [])
+    return leading + input_option + normalized + literal_arguments
+
+
+def _enable_unbuffered_output() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(line_buffering=True, write_through=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -667,6 +678,8 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         build_parser().error(str(error))
     args = build_parser().parse_args(_normalize_anywhere_flags(supplied))
+    if args.nobuffer:
+        _enable_unbuffered_output()
     if args.command != "send" and args.input_file:
         build_parser().error("--input is only valid with send")
     if args.command == "send":

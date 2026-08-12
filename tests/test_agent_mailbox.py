@@ -216,3 +216,35 @@ def test_run_rejects_mixed_cli_arguments(tmp_path) -> None:
     command_file.write_text(json.dumps({"command": "status", "dir": str(tmp_path)}), encoding="utf-8")
     with pytest.raises(SystemExit):
         agent_mailbox.main(["--run", str(command_file), "--verbose"])
+
+
+def test_nobuffer_is_accepted_anywhere(monkeypatch, tmp_path, capsys) -> None:
+    calls = []
+    monkeypatch.setattr(agent_mailbox, "_enable_unbuffered_output", lambda: calls.append(True))
+    placements = [
+        ["--nobuffer", "--dir", str(tmp_path), "status"],
+        ["--dir", str(tmp_path), "status", "--nobuffer"],
+    ]
+    for arguments in placements:
+        assert agent_mailbox.main(arguments) == 0
+        capsys.readouterr()
+    assert calls == [True, True]
+
+
+def test_nobuffer_after_double_dash_is_literal_text(tmp_path, capsys) -> None:
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "send", "planner", "--", "--nobuffer",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["text"] == "--nobuffer"
+
+
+def test_run_document_supports_nobuffer(monkeypatch, tmp_path, capsys) -> None:
+    calls = []
+    monkeypatch.setattr(agent_mailbox, "_enable_unbuffered_output", lambda: calls.append(True))
+    command_file = tmp_path / "status.json"
+    command_file.write_text(json.dumps({
+        "command": "status", "dir": str(tmp_path), "nobuffer": True,
+    }), encoding="utf-8")
+    assert agent_mailbox.main(["--run", str(command_file)]) == 0
+    capsys.readouterr()
+    assert calls == [True]

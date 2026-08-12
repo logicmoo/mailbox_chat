@@ -192,7 +192,9 @@ The full client surface includes:
 - command documents: `--run command.json` executes an entire command described
   as JSON, without mixing additional CLI arguments;
 - presentation: `--format jsonl|json|text`, `--output`, `--quiet`, and
-`--verbose`;
+  `--verbose`;
+- streaming: `--nobuffer` may appear anywhere before `--` and makes stdout and
+  stderr line-buffered/write-through for immediate pipe and service-log output;
 
 A complete command document uses normal option names without leading dashes:
 
