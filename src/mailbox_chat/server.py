@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     runtime_dir, pid_file, status_file = runtime_paths(arguments.port, mailbox_root)
     runtime_dir.mkdir(parents=True, exist_ok=True)
     identifiers = IdentifierDirectory(mailbox_root)
-    relay = ChannelRelay()
+    relay = ChannelRelay(verbose=arguments.verbose)
     relay.status.update({
         "host": arguments.host,
         "port": arguments.port,

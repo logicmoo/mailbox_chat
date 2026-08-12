@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 from .mattermost_adapter import MattermostRelay, RELAY_PORT
@@ -54,8 +55,9 @@ class ChannelRelay(MattermostRelay):
                  matrix_adapter: MatrixAdapter | None = None,
                  slack_adapter: SlackAdapter | None = None,
                  telegram_adapter: TelegramAdapter | None = None,
-                 viber_adapter: ViberAdapter | None = None, **kwargs: Any) -> None:
+                 viber_adapter: ViberAdapter | None = None, verbose: int = 0, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self.verbose = verbose
         self.irc = irc_adapter or IrcAdapter()
         self.discord = discord_adapter or DiscordAdapter()
         self.matrix = matrix_adapter or MatrixAdapter()
@@ -70,19 +72,48 @@ class ChannelRelay(MattermostRelay):
         self.mattermost_enabled = False
         self.delivery_ledger = DeliveryLedger(self._mailbox().mailbox_dir())
 
+    def _log(self, message: str, *, level: int = 1) -> None:
+        if self.verbose >= level:
+            print(f"[relay] {message}", file=sys.stderr, flush=True)
+
+    def _configure_adapter(self, name: str, adapter: Any) -> bool:
+        try:
+            enabled = bool(adapter.configure())
+        except Exception as error:
+            raise RuntimeError(f"{name} configuration failed: {error}") from error
+        if enabled:
+            self._log(f"starting {name} adapter")
+        elif adapter.status.get("lastError"):
+            self._log(f"{name} adapter disabled: {adapter.status['lastError']}")
+        return enabled
+
+    def _cycle_adapter(self, name: str, adapter: Any, mailbox: Any) -> None:
+        was_connected = bool(adapter.status.get("connected"))
+        try:
+            adapter.cycle(mailbox)
+        except Exception as error:
+            adapter.status.update({"connected": False, "lastError": str(error)})
+            raise RuntimeError(f"{name} connection/poll failed: {error}") from error
+        if adapter.status.get("connected") and not was_connected:
+            self._log(f"{name} adapter connected")
+        elif adapter.status.get("enabled"):
+            self._log(f"{name} adapter poll completed", level=2)
+
     def configure(self) -> bool:
         self.mattermost_enabled = super().configure()
-        irc_enabled = self.irc.configure()
-        discord_enabled = self.discord.configure()
-        matrix_enabled = self.matrix.configure()
-        slack_enabled = self.slack.configure()
-        telegram_enabled = self.telegram.configure()
-        whatsapp_enabled = self.whatsapp.configure()
-        facebook_enabled = self.facebook_messenger.configure()
-        viber_enabled = self.viber.configure()
-        line_enabled = self.line.configure()
-        discourse_enabled = self.discourse.configure()
-        whatsapp_personal_enabled = self.whatsapp_personal.configure()
+        if self.mattermost_enabled:
+            self._log("starting mattermost adapter")
+        irc_enabled = self._configure_adapter("irc", self.irc)
+        discord_enabled = self._configure_adapter("discord", self.discord)
+        matrix_enabled = self._configure_adapter("matrix", self.matrix)
+        slack_enabled = self._configure_adapter("slack", self.slack)
+        telegram_enabled = self._configure_adapter("telegram", self.telegram)
+        whatsapp_enabled = self._configure_adapter("whatsapp", self.whatsapp)
+        facebook_enabled = self._configure_adapter("facebook_messenger", self.facebook_messenger)
+        viber_enabled = self._configure_adapter("viber", self.viber)
+        line_enabled = self._configure_adapter("line", self.line)
+        discourse_enabled = self._configure_adapter("discourse", self.discourse)
+        whatsapp_personal_enabled = self._configure_adapter("whatsapp_personal", self.whatsapp_personal)
         self.status["enabled"] = (self.mattermost_enabled or irc_enabled or discord_enabled
                                   or matrix_enabled or slack_enabled or telegram_enabled
                                   or whatsapp_enabled or facebook_enabled or viber_enabled or line_enabled
@@ -133,22 +164,32 @@ class ChannelRelay(MattermostRelay):
     def cycle(self) -> None:
         mailbox = self._mailbox()
         if self.mattermost_enabled:
+            was_connected = bool(self._bot_user_id)
             if not self._bot_user_id:
-                self._connect()
+                try:
+                    self._connect()
+                except Exception as error:
+                    raise RuntimeError(f"mattermost connection failed: {error}") from error
+            if self._bot_user_id and not was_connected:
+                self._log("mattermost adapter connected")
             base_url = __import__("os").environ["MM_URL"].rstrip("/")
-            self._refresh_direct_channels(base_url)
-            self._poll_inbound(base_url)
-        self.irc.cycle(mailbox)
-        self.discord.cycle(mailbox)
-        self.matrix.cycle(mailbox)
-        self.slack.cycle(mailbox)
-        self.telegram.cycle(mailbox)
-        self.whatsapp.cycle(mailbox)
-        self.facebook_messenger.cycle(mailbox)
-        self.viber.cycle(mailbox)
-        self.line.cycle(mailbox)
-        self.discourse.cycle(mailbox)
-        self.whatsapp_personal.cycle(mailbox)
+            try:
+                self._refresh_direct_channels(base_url)
+                self._poll_inbound(base_url)
+            except Exception as error:
+                raise RuntimeError(f"mattermost poll failed: {error}") from error
+            self._log("mattermost adapter poll completed", level=2)
+        self._cycle_adapter("irc", self.irc, mailbox)
+        self._cycle_adapter("discord", self.discord, mailbox)
+        self._cycle_adapter("matrix", self.matrix, mailbox)
+        self._cycle_adapter("slack", self.slack, mailbox)
+        self._cycle_adapter("telegram", self.telegram, mailbox)
+        self._cycle_adapter("whatsapp", self.whatsapp, mailbox)
+        self._cycle_adapter("facebook_messenger", self.facebook_messenger, mailbox)
+        self._cycle_adapter("viber", self.viber, mailbox)
+        self._cycle_adapter("line", self.line, mailbox)
+        self._cycle_adapter("discourse", self.discourse, mailbox)
+        self._cycle_adapter("whatsapp_personal", self.whatsapp_personal, mailbox)
         self._dispatch_outbound()
         self.status.update({
             "connected": bool((self.mattermost_enabled and self._bot_user_id) or self.irc.status["connected"]

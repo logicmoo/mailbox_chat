@@ -4,6 +4,14 @@ from mailbox_channel_relay_bridging_proxy import agent_mailbox
 from mailbox_channel_relay_bridging_proxy.channel_relay import ChannelRelay, RELAY_RECIPIENT
 
 
+class FailingAdapter:
+    def __init__(self) -> None:
+        self.status = {"enabled": True, "connected": False, "lastError": None}
+
+    def cycle(self, _mailbox) -> None:
+        raise ConnectionError("service unavailable")
+
+
 class Response:
     def __init__(self, payload):
         self.payload = payload
@@ -49,3 +57,17 @@ def test_mattermost_adapter_uses_shared_envelope(tmp_path: Path, monkeypatch) ->
     relay.cycle()
     assert agent_mailbox.receive("local-agent", root=tmp_path)[0]["text"] == "hello"
     assert session.posts[0]["message"] == "done"
+
+
+def test_adapter_failure_names_service_for_supervisor_retry() -> None:
+    relay = ChannelRelay.__new__(ChannelRelay)
+    relay.verbose = 1
+    adapter = FailingAdapter()
+    try:
+        relay._cycle_adapter("discord", adapter, object())
+    except RuntimeError as error:
+        assert str(error) == "discord connection/poll failed: service unavailable"
+    else:
+        raise AssertionError("adapter error was not propagated to the retry supervisor")
+    assert adapter.status["connected"] is False
+    assert adapter.status["lastError"] == "service unavailable"

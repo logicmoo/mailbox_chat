@@ -34,8 +34,10 @@ Start directly on Windows (the `.env` file is optional for mailbox-only use):
 mailbox-relay-server.cmd
 ```
 
-Add `--verbose` for lifecycle and retry messages, or `--verbose 2` to include
-HTTP request logging. Level `0` reports errors only.
+Add `--verbose` for adapter startup, connection, failure, and retry messages,
+or `--verbose 2` to include successful adapter polls and HTTP request logging.
+Level `0` reports errors only. Failed adapters continue retrying with bounded
+exponential backoff while verbose output identifies the affected service.
 
 The daemon is independent of FastAPI and survives development API reloads.
 Runtime PID, status, and logs are under `mailbox/runtime/channel-relay-PORT/`.
