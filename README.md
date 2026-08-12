@@ -108,6 +108,32 @@ Linux, macOS, and WSL checkouts include the equivalent POSIX launcher:
 
 After package installation, use the cross-platform `agent-mailbox` command.
 
+## Repository-local commands
+
+Every published command has a launcher in the repository root. From PowerShell:
+
+```powershell
+.\mailbox-relay-server.cmd --help
+.\agent-mailbox.cmd --help
+.\trusted-speaker.cmd --help
+.\mailbox-relay-token.cmd --help
+.\mailbox-chat.cmd --help
+```
+
+From Linux, macOS, or WSL:
+
+```bash
+./mailbox-relay-server --help
+./agent-mailbox --help
+./trusted-speaker --help
+./mailbox-relay-token --help
+./mailbox-chat --help
+```
+
+The launchers work from any current directory and prefer the repository's
+`.venv` when it exists. `mailbox-chat` is the compatibility alias for
+`trusted-speaker`.
+
 ```powershell
 $env:AGENT_MAILBOX_URL='http://127.0.0.1:46667'
 python agent_mailbox.py status

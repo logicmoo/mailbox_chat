@@ -25,3 +25,22 @@ def test_server_launchers_are_location_independent() -> None:
     posix = (root / "mailbox-relay-server").read_text(encoding="utf-8")
     assert posix.startswith("#!/usr/bin/env sh\n")
     assert 'mailbox_channel_relay_bridging_proxy.server "$@"' in posix
+
+
+def test_every_published_command_has_windows_and_posix_launchers() -> None:
+    root = Path(__file__).resolve().parents[1]
+    commands = {
+        "agent-mailbox": "agent_mailbox",
+        "mailbox-relay-server": "server",
+        "trusted-speaker": "console_client",
+        "mailbox-relay-token": "token_admin",
+    }
+    for command, module in commands.items():
+        windows = (root / f"{command}.cmd").read_text(encoding="utf-8")
+        posix_path = root / command
+        posix = posix_path.read_text(encoding="utf-8")
+        assert f"mailbox_channel_relay_bridging_proxy.{module}" in windows
+        assert f"mailbox_channel_relay_bridging_proxy.{module}" in posix
+        assert posix.startswith("#!/usr/bin/env sh\n")
+    assert "trusted-speaker.cmd" in (root / "mailbox-chat.cmd").read_text(encoding="utf-8")
+    assert "trusted-speaker" in (root / "mailbox-chat").read_text(encoding="utf-8")
