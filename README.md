@@ -401,6 +401,37 @@ adapter means adding its implementation and then declaring its listeners in
 the same registry. The daemon reloads the file as it evaluates listener routing,
 so ordinary routing edits do not require a restart.
 
+## Import contacts and relay a whole channel
+
+Import WhatsApp contacts from JSON, CSV, or vCard into the durable identifier
+directory. Phone numbers are normalized to digits for WhatsApp addressing:
+
+```bash
+mailbox-relay-contacts --url http://127.0.0.1:46667 import contacts.vcf --system whatsapp
+mailbox-relay-contacts --url http://127.0.0.1:46667 list --system whatsapp
+```
+
+To deliver every message from one IRC channel to a WhatsApp conversation, omit
+the source `channel_id` to match every channel heard by that listener, or set it
+to `#agents` to match only that channel:
+
+```json
+{
+  "id": "irc-to-douglas-whatsapp",
+  "enabled": true,
+  "source": {"listener_id": "irc-primary", "channel_id": "#agents"},
+  "destinations": [{
+    "adapter": "whatsapp",
+    "listener_id": "whatsapp-business-primary",
+    "channel_id": "15551234567"
+  }],
+  "controller": {"type": "presence_controller", "presence_id": "whatsapp-business"}
+}
+```
+
+This sends a separate Business API conversation to that WhatsApp recipient; it
+does not claim to join an ordinary personal WhatsApp group.
+
 See [`INSTRUCTIONS.md`](docs/INSTRUCTIONS.md) for the implementation checklist,
 complete operational contract, and Mattermost, Discord, Slack, IRC, Matrix/Element, Discourse,
 WhatsApp, Viber, Telegram, LINE, REST, JSONL, and generic future-adapter examples.

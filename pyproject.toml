@@ -23,6 +23,7 @@ agent-mailbox = "mailbox_channel_relay_bridging_proxy.agent_mailbox:main"
 mailbox-chat = "mailbox_channel_relay_bridging_proxy.console_client:main"
 trusted-speaker = "mailbox_channel_relay_bridging_proxy.console_client:main"
 mailbox-relay-token = "mailbox_channel_relay_bridging_proxy.token_admin:main"
+mailbox-relay-contacts = "mailbox_channel_relay_bridging_proxy.contact_admin:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
