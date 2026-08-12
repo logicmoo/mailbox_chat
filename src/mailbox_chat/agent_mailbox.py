@@ -22,7 +22,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .attachment_storage import copy_file
+try:
+    from .attachment_storage import copy_file
+except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
+    def copy_file(root: Path, source: Path, destination: Path) -> None:
+        maximum_file = int(os.environ.get("MAILBOX_RELAY_MAX_ATTACHMENT_BYTES", 1024 * 1024 * 1024))
+        maximum_total = int(os.environ.get(
+            "MAILBOX_RELAY_MAX_ATTACHMENT_STORAGE_BYTES", 25 * 1024 * 1024 * 1024,
+        ))
+        size = source.stat().st_size
+        if size > maximum_file:
+            raise ValueError(f"attachment is {size} bytes; maximum is {maximum_file} bytes")
+        attachment_root = root / "attachments"
+        used = sum(path.stat().st_size for path in attachment_root.rglob("*") if path.is_file())
+        if used + size > maximum_total:
+            raise ValueError(
+                f"attachment storage quota exceeded: {used} + {size} bytes is greater than {maximum_total} bytes"
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
 
 
 DEFAULT_SENDER = "local-agent"

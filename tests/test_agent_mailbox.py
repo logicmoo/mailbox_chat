@@ -1,9 +1,20 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from mailbox_channel_relay_bridging_proxy import agent_mailbox
+
+
+def test_served_client_runs_as_standalone_script() -> None:
+    result = subprocess.run(
+        [sys.executable, str(Path(agent_mailbox.__file__).resolve()), "--version"],
+        check=False, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("agent-mailbox ")
 
 
 def test_jsonl_send_receive_and_cursor(tmp_path: Path) -> None:
