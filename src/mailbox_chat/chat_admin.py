@@ -16,6 +16,27 @@ from .adapters.mattermost_adapter import (
 )
 
 
+def _registered_platform(identifier: str) -> str:
+    """Infer a supported platform from an exact identifier saved by discovery."""
+    if not identifier or "/" in identifier:
+        return ""
+    from .agent_mailbox import mailbox_dir
+    from .identifier_directory import IdentifierDirectory
+
+    matches = IdentifierDirectory(mailbox_dir()).find(identifier=identifier, limit=100)
+    platforms = {
+        "mm" if str(entry["system"]).split("/", 1)[0] in {"mm", "mattermost"}
+        else "irc" if str(entry["system"]).split("/", 1)[0] == "irc"
+        else ""
+        for entry in matches
+    } - {""}
+    if len(platforms) > 1:
+        raise ValueError(
+            f"identifier {identifier!r} occurs on multiple platforms; select one with --on"
+        )
+    return next(iter(platforms), "")
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="mailbox-client",
@@ -101,6 +122,14 @@ def _platform(args: argparse.Namespace) -> str:
                 continue
             if endpoint and endpoint.adapter == "mattermost":
                 return "mm"
+    # Discovery stores opaque IDs with their source system. A later command may
+    # therefore use the bare ID without repeating TYPE/INSTANCE.
+    for field in ("nickname", "target", "channel", "team"):
+        candidate = getattr(args, field, None)
+        if isinstance(candidate, str):
+            registered = _registered_platform(candidate)
+            if registered:
+                return registered
     return "mm" if args.command in {"teams", "threads"} else "irc"
 
 

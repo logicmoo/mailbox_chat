@@ -3,6 +3,7 @@ from mailbox_channels.agent_mailbox import CHAT_COMMANDS
 from mailbox_channels.chat_admin import _platform, main, parser
 from mailbox_channels.adapters.irc_adapter import protocol_line
 from mailbox_channels.adapters.mattermost_adapter import arguments_from_namespace
+from mailbox_channels.identifier_directory import IdentifierDirectory
 
 
 def test_irc_help_lists_normal_commands() -> None:
@@ -42,6 +43,16 @@ def test_qualified_mattermost_address_selects_platform_and_maps_mode() -> None:
 
 def test_on_selects_mattermost_for_addressless_commands() -> None:
     args = parser().parse_args(normalize_options(["list", "--on", "mm/0"]))
+    assert _platform(args) == "mm"
+
+
+def test_downloaded_bare_id_selects_its_registered_platform(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_MAILBOX_DIR", str(tmp_path))
+    IdentifierDirectory(tmp_path).remember(
+        "j4pok4rbqtfytcrcn8d3nhgkto", "some-user",
+        system="mm/chat.singularitynet.io", kind="user",
+    )
+    args = parser().parse_args(["whois", "j4pok4rbqtfytcrcn8d3nhgkto"])
     assert _platform(args) == "mm"
 
 
