@@ -487,6 +487,26 @@ def resolve_address(value: str, directory: IdentifierDirectory, *, base_url: str
     return f"mm/{endpoint.instance}/{identifier}"
 
 
+def _record_aliases(record: dict[str, Any], *, kind: str = "") -> list[str]:
+    """Return trustworthy human-entered aliases for a Mattermost object."""
+    fields = ["display_name", "name", "username", "nickname"]
+    if kind == "user" or record.get("username"):
+        fields.append("email")
+    aliases = [
+        str(record.get(field) or "").strip()[:512]
+        for field in fields
+        if isinstance(record.get(field), (str, int)) and str(record.get(field) or "").strip()
+    ]
+    if kind == "user" or record.get("username"):
+        full_name = " ".join(filter(None, (
+            str(record.get("first_name") or "").strip(),
+            str(record.get("last_name") or "").strip(),
+        )))[:512]
+        if full_name:
+            aliases.append(full_name)
+    return list(dict.fromkeys(aliases))
+
+
 def _remember(directory: IdentifierDirectory | None, base_url: str, record: dict[str, Any],
               *, kind: str) -> dict[str, Any]:
     identifier = str(record.get("id") or record.get("post", {}).get("id") or "")
@@ -499,9 +519,7 @@ def _remember(directory: IdentifierDirectory | None, base_url: str, record: dict
     instance = _instance(base_url)
     metadata = {key: value for key, value in record.items() if key not in {"id"}}
     if directory:
-        aliases = list(dict.fromkeys(str(record.get(field) or "").strip()[:512]
-                                     for field in ("display_name", "name", "username")
-                                     if str(record.get(field) or "").strip())) or [text]
+        aliases = _record_aliases(record, kind=kind) or [text]
         for alias in aliases:
             directory.remember(identifier, alias, system=f"mm/{instance}", kind=kind, metadata=metadata)
     return {**record, "address": f"mm/{instance}/{identifier}", "resource_type": kind}
@@ -525,13 +543,9 @@ def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, val
         return value
     pairs: list[tuple[str, list[str], str]] = []
     direct_id = str(value.get("id") or "").strip()
-    direct_aliases = list(dict.fromkeys(
-        str(value.get(field) or "").strip()[:512]
-        for field in ("display_name", "name", "username", "nickname")
-        if isinstance(value.get(field), (str, int)) and str(value.get(field) or "").strip()
-    ))
     direct_kind = kind or ("user" if value.get("username") else
                            "channel" if value.get("team_id") else "")
+    direct_aliases = _record_aliases(value, kind=direct_kind)
     if direct_id and direct_aliases:
         pairs.append((direct_id, direct_aliases, direct_kind))
     for field, raw_identifier in value.items():

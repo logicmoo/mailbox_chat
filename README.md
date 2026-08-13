@@ -251,6 +251,9 @@ unique readable alias or bare opaque ID also identifies its platform, so
 `mailbox-client names test` and `mailbox-client whois OPAQUE_USER_ID` do not
 need `--on`. Qualified addresses remain available, including
 `/console mm/0/Town-Square`; subscriptions are saved using the resolved ID.
+Downloaded Mattermost users resolve by username, email address, nonblank
+nickname, or combined first and last name; for example, both `whois zarathustra`
+and `whois zarathustra@singularitynet.io` resolve the same user.
 Mattermost browser URLs containing `/channels/CHANNEL_SLUG` are accepted as
 channel arguments when Mattermost is selected or inferred. The URL hostname
 must match the configured Mattermost server.

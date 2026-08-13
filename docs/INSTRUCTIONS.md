@@ -814,7 +814,9 @@ mailbox-client names --on mm https://chat.singularitynet.io/chat/channels/image-
 ```
 
 The same inference applies to a downloaded user ID, for example
-`mailbox-client whois j4pok4rbqtfytcrcn8d3nhgkto`. A full Mattermost web URL
+`mailbox-client whois j4pok4rbqtfytcrcn8d3nhgkto`. Downloaded users also
+resolve by username, email, nonblank nickname, and combined first/last name.
+A full Mattermost web URL
 must contain `/channels/CHANNEL_SLUG`, and its hostname must match the active
 Mattermost connection.
 

@@ -203,3 +203,20 @@ def test_registry_walker_does_not_give_creator_the_channel_name(tmp_path) -> Non
     assert {entry["text"] for entry in directory.find(
         system="mm/chat.example", identifier="channel-id",
     )} == {"Channel title", "channel-title"}
+
+
+def test_mattermost_user_resolves_by_username_email_nickname_and_full_name(tmp_path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    user = {
+        "id": "jo99f78563nqtcob4ac6zjddha", "username": "zarathustra",
+        "email": "zarathustra@singularitynet.io", "nickname": "Zara",
+        "first_name": "Zarathustra", "last_name": "Goertzel",
+    }
+    remember_named_ids(directory, "https://chat.singularitynet.io", user)
+
+    for alias in (
+        "zarathustra", "zarathustra@singularitynet.io", "Zara", "Zarathustra Goertzel",
+    ):
+        assert directory.find(
+            system="mm/chat.singularitynet.io", text=alias, kind="user",
+        )[0]["identifier"] == user["id"]
