@@ -189,3 +189,17 @@ def test_registry_walker_ignores_unlabelled_ids_but_visits_all_objects(tmp_path)
     remember_named_ids(directory, "https://chat.example", payload)
     assert directory.find(system="mm/chat.example", identifier="opaque-only") == []
     assert directory.find(system="mm/chat.example", identifier="named")[0]["text"] == "helper"
+
+
+def test_registry_walker_does_not_give_creator_the_channel_name(tmp_path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    payload = {
+        "id": "channel-id", "display_name": "Channel title", "name": "channel-title",
+        "creator_id": "creator-id", "team_id": "team-id",
+    }
+    remember_named_ids(directory, "https://chat.example", payload)
+
+    assert directory.find(system="mm/chat.example", identifier="creator-id") == []
+    assert {entry["text"] for entry in directory.find(
+        system="mm/chat.example", identifier="channel-id",
+    )} == {"Channel title", "channel-title"}

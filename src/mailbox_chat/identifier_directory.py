@@ -49,6 +49,32 @@ class IdentifierDirectory:
             )
             """
         )
+        # A former generic JSON walker paired creator_id/owner_id with the
+        # containing channel's display_name. Remove only those demonstrably
+        # mismatched relationship aliases; genuine user records have id equal
+        # to the registered identifier.
+        stale_relationship_rows = connection.execute(
+            "SELECT rowid, identifier, text, metadata FROM identifier_directory_entries "
+            "WHERE kind = 'user'"
+        ).fetchall()
+        for row in stale_relationship_rows:
+            try:
+                metadata = json.loads(row["metadata"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            relationship_match = any(
+                str(metadata.get(field) or "") == row["identifier"]
+                for field in ("creator_id", "owner_id")
+            )
+            containing_name = row["text"] in {
+                str(metadata.get("display_name") or ""),
+                str(metadata.get("name") or ""),
+            }
+            if (relationship_match and containing_name and
+                    str(metadata.get("id") or "") != row["identifier"]):
+                connection.execute(
+                    "DELETE FROM identifier_directory_entries WHERE rowid = ?", (row["rowid"],)
+                )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS identifier_directory_text "
             "ON identifier_directory_entries(system, text, kind)"

@@ -543,7 +543,7 @@ def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, val
             for alias_field in (
                 f"{stem}_display_name", f"{stem}_name", f"{stem}_username",
                 # Common JSON objects use username beside user_id.
-                *(('username', 'display_name', 'nickname') if stem in {'user', 'owner', 'creator'} else ()),
+                *(('username', 'display_name', 'nickname') if stem == 'user' else ()),
             )
             if isinstance(value.get(alias_field), (str, int)) and
             str(value.get(alias_field) or "").strip()

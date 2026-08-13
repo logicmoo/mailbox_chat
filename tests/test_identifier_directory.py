@@ -48,6 +48,22 @@ def test_directory_removes_only_redundant_default_instance_aliases(tmp_path: Pat
     assert directory.find(system="mm/chat.example", identifier="same-id")[0]["text"] == "Alice"
 
 
+def test_directory_removes_mismatched_creator_alias_but_keeps_real_user(tmp_path: Path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    directory.remember(
+        "creator-id", "Channel title", system="mm/chat.example", kind="user",
+        metadata={"id": "channel-id", "creator_id": "creator-id", "display_name": "Channel title"},
+    )
+    directory.remember(
+        "creator-id", "alice", system="mm/chat.example", kind="user",
+        metadata={"id": "creator-id", "username": "alice"},
+    )
+
+    assert [entry["text"] for entry in directory.find(
+        system="mm/chat.example", identifier="creator-id",
+    )] == ["alice"]
+
+
 def test_directory_enriches_known_ids_without_replacing_them(tmp_path: Path) -> None:
     directory = IdentifierDirectory(tmp_path)
     identifier = "12345678-1234-5678-9abc-1234567890ab"
