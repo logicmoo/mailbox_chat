@@ -159,6 +159,28 @@ knowing its server name, for example `mm/0/CHANNEL_ID`. This works for every
 platform address type; an explicit instance still selects a particular server
 when several are configured.
 
+Inside `mailbox-console`, emulate a presence in any addressable conversation:
+
+```text
+/console irc/0/testing
+```
+
+`/join irc/0/testing` creates a persistent subscription. `/console` creates a
+temporary subscription and automatically unsubscribes that temporary channel
+when the console switches elsewhere. Both make the selected conversation the
+default source and destination. `/leave` explicitly removes either kind.
+
+List channels visible to the configured IRC account with the IRC `LIST`
+protocol and save their names, topics, and visible-user counts in the registry:
+
+```powershell
+mailbox-client discover channels --platform irc
+```
+
+From a console connected to the server, use `/discover channels --platform
+irc`. Some IRC networks restrict or throttle full channel lists; use
+`--timeout SECONDS` when the network needs longer.
+
 All adapters use the same `TYPE/INSTANCE/SOURCE_OR_DESTINATION` form. Canonical
 types are `wa`, `wab`, `viber`, `mm`, `discord`, `discourse`, `irc`, `slack`,
 `matrix`, `telegram`, `facebook`, and `line`. `wa` means personal WhatsApp;
@@ -376,7 +398,19 @@ relay server and companion. Run only one companion per saved session.
 Opaque identifier dictionaries are durable across runs. They are stored in
 `mailbox/runtime/identifier-directory.sqlite3`; keep the same `--mailbox-dir`
 and include that database in backups when UUID/contact/chat labels must survive
-migration to another server.
+restarts or migration to another server. Manage them without direct SQLite
+access:
+
+```powershell
+mailbox-client registry remember discord UUID "Operations room" --kind channel
+mailbox-client registry find --system discord --identifier UUID
+mailbox-client registry request discord UUID --resolver get-channel
+mailbox-client registry requests --system discord
+```
+
+Resolution requests are keyed by source system, identifier, and resolver. An
+already-pending request is not issued again unless `--force` is supplied. The
+same commands work interactively as `/registry ...` in `mailbox-console`.
 
 See [`INSTRUCTIONS.md`](docs/INSTRUCTIONS.md) for the implementation checklist,
 complete operational contract; platform-side application, bot, token,

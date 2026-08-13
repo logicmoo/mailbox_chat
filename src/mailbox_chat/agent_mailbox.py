@@ -689,6 +689,10 @@ def build_parser() -> argparse.ArgumentParser:
                         add_help=False)
     commands.add_parser("contacts", help="import or inspect durable platform contacts",
                         add_help=False)
+    commands.add_parser("registry", help="manage UUID and identifier-to-text mappings",
+                        add_help=False)
+    commands.add_parser("discover", help="list visible resources from configured platforms",
+                        add_help=False)
     return parser
 
 
@@ -842,14 +846,18 @@ def _enable_unbuffered_output() -> None:
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
-    if supplied and supplied[0] in {"token", "route", "contacts"}:
+    if supplied and supplied[0] in {"token", "route", "contacts", "registry", "discover"}:
         family, nested = supplied[0], supplied[1:]
         if family == "token":
             from .token_admin import main as administration_main
         elif family == "route":
             from .route_admin import main as administration_main
-        else:
+        elif family == "contacts":
             from .contact_admin import main as administration_main
+        elif family == "registry":
+            from .registry_admin import main as administration_main
+        else:
+            from .discovery_admin import main as administration_main
         return administration_main(nested)
     try:
         supplied = _expand_run_document(supplied)

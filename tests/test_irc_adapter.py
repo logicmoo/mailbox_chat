@@ -77,3 +77,23 @@ def test_irc_publishes_attachment_urls(tmp_path: Path, monkeypatch) -> None:
     sent = "".join(connection.sent)
     assert "Attachment: https://relay.example/v1/attachments/" in sent
     assert "image%20name.png" in sent
+
+
+def test_irc_list_channels_collects_names_counts_and_topics(monkeypatch) -> None:
+    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    connection = FakeSocket()
+    connection.chunks.append(
+        b":server 001 relay :welcome\r\n"
+        b":server 322 relay #agents 42 :Agent coordination\r\n"
+        b":server 322 relay #testing 3 :Test room\r\n"
+        b":server 323 relay :End of LIST\r\n"
+    )
+    adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
+    assert adapter.configure()
+    assert adapter.list_channels(timeout=1) == [
+        {"identifier": "#agents", "text": "Agent coordination", "kind": "channel",
+         "metadata": {"visible_users": 42}},
+        {"identifier": "#testing", "text": "Test room", "kind": "channel",
+         "metadata": {"visible_users": 3}},
+    ]
+    assert "LIST\r\n" in "".join(connection.sent)

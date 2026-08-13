@@ -171,3 +171,42 @@ class IrcAdapter:
         attachment_lines = [f"Attachment: {attachment_url(record)}" for record in message.get("attachments") or []]
         for line in [*(text.splitlines() or [""]), *attachment_lines]:
             self._write(f"PRIVMSG {target} :{line}")
+
+    def list_channels(self, *, timeout: float = 30.0) -> list[dict[str, Any]]:
+        """Use IRC LIST (322/323) to discover visible public channels."""
+        if not self.status["enabled"]:
+            raise RuntimeError("IRC adapter is not enabled")
+        if not self.connection:
+            self.connect()
+        deadline = time.monotonic() + timeout
+        requested = False
+        channels: list[dict[str, Any]] = []
+        buffer = ""
+        while time.monotonic() < deadline:
+            try:
+                chunk = self.connection.recv(65536) if self.connection else b""
+            except (BlockingIOError, ssl.SSLWantReadError):
+                time.sleep(0.01)
+                continue
+            if not chunk:
+                raise ConnectionError("IRC server closed the connection during LIST")
+            buffer += chunk.decode("utf-8", errors="replace")
+            while "\r\n" in buffer:
+                line, buffer = buffer.split("\r\n", 1)
+                if line.startswith("PING "):
+                    self._write("PONG " + line[5:])
+                if " 001 " in line and not requested:
+                    self._write("LIST")
+                    requested = True
+                if " 322 " in line:
+                    fields = line.split(" ", 5)
+                    if len(fields) >= 6:
+                        channels.append({
+                            "identifier": fields[3],
+                            "text": fields[5].removeprefix(":"),
+                            "kind": "channel",
+                            "metadata": {"visible_users": int(fields[4])},
+                        })
+                if " 323 " in line:
+                    return channels
+        raise TimeoutError("IRC LIST did not complete before the timeout")

@@ -48,6 +48,8 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 - [`src/mailbox_channels/endpoint_address.py`](src/mailbox_channels/endpoint_address.py) - Parsing and canonicalization of `TYPE/INSTANCE/SOURCE_OR_DESTINATION` addresses.
 - [`src/mailbox_channels/delivery_ledger.py`](src/mailbox_channels/delivery_ledger.py) - SQLite origin/endpoint traversal ledger for durable loop and duplicate suppression.
 - [`src/mailbox_channels/identifier_directory.py`](src/mailbox_channels/identifier_directory.py) - Persistent system-scoped UUID, contact, name, and resolution-request directory.
+- [`src/mailbox_channels/registry_admin.py`](src/mailbox_channels/registry_admin.py) - CLI management for UUID/identifier mappings and resolution requests.
+- [`src/mailbox_channels/discovery_admin.py`](src/mailbox_channels/discovery_admin.py) - Platform resource discovery, beginning with native IRC channel listing.
 - [`src/mailbox_channels/attachment_storage.py`](src/mailbox_channels/attachment_storage.py) - Managed attachment writes and per-file/aggregate storage quota enforcement.
 - [`src/mailbox_channels/attachment_gateway.py`](src/mailbox_channels/attachment_gateway.py) - Safe public attachment URL generation and path-boundary enforcement.
 - [`src/mailbox_channels/sqlite_limits.py`](src/mailbox_channels/sqlite_limits.py) - SQLite size-limit configuration shared by durable databases.
@@ -96,6 +98,8 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 - [`tests/test_discourse_adapter.py`](tests/test_discourse_adapter.py) - Discourse webhook, topic, reply, and signature tests.
 - [`tests/test_endpoint_address.py`](tests/test_endpoint_address.py) - Cross-platform endpoint parsing, subscriptions, and external-send translation tests.
 - [`tests/test_identifier_directory.py`](tests/test_identifier_directory.py) - Persistent UUID/name mappings and resolution-request tests.
+- [`tests/test_registry_admin.py`](tests/test_registry_admin.py) - UUID registry command and resolution-request deduplication tests.
+- [`tests/test_discovery_admin.py`](tests/test_discovery_admin.py) - Platform discovery command and IRC capability tests.
 - [`tests/test_irc_adapter.py`](tests/test_irc_adapter.py) - IRC protocol parsing, outbound messages, and attachment-link tests.
 - [`tests/test_line_adapter.py`](tests/test_line_adapter.py) - LINE signatures, inbound events, groups/rooms, and outbound media tests.
 - [`tests/test_listener_registry.py`](tests/test_listener_registry.py) - Listener/route configuration validation and environment expansion tests.
@@ -25311,4 +25315,3 @@ This appendix inventories every currently present non-Git generated or runtime f
 - [`.pytest-full-1786584587154/test_whatsapp_business_inbound0/runtime/delivery-ledger.sqlite3`](<.pytest-full-1786584587154/test_whatsapp_business_inbound0/runtime/delivery-ledger.sqlite3>) - Generated or runtime file.
 - [`.pytest-full-1786584587154/test_whatsapp_business_inbound0/runtime/identifier-directory.sqlite3`](<.pytest-full-1786584587154/test_whatsapp_business_inbound0/runtime/identifier-directory.sqlite3>) - Generated or runtime file.
 </details>
-

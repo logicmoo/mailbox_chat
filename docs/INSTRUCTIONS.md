@@ -977,6 +977,10 @@ surfaces that the CLI does not currently wrap.
 | Route inspection and mutation | Separate command | Yes | Use `mailbox-client route`, or `GET/POST /v1/routes`. |
 | Identifier/UUID directory | No | Yes | Use `GET/POST /v1/identifiers`. |
 | Identifier-resolution requests | No | Yes | Use `GET/POST /v1/identifier-resolution-requests`. |
+
+The equivalent client and console command family is `mailbox-client registry`
+or `/registry`. It supports `remember`, `find`, `request`, and `requests` while
+preserving the source system for every UUID or opaque identifier.
 | WebSocket chat | No | Yes | Connect to `/v1/chat/ws`. |
 | Platform webhook ingestion | No | Yes | Platform adapters expose their webhook routes on the server. |
 | Attachment download | No dedicated command | Yes | Public attachments are served through the attachment endpoint. |
@@ -1047,6 +1051,8 @@ From an uninstalled Windows checkout, use
 `special-console-client` must be a unique stable mailbox identity so concurrent
 clients do not consume the same cursor.
 Commands are `/as AGENT_ID`, `/from PRESENCE_OR_ENDPOINT`, `/to DESTINATION`,
+`/join TYPE/INSTANCE/CHANNEL`, `/console TYPE/INSTANCE/CHANNEL`,
+`/leave [TYPE/INSTANCE/CHANNEL]`,
 `/url ADDRESS`, `/ws ADDRESS`, `/wss ADDRESS`, `/dir PATH`, `/ping`, `/help`,
 and `/quit`. The transport commands reconnect the live console without exiting;
 without an argument they display the current transport. Any other slash command invokes the corresponding

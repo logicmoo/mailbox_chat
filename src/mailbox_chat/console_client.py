@@ -13,7 +13,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import websocket
 
 from . import agent_mailbox
-from . import contact_admin, route_admin, token_admin
+from . import contact_admin, discovery_admin, registry_admin, route_admin, token_admin
 
 CLIENT_NAME = "Mailbox Console"
 CHAT_PATH = "/v1/chat/ws"
@@ -95,12 +95,24 @@ def run_administration(command: str, arguments: str | list[str], *, url: str,
         if not any(item == "--url" or item.startswith("--url=") or
                    item == "--config-dir" or item.startswith("--config-dir=") for item in argv):
             argv = ["--url", relay_http_url(url), *argv]
-    else:
+    elif command == "contacts":
         handler = contact_admin.main
         if not any(item == "--url" or item.startswith("--url=") or
                    item == "--dir" or item.startswith("--dir=") for item in argv):
-            argv = (["--dir", str(directory)] if directory is not None
-                    else ["--url", relay_http_url(url)]) + argv
+            argv = (["--dir", str(directory)] if directory is not None else
+                    ["--url", relay_http_url(url)]) + argv
+    elif command == "registry":
+        handler = registry_admin.main
+        if not any(item == "--url" or item.startswith("--url=") or
+                   item == "--dir" or item.startswith("--dir=") for item in argv):
+            argv = (["--dir", str(directory)] if directory is not None else
+                    ["--url", relay_http_url(url)]) + argv
+    else:
+        handler = discovery_admin.main
+        if directory is None and not any(
+            item == "--url" or item.startswith("--url=") for item in argv
+        ):
+            argv = ["--url", relay_http_url(url), *argv]
     try:
         return handler(argv)
     except SystemExit as error:
@@ -117,7 +129,7 @@ def run_client_command(command_line: str, *, identity: str, destination: str,
         return 2
     if not argv:
         return 0
-    if argv[0] in {"token", "route", "contacts"}:
+    if argv[0] in {"token", "route", "contacts", "registry", "discover"}:
         return run_administration(argv[0], argv[1:], url=url, directory=directory)
     transport = ["--dir", str(directory)] if directory is not None else ["--url", relay_http_url(url)]
     explicit_to = any(item == "--to" or item.startswith("--to=") for item in argv)
@@ -218,8 +230,10 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
         )
         return 2
     print(f"{CLIENT_NAME} connected as {identity}; destination is {destination}; transport is {transport}.")
-    print("Commands: /as, /from, /to, /url, /ws, /wss, /dir, /token, /route, "
+    print("Commands: /as, /from, /to, /join, /console, /leave, /url, /ws, /wss, /dir, /token, /route, "
           "/contacts, /ping, /help, /quit")
+    joined: set[str] = set()
+    temporary_console = ""
     try:
         while True:
             line = input(f"{identity} -> {destination}> ").strip()
@@ -230,6 +244,7 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
             if line == "/help":
                 print("/as AGENT_ID changes agent; /from SOURCE changes presence/source; "
                       "/to DESTINATION changes destination; "
+                      "/join or /console ADDRESS subscribes and enters a conversation; /leave exits it; "
                       "/url, /ws, /wss, and /dir replace the active transport; "
                       "any other /COMMAND runs the matching mailbox-client command; "
                       "/ping checks the session; /quit exits")
@@ -255,6 +270,50 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
                 print(f"Destination changed to {destination}")
             elif line == "/to":
                 print(f"Destination is {destination}")
+            elif line in {"/join", "/console"}:
+                print(f"Console conversation is {source or '(none)'}")
+            elif line.startswith("/join ") or line.startswith("/console "):
+                console_only = line.startswith("/console ")
+                address = line.split(None, 1)[1].strip()
+                from .endpoint_address import EndpointAddress, parse_endpoint
+                parsed_address = parse_endpoint(address)
+                if parsed_address and parsed_address.adapter == "irc" and not parsed_address.identifier.startswith(
+                    ("#", "&", "+", "!")
+                ):
+                    address = EndpointAddress(
+                        "irc", parsed_address.instance, f"#{parsed_address.identifier}",
+                    ).canonical
+                if console_only and temporary_console and temporary_console != address and temporary_console not in joined:
+                    run_client_command(
+                        f"unsubscribe {shlex.quote(temporary_console)} --to {shlex.quote(identity)}",
+                        identity=identity, destination=destination, url=url, directory=directory,
+                    )
+                if run_client_command(
+                    f"subscribe {shlex.quote(address)} --to {shlex.quote(identity)}",
+                    identity=identity, destination=destination, url=url, directory=directory,
+                ) == 0:
+                    source = destination = address
+                    if console_only:
+                        temporary_console = address
+                        print(f"Console temporarily connected to {address} as {identity}")
+                    else:
+                        joined.add(address)
+                        temporary_console = ""
+                        print(f"Joined {address} as {identity}")
+            elif line == "/leave" or line.startswith("/leave "):
+                address = line[6:].strip() or source
+                if not address:
+                    print("[error] No console conversation")
+                elif run_client_command(
+                    f"unsubscribe {shlex.quote(address)} --to {shlex.quote(identity)}",
+                    identity=identity, destination=destination, url=url, directory=directory,
+                ) == 0:
+                    joined.discard(address)
+                    if temporary_console == address:
+                        temporary_console = ""
+                    if source == address:
+                        source = ""
+                    print(f"Left {address}")
             elif line in {"/url", "/ws", "/wss", "/dir"}:
                 print(f"Transport is {transport}")
             elif any(line.startswith(f"/{name} ") for name in ("url", "ws", "wss", "dir")):
@@ -292,6 +351,13 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
                 run_client_command(line[1:], identity=identity, destination=destination,
                                    url=url, directory=directory)
             else:
+                from .endpoint_address import parse_endpoint
+                if parse_endpoint(destination):
+                    run_client_command(
+                        f"send -- {shlex.quote(line)}", identity=identity,
+                        destination=destination, url=url, directory=directory,
+                    )
+                    continue
                 if connection is not None:
                     connection.send(json.dumps({
                         "action": "send", "as": identity, "from": source,

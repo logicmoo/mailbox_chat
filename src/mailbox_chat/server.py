@@ -308,6 +308,19 @@ def main(argv: list[str] | None = None) -> int:
                     "capabilities": ADAPTER_CAPABILITIES,
                 })
                 return
+            if parsed.path == "/v1/discovery/channels":
+                query = parse_qs(parsed.query)
+                platform = query.get("platform", [""])[0].strip().lower()
+                try:
+                    timeout = float(query.get("timeout", ["30"])[0])
+                    if platform != "irc":
+                        raise ValueError("channel discovery currently supports platform=irc")
+                    from .discovery_admin import discover_irc_channels
+                    self._json(200, {"platform": platform,
+                                     "channels": discover_irc_channels(timeout=timeout)})
+                except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+                    self._json(400, {"error": str(error)})
+                return
             if parsed.path == "/v1/listeners":
                 try:
                     self._json(200, public_registry())
