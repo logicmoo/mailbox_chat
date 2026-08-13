@@ -267,6 +267,18 @@ executable name (the name itself is also accepted). Quoting follows the local
 platform command-line rules. Execution stops at the first failed line and
 reports its file name and line number.
 
+The interactive console accepts `--on TYPE/INSTANCE` at startup and `/on
+TYPE/INSTANCE` while running. That selection is supplied to addressless chat
+commands such as `/list`; a qualified address on a command still takes
+precedence:
+
+```powershell
+mailbox-console --as operator --on mm/chat.singularitynet.io
+/list
+/on irc/irc.libera.chat
+/names irc/irc.libera.chat/%23agents
+```
+
 Client installation, repository-local launchers, `mailbox-client`, named
 mailboxes, command documents, cursor behavior, Trusted Speaker, REST, JSONL,
 WebSocket, and platform setup are consolidated in

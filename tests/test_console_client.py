@@ -27,6 +27,7 @@ def test_console_client_arguments() -> None:
     assert switched.source == "console-presence"
     assert switched.destination == "agent-two"
     assert parser().parse_args(["--as", "agent-three"]).agent_id == "agent-three"
+    assert parser().parse_args(["--as", "agent-three", "--on", "mm/chat.singularitynet.io"]).chat_instance == "mm/chat.singularitynet.io"
 
 
 def test_console_client_formats_mailbox_message() -> None:
@@ -71,6 +72,33 @@ def test_any_console_slash_command_dispatches_to_mailbox_client(monkeypatch, tmp
         "--dir", str(tmp_path), "--as", "agent-one", "--to", "agent-two",
         "send", "hello there",
     ]]
+
+
+def test_console_default_on_is_injected_but_qualified_address_wins(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(console_client.irc_admin, "main", lambda argv: calls.append(argv) or 0)
+    run_client_command("list", identity="agent", destination="unused",
+                       url="http://relay:46667", directory=None,
+                       chat_instance="mm/chat.singularitynet.io")
+    run_client_command("names irc/0/%23agents", identity="agent", destination="unused",
+                       url="http://relay:46667", directory=None,
+                       chat_instance="mm/chat.singularitynet.io")
+    assert "--on" in calls[0] and "mm/chat.singularitynet.io" in calls[0]
+    assert "--on" not in calls[1]
+
+
+def test_console_on_command_changes_persistent_chat_instance(monkeypatch, tmp_path, capsys) -> None:
+    class ThreadWithoutReceiver:
+        def __init__(self, **_kwargs): pass
+        def start(self): pass
+
+    entries = iter(["/on mm/chat.singularitynet.io", "/on", "/quit"])
+    monkeypatch.setattr(console_client.threading, "Thread", ThreadWithoutReceiver)
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(entries))
+    assert run("agent", "unused", "unused", directory=tmp_path) == 0
+    output = capsys.readouterr().out
+    assert "Chat platform changed to mm/chat.singularitynet.io" in output
+    assert "Chat platform is mm/chat.singularitynet.io" in output
 
 
 def test_console_client_reports_unavailable_service(monkeypatch, capsys) -> None:

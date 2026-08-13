@@ -41,6 +41,8 @@ def parser() -> argparse.ArgumentParser:
                         help="default sending presence or external source endpoint")
     result.add_argument("--to", dest="destination", default="local-agent",
                         help="initial destination mailbox identity (default: local-agent)")
+    result.add_argument("--on", dest="chat_instance", default="",
+                        help="default chat platform instance, such as mm/chat.singularitynet.io")
     transport = result.add_mutually_exclusive_group()
     transport.add_argument("--url", default="http://127.0.0.1:46667",
                            help="relay HTTP(S) base URL or full WebSocket endpoint "
@@ -134,7 +136,7 @@ def run_administration(command: str, arguments: str | list[str], *, url: str,
 
 
 def run_client_command(command_line: str, *, identity: str, destination: str,
-                       url: str, directory: Path | None) -> int:
+                       url: str, directory: Path | None, chat_instance: str = "") -> int:
     """Run any mailbox-client command entered with a leading slash."""
     try:
         argv = _split_command(command_line)
@@ -143,6 +145,19 @@ def run_client_command(command_line: str, *, identity: str, destination: str,
         return 2
     if not argv:
         return 0
+    if argv[0] in CHAT_COMMANDS and chat_instance:
+        from .endpoint_address import parse_endpoint
+        has_on = any(item == "--on" or item.startswith("--on=") for item in argv)
+        has_qualified_address = False
+        for item in argv[1:]:
+            try:
+                if parse_endpoint(item):
+                    has_qualified_address = True
+                    break
+            except ValueError:
+                continue
+        if not has_on and not has_qualified_address:
+            argv.extend(["--on", chat_instance])
     if argv[0] in {"token", "route", "contacts", "registry", "discover", "channels", *CHAT_COMMANDS}:
         return run_administration(argv[0], argv[1:], url=url, directory=directory)
     transport = ["--dir", str(directory)] if directory is not None else ["--url", relay_http_url(url)]
@@ -233,7 +248,8 @@ def _switch_url(value: str, scheme: str | None = None) -> str:
 
 
 def run(identity: str, destination: str, url: str, *, source: str = "",
-        directory: Path | None = None, interval: float = 0.5) -> int:
+        directory: Path | None = None, interval: float = 0.5,
+        chat_instance: str = "") -> int:
     try:
         connection, stop, transport, directory = _open_transport(identity, url, directory, interval)
     except Exception as error:
@@ -244,7 +260,7 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
         )
         return 2
     print(f"{CLIENT_NAME} connected as {identity}; destination is {destination}; transport is {transport}.")
-    print("Commands: /as, /from, /to, /join, /console, /leave, /url, /ws, /wss, /dir, /token, /route, "
+    print("Commands: /as, /from, /to, /on, /join, /console, /leave, /url, /ws, /wss, /dir, /token, /route, "
           "/contacts, /ping, /help, /quit")
     joined: set[str] = set()
     temporary_console = ""
@@ -258,6 +274,7 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
             if line == "/help":
                 print("/as AGENT_ID changes agent; /from SOURCE changes presence/source; "
                       "/to DESTINATION changes destination; "
+                      "/on TYPE/INSTANCE changes the default chat platform; "
                       "/join or /console ADDRESS subscribes and enters a conversation; /leave exits it; "
                       "/url, /ws, /wss, and /dir replace the active transport; "
                       "any other /COMMAND runs the matching mailbox-client command; "
@@ -275,7 +292,10 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
                 source = line[6:].strip()
                 print(f"Source changed to {source or '(agent default)'}")
             elif line == "/ping":
-                if connection is not None:
+                if chat_instance:
+                    run_client_command("ping", identity=identity, destination=destination,
+                                       url=url, directory=directory, chat_instance=chat_instance)
+                elif connection is not None:
                     connection.send(json.dumps({"action": "ping"}))
                 else:
                     print(f"[local mailbox ready: {directory}]")
@@ -284,6 +304,16 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
                 print(f"Destination changed to {destination}")
             elif line == "/to":
                 print(f"Destination is {destination}")
+            elif line == "/on":
+                print(f"Chat platform is {chat_instance or '(IRC default)'}")
+            elif line.startswith("/on "):
+                requested_instance = line[4:].strip().rstrip("/")
+                parts = requested_instance.split("/", 1)
+                if len(parts) != 2 or not all(parts):
+                    print("[error] /on requires TYPE/INSTANCE, such as mm/chat.singularitynet.io")
+                else:
+                    chat_instance = requested_instance
+                    print(f"Chat platform changed to {chat_instance}")
             elif line in {"/join", "/console"}:
                 print(f"Console conversation is {source or '(none)'}")
             elif line.startswith("/join ") or line.startswith("/console "):
@@ -363,7 +393,7 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
                                    url=url, directory=directory)
             elif line.startswith("/"):
                 run_client_command(line[1:], identity=identity, destination=destination,
-                                   url=url, directory=directory)
+                                   url=url, directory=directory, chat_instance=chat_instance)
             else:
                 from .endpoint_address import parse_endpoint
                 if parse_endpoint(destination):
@@ -399,7 +429,8 @@ def main() -> int:
     if not identity:
         parser().error("an agent ID is required; use --as AGENT_ID")
     return run(identity, arguments.destination, arguments.url,
-               source=arguments.source or "", directory=arguments.dir, interval=arguments.interval)
+               source=arguments.source or "", directory=arguments.dir, interval=arguments.interval,
+               chat_instance=arguments.chat_instance)
 
 
 if __name__ == "__main__":
