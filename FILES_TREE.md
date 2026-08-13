@@ -67,13 +67,11 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 
 ### Platform adapters
 
-- [`src/mailbox_channels/adapters/mattermost_adapter.py`](src/mailbox_channels/adapters/mattermost_adapter.py) - Mattermost channel/DM polling, posts, files, threads, subscriber fan-out, and echo suppression.
-- [`src/mailbox_channels/adapters/mattermost_commands.py`](src/mailbox_channels/adapters/mattermost_commands.py) - Mattermost discovery, command mapping, durable readable-name resolution, membership, profiles, and REST operations.
+- [`src/mailbox_channels/adapters/mattermost_adapter.py`](src/mailbox_channels/adapters/mattermost_adapter.py) - Complete Mattermost transport, discovery, command mapping, registry resolution, membership, files, threads, and REST behavior.
 - [`src/mailbox_channels/adapters/discord_adapter.py`](src/mailbox_channels/adapters/discord_adapter.py) - Discord channel polling and outbound message/file delivery.
 - [`src/mailbox_channels/adapters/slack_adapter.py`](src/mailbox_channels/adapters/slack_adapter.py) - Slack Web API polling, threaded messages, files, and multiple listener presences.
 - [`src/mailbox_channels/adapters/matrix_adapter.py`](src/mailbox_channels/adapters/matrix_adapter.py) - Matrix Client-Server sync, room messages, threads, and media transfer.
-- [`src/mailbox_channels/adapters/irc_adapter.py`](src/mailbox_channels/adapters/irc_adapter.py) - IRC/TLS connection, joins, channel/private messages, and attachment-link delivery.
-- [`src/mailbox_channels/adapters/irc_commands.py`](src/mailbox_channels/adapters/irc_commands.py) - IRC protocol command encoding and relay submission.
+- [`src/mailbox_channels/adapters/irc_adapter.py`](src/mailbox_channels/adapters/irc_adapter.py) - Complete IRC/TLS transport, discovery, protocol commands, joins, messages, and attachment-link delivery.
 - [`src/mailbox_channels/adapters/telegram_adapter.py`](src/mailbox_channels/adapters/telegram_adapter.py) - Telegram Bot API polling, topics, chat-name resolution, text, and documents.
 - [`src/mailbox_channels/adapters/whatsapp_adapter.py`](src/mailbox_channels/adapters/whatsapp_adapter.py) - WhatsApp Business Cloud API webhooks, direct/group delivery, and media handling.
 - [`src/mailbox_channels/adapters/whatsapp_personal_adapter.py`](src/mailbox_channels/adapters/whatsapp_personal_adapter.py) - Signed integration with the local personal-WhatsApp companion.

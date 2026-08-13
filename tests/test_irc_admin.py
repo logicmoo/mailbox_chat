@@ -1,8 +1,8 @@
 from mailbox_channels.admin_io import normalize_options
 from mailbox_channels.agent_mailbox import CHAT_COMMANDS
 from mailbox_channels.chat_admin import _platform, main, parser
-from mailbox_channels.adapters.irc_commands import protocol_line
-from mailbox_channels.adapters.mattermost_commands import arguments_from_namespace
+from mailbox_channels.adapters.irc_adapter import protocol_line
+from mailbox_channels.adapters.mattermost_adapter import arguments_from_namespace
 
 
 def test_irc_help_lists_normal_commands() -> None:

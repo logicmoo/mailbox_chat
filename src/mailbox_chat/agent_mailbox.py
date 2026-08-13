@@ -1079,7 +1079,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             if channel.lower().startswith(("mm/", "mattermost/")):
                 from .identifier_directory import IdentifierDirectory
-                from .adapters.mattermost_commands import resolve_address
+                from .adapters.mattermost_adapter import resolve_address
                 channel = resolve_address(
                     channel, IdentifierDirectory(mailbox_root or mailbox_dir()),
                     base_url=os.environ.get("MM_URL", ""),
@@ -1107,7 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
             channel = args.channel
             if not use_rest and channel.lower().startswith(("mm/", "mattermost/")):
                 from .identifier_directory import IdentifierDirectory
-                from .adapters.mattermost_commands import resolve_address
+                from .adapters.mattermost_adapter import resolve_address
                 channel = resolve_address(
                     channel, IdentifierDirectory(mailbox_root or mailbox_dir()),
                     base_url=os.environ.get("MM_URL", ""),

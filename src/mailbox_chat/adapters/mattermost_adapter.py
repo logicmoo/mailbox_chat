@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import argparse
+import json
 import logging
 import mimetypes
 import os
+import sys
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +21,11 @@ from ..listener_registry import config_dir, listeners_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..channel_routes import dispatch_routes
 from ..subscriptions import subscribers
-from ..endpoint_address import EndpointAddress, endpoint_instance
-from urllib.parse import urlsplit
+from ..endpoint_address import EndpointAddress, endpoint_instance, parse_endpoint
+from ..admin_io import load_input, normalize_options, render
+from ..identifier_directory import IdentifierDirectory
+from ..agent_mailbox import MATTERMOST_COMMANDS
+from urllib.parse import quote, urlsplit
 
 
 LOGGER = logging.getLogger(__name__)
@@ -303,3 +310,407 @@ class MattermostRelay:
                 LOGGER.exception("Mattermost relay cycle failed")
             self.sleep(1)
         self.status["running"] = False
+
+COMMANDS = MATTERMOST_COMMANDS
+
+
+def post_relay_command(url: str, token: str, command: str,
+                       arguments: dict[str, Any]) -> dict[str, Any]:
+    """Submit one Mattermost operation to the mailbox relay."""
+    body = json.dumps({"command": command, "arguments": arguments}).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    with urllib.request.urlopen(urllib.request.Request(
+        f"{url.rstrip('/')}/v1/mm/command", data=body, headers=headers, method="POST",
+    ), timeout=35) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def arguments_from_namespace(args: argparse.Namespace, loaded: object | None) -> dict[str, Any]:
+    """Translate the generic chat CLI namespace into Mattermost command arguments."""
+    command = args.command
+    if command in {"ping", "teams"}:
+        return {}
+    if command == "list":
+        return {"team": args.team}
+    if command == "names":
+        return {"channel": args.channel}
+    if command == "threads":
+        return {"team": args.team}
+    if command in {"join", "part"}:
+        return {"channel": args.channel}
+    if command == "topic":
+        return {"channel": args.channel, "text": loaded}
+    if command == "nick":
+        return {"nickname": args.nickname}
+    if command == "whois":
+        return {"user": args.nickname}
+    if command == "mode":
+        return {"channel": args.target,
+                "setting": args.modes[0] if args.modes else None,
+                "user": args.modes[1] if len(args.modes) > 1 else None}
+    if command == "invite":
+        return {"user": args.nickname, "channel": args.channel}
+    if command == "kick":
+        return {"channel": args.channel, "user": args.nickname}
+    if command in {"message", "notice"}:
+        return {"target": args.target, "text": loaded,
+                **({"user": args.user} if command == "notice" else {})}
+    if command == "raw":
+        if len(args.arguments) < 2:
+            raise ValueError("Mattermost raw requires METHOD and /api/v4/PATH")
+        body = loaded
+        if body is None and len(args.arguments) > 2:
+            try:
+                body = json.loads(args.arguments[2])
+            except json.JSONDecodeError as error:
+                raise ValueError(f"invalid Mattermost raw JSON: {error}") from error
+        return {"method": args.arguments[0], "path": args.arguments[1], "body": body}
+    raise ValueError(f"{command} is not supported by Mattermost")
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="mailbox-client",
+        description="Run familiar channel and user commands through the relay's Mattermost bot",
+    )
+    result.add_argument("--url", default="http://127.0.0.1:46667",
+                        help="relay HTTP base URL (default: http://127.0.0.1:46667)")
+    result.add_argument("--token", help="relay REST Bearer token (or AGENT_MAILBOX_TOKEN)")
+    result.add_argument("--input", help="read content from FILE")
+    result.add_argument("--input-format", choices=("text", "json"), default="text",
+                        help="interpret --input as text or JSON (default: text)")
+    result.add_argument("--format", choices=("jsonl", "json", "text"), default="json",
+                        help="output format (default: json)")
+    commands = result.add_subparsers(dest="command", required=True)
+    commands.add_parser("ping", help="verify the authenticated Mattermost connection")
+    commands.add_parser("teams", help="list teams visible to the bot")
+    listing = commands.add_parser("list", help="list channels visible to the bot")
+    listing.add_argument("--team", help="limit results to one team ID")
+    names = commands.add_parser("names", help="list users in a channel")
+    names.add_argument("channel")
+    threads = commands.add_parser("threads", help="list the bot's threads in a team")
+    threads.add_argument("team", help="team ID or a discovered team name")
+    join = commands.add_parser("join", help="add the bot to a channel")
+    join.add_argument("channel")
+    part = commands.add_parser("part", help="remove the bot from a channel")
+    part.add_argument("channel")
+    topic = commands.add_parser("topic", help="read or set a channel header")
+    topic.add_argument("channel")
+    topic.add_argument("text", nargs="?", help="new header; omit to read it")
+    nick = commands.add_parser("nick", help="set the bot account nickname")
+    nick.add_argument("nickname")
+    whois = commands.add_parser("whois", help="show a user by ID or username")
+    whois.add_argument("user")
+    mode = commands.add_parser(
+        "mode", help="read/set public/private visibility or channel operator (+o/-o)",
+        description=("Read channel details; change public/private visibility; or map IRC-style "
+                     "+o/-o to Mattermost channel-admin membership."),
+        epilog=("Examples: mailbox-client mode mm/0/CHANNEL public; "
+                "mailbox-client mode mm/0/CHANNEL +o USER"),
+    )
+    mode.add_argument("channel", help="channel ID, discovered name, or mm/INSTANCE/ID address")
+    mode.add_argument("setting", nargs="?", help="public, private, +o, or -o; omit to inspect")
+    mode.add_argument("user", nargs="?", help="user ID/name required by +o or -o")
+    invite = commands.add_parser("invite", help="add a user to a channel")
+    invite.add_argument("user")
+    invite.add_argument("channel")
+    kick = commands.add_parser("kick", help="remove a user from a channel")
+    kick.add_argument("channel")
+    kick.add_argument("user")
+    message = commands.add_parser("message", help="post a message to a channel or DM channel")
+    message.add_argument("target")
+    message.add_argument("text", nargs="?")
+    notice = commands.add_parser(
+        "notice", help="post a tagged notice or an ephemeral user-only notice",
+        description=("Post a mailbox-tagged channel message. With --user, use Mattermost's "
+                     "ephemeral-post API so only that user sees it."),
+        epilog="Example: mailbox-client notice mm/0/CHANNEL --user USER 'Maintenance soon'",
+    )
+    notice.add_argument("target", help="channel ID, discovered name, or mm/INSTANCE/ID address")
+    notice.add_argument("text", nargs="?", help="notice text; alternatively use --input FILE")
+    notice.add_argument("--user", help="user ID or discovered username for an ephemeral post")
+    raw = commands.add_parser("raw", help="make an expert-level authenticated /api/v4 request")
+    raw.add_argument("method", choices=("GET", "POST", "PUT", "DELETE"), type=str.upper)
+    raw.add_argument("path", help="Mattermost path beginning /api/v4/")
+    raw.add_argument("json_body", nargs="?", help="optional JSON request body")
+    return result
+
+
+def _instance(base_url: str) -> str:
+    return (urlsplit(base_url).hostname or "mattermost").lower()
+
+
+def _id(value: str, *, directory: IdentifierDirectory | None = None,
+        base_url: str = "", kind: str = "") -> str:
+    endpoint = parse_endpoint(value)
+    if endpoint:
+        if endpoint.adapter != "mattermost":
+            raise ValueError(f"expected an mm address, received {value}")
+        value = endpoint.identifier
+    if directory and not (len(value) == 26 and value.isalnum()):
+        systems = [f"mm/{_instance(base_url)}", "mm/0"]
+        matches = [entry for system in systems for entry in directory.find(
+            system=system, text=value, kind=kind, limit=2,
+        )]
+        identifiers = list(dict.fromkeys(str(entry["identifier"]) for entry in matches))
+        if len(identifiers) == 1:
+            return identifiers[0]
+        if len(identifiers) > 1:
+            raise ValueError(f"ambiguous Mattermost name {value!r}; use mm/INSTANCE/ID")
+    return value
+
+
+def resolve_address(value: str, directory: IdentifierDirectory, *, base_url: str = "") -> str:
+    endpoint = parse_endpoint(value)
+    if endpoint is None or endpoint.adapter != "mattermost":
+        return value
+    identifier = _id(value, directory=directory, base_url=base_url, kind="channel")
+    return f"mm/{endpoint.instance}/{identifier}"
+
+
+def _remember(directory: IdentifierDirectory | None, base_url: str, record: dict[str, Any],
+              *, kind: str) -> dict[str, Any]:
+    identifier = str(record.get("id") or record.get("post", {}).get("id") or "")
+    if not identifier:
+        return record
+    text = str(record.get("display_name") or record.get("username") or record.get("name") or
+               record.get("post", {}).get("message") or identifier).strip()
+    if len(text) > 512:
+        text = text[:509] + "..."
+    instance = _instance(base_url)
+    metadata = {key: value for key, value in record.items() if key not in {"id"}}
+    if directory:
+        aliases = list(dict.fromkeys(str(record.get(field) or "").strip()[:512]
+                                     for field in ("display_name", "name", "username")
+                                     if str(record.get(field) or "").strip())) or [text]
+        for alias in aliases:
+            directory.remember(identifier, alias, system=f"mm/{instance}", kind=kind, metadata=metadata)
+            directory.remember(identifier, alias, system="mm/0", kind=kind, metadata=metadata)
+    return {**record, "address": f"mm/{instance}/{identifier}", "resource_type": kind}
+
+
+def _remember_many(directory: IdentifierDirectory | None, base_url: str, value: Any,
+                   *, kind: str) -> Any:
+    return [_remember(directory, base_url, item, kind=kind) for item in value] if isinstance(value, list) else value
+
+
+def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, value: Any,
+                       *, kind: str = "") -> Any:
+    """Visit every JSON object and persist each trustworthy ID/name pairing."""
+    if directory is None:
+        return value
+    if isinstance(value, list):
+        for item in value:
+            remember_named_ids(directory, base_url, item, kind=kind)
+        return value
+    if not isinstance(value, dict):
+        return value
+    pairs: list[tuple[str, list[str], str]] = []
+    direct_id = str(value.get("id") or "").strip()
+    direct_aliases = list(dict.fromkeys(
+        str(value.get(field) or "").strip()[:512]
+        for field in ("display_name", "name", "username", "nickname")
+        if isinstance(value.get(field), (str, int)) and str(value.get(field) or "").strip()
+    ))
+    direct_kind = kind or ("user" if value.get("username") else
+                           "channel" if value.get("team_id") else "")
+    if direct_id and direct_aliases:
+        pairs.append((direct_id, direct_aliases, direct_kind))
+    for field, raw_identifier in value.items():
+        if not field.endswith("_id") or not isinstance(raw_identifier, (str, int)):
+            continue
+        stem = field[:-3]
+        aliases = list(dict.fromkeys(
+            str(value.get(alias_field) or "").strip()[:512]
+            for alias_field in (
+                f"{stem}_display_name", f"{stem}_name", f"{stem}_username",
+                # Common JSON objects use username beside user_id.
+                *(('username', 'display_name', 'nickname') if stem in {'user', 'owner', 'creator'} else ()),
+            )
+            if isinstance(value.get(alias_field), (str, int)) and
+            str(value.get(alias_field) or "").strip()
+        ))
+        identifier = str(raw_identifier).strip()
+        if identifier and aliases:
+            inferred_kind = ({"user": "user", "owner": "user", "creator": "user",
+                              "channel": "channel", "team": "team", "post": "post",
+                              "root": "thread"}.get(stem, stem))
+            pairs.append((identifier, aliases, inferred_kind))
+    if pairs:
+        metadata = dict(value)
+        instance = _instance(base_url)
+        for identifier, aliases, inferred_kind in pairs:
+            for alias in aliases:
+                directory.remember(identifier, alias, system=f"mm/{instance}",
+                                   kind=inferred_kind, metadata=metadata)
+                directory.remember(identifier, alias, system="mm/0",
+                                   kind=inferred_kind, metadata=metadata)
+    for item in value.values():
+        if isinstance(item, (dict, list)):
+            remember_named_ids(directory, base_url, item)
+    return value
+
+
+def _request(session: requests.Session, base_url: str, method: str, path: str,
+             body: Any = None) -> Any:
+    response = session.request(method, f"{base_url.rstrip('/')}{path}", json=body, timeout=30)
+    response.raise_for_status()
+    if not getattr(response, "content", b""):
+        return {"ok": True}
+    return response.json()
+
+
+def _me(session: requests.Session, base_url: str) -> dict[str, Any]:
+    return _request(session, base_url, "GET", "/api/v4/users/me")
+
+
+def _user_id(session: requests.Session, base_url: str, value: str,
+             directory: IdentifierDirectory | None = None) -> str:
+    value = _id(value, directory=directory, base_url=base_url, kind="user")
+    if len(value) == 26 and value.isalnum():
+        return value
+    return str(_request(session, base_url, "GET", f"/api/v4/users/username/{value}")["id"])
+
+
+def execute(command: str, arguments: dict[str, Any], *, session: requests.Session,
+            base_url: str, directory: IdentifierDirectory | None = None) -> Any:
+    """Execute one Mattermost-flavoured command using an authenticated session."""
+    if command not in COMMANDS:
+        raise ValueError(f"unsupported Mattermost command: {command}")
+    if command == "raw":
+        path = str(arguments.get("path") or "")
+        method = str(arguments.get("method") or "GET").upper()
+        if not path.startswith("/api/v4/") or "://" in path or method not in {"GET", "POST", "PUT", "DELETE"}:
+            raise ValueError("raw requests require GET/POST/PUT/DELETE and a local /api/v4/ path")
+        return remember_named_ids(directory, base_url, _request(
+            session, base_url, method, path, arguments.get("body"),
+        ))
+    me = _me(session, base_url)
+    me_id = str(me["id"])
+    if command == "ping":
+        return {"ok": True, "user": _remember(directory, base_url, me, kind="user")}
+    if command == "teams":
+        return _remember_many(directory, base_url, _request(
+            session, base_url, "GET", f"/api/v4/users/{me_id}/teams",
+        ), kind="team")
+    if command == "list":
+        team = str(arguments.get("team") or "")
+        if team:
+            team = _id(team, directory=directory, base_url=base_url, kind="team")
+        path = (f"/api/v4/users/{me_id}/teams/{team}/channels" if team else
+                f"/api/v4/users/{me_id}/channels")
+        channels = _request(session, base_url, "GET", path)
+        return [_remember(directory, base_url, item, kind=(
+            "dm" if item.get("type") == "D" else "group" if item.get("type") == "G" else "channel"
+        )) for item in channels]
+    if command == "names":
+        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        return _remember_many(directory, base_url, _request(session, base_url, "GET",
+            f"/api/v4/users?in_channel={quote(channel)}&per_page=200"), kind="user")
+    if command == "threads":
+        team = _id(str(arguments["team"]), directory=directory, base_url=base_url, kind="team")
+        payload = _request(session, base_url, "GET",
+                           f"/api/v4/users/{me_id}/teams/{quote(team)}/threads")
+        if isinstance(payload, dict) and isinstance(payload.get("threads"), list):
+            payload = {**payload, "threads": _remember_many(
+                directory, base_url, payload["threads"], kind="thread")}
+        return payload
+    if command in {"join", "invite"}:
+        user_id = (me_id if command == "join" else
+                   _user_id(session, base_url, str(arguments["user"]), directory))
+        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        return _request(session, base_url, "POST", f"/api/v4/channels/{channel}/members",
+                        {"user_id": user_id})
+    if command in {"part", "kick"}:
+        user_id = (me_id if command == "part" else
+                   _user_id(session, base_url, str(arguments["user"]), directory))
+        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        return _request(session, base_url, "DELETE", f"/api/v4/channels/{channel}/members/{user_id}")
+    if command == "topic":
+        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        if arguments.get("text") is None:
+            return _request(session, base_url, "GET", f"/api/v4/channels/{channel}")
+        return _request(session, base_url, "PUT", f"/api/v4/channels/{channel}/patch",
+                        {"header": arguments["text"]})
+    if command == "nick":
+        return _request(session, base_url, "PUT", f"/api/v4/users/{me_id}/patch",
+                        {"nickname": arguments["nickname"]})
+    if command == "whois":
+        value = _id(str(arguments["user"]), directory=directory, base_url=base_url, kind="user")
+        path = (f"/api/v4/users/{value}" if len(value) == 26 and value.isalnum() else
+                f"/api/v4/users/username/{value}")
+        return _request(session, base_url, "GET", path)
+    if command == "mode":
+        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        setting = str(arguments.get("setting") or "").lower()
+        if not setting:
+            return _request(session, base_url, "GET", f"/api/v4/channels/{channel}")
+        if setting in {"public", "private"}:
+            return _request(session, base_url, "PUT", f"/api/v4/channels/{channel}/patch",
+                            {"type": "O" if setting == "public" else "P"})
+        if setting in {"+o", "-o"}:
+            if not arguments.get("user"):
+                raise ValueError(f"mm mode {setting} requires a user")
+            user_id = _user_id(session, base_url, str(arguments["user"]), directory)
+            roles = "channel_user channel_admin" if setting == "+o" else "channel_user"
+            return _request(session, base_url, "PUT",
+                            f"/api/v4/channels/{channel}/members/{user_id}/roles",
+                            {"roles": roles})
+        raise ValueError("Mattermost mode supports public, private, +o, and -o")
+    if command in {"message", "notice"}:
+        channel = _id(str(arguments["target"]), directory=directory,
+                      base_url=base_url, kind="channel")
+        body: dict[str, Any] = {"channel_id": channel, "message": arguments["text"]}
+        if command == "notice":
+            body["props"] = {"mailbox_notice": True}
+            if arguments.get("user"):
+                user_id = _user_id(session, base_url, str(arguments["user"]), directory)
+                return _request(session, base_url, "POST", "/api/v4/posts/ephemeral",
+                                {"user_id": user_id, "post": body})
+        return _request(session, base_url, "POST", "/api/v4/posts", body)
+    raise AssertionError(command)
+
+
+def _payload(args: argparse.Namespace) -> dict[str, Any]:
+    values = vars(args).copy()
+    values.pop("url", None)
+    values.pop("token", None)
+    values.pop("format", None)
+    input_path = values.pop("input", None)
+    input_format = values.pop("input_format", "text")
+    command = values.pop("command")
+    field = {"topic": "text", "message": "text", "notice": "text", "raw": "json_body"}.get(command)
+    if input_path and not field:
+        raise ValueError(f"--input is not valid with mm {command}")
+    if field:
+        loaded = load_input(input_path, values.get(field), input_format=input_format,
+                            label=f"mm {command}")
+        values[field] = loaded
+        if command in {"message", "notice"} and loaded is None:
+            raise ValueError(f"mm {command} requires inline text or --input FILE")
+    if command == "raw" and values.get("json_body") is not None:
+        raw_body = values.pop("json_body")
+        if isinstance(raw_body, str):
+            try:
+                raw_body = json.loads(raw_body)
+            except json.JSONDecodeError as error:
+                raise ValueError(f"invalid raw JSON body: {error}") from error
+        values["body"] = raw_body
+    else:
+        values.pop("json_body", None)
+    return {"command": command, "arguments": values}
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(normalize_options(list(sys.argv[1:] if argv is None else argv)))
+    token = args.token or os.environ.get("AGENT_MAILBOX_TOKEN", "")
+    payload = _payload(args)
+    output = post_relay_command(args.url, token, payload["command"], payload["arguments"])
+    print(render(output.get("result", output), args.format))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

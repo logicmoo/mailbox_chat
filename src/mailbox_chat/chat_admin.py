@@ -9,8 +9,8 @@ import sys
 from .admin_io import load_input, normalize_options, render
 from .agent_mailbox import CHAT_COMMANDS
 from .endpoint_address import parse_endpoint
-from .adapters.irc_commands import post_relay_command as post_irc_command, protocol_line
-from .adapters.mattermost_commands import (
+from .adapters.irc_adapter import post_relay_command as post_irc_command, protocol_line
+from .adapters.mattermost_adapter import (
     arguments_from_namespace as mattermost_arguments,
     post_relay_command as post_mattermost_command,
 )
