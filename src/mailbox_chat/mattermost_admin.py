@@ -147,6 +147,42 @@ def _remember_many(directory: IdentifierDirectory | None, base_url: str, value: 
     return [_remember(directory, base_url, item, kind=kind) for item in value] if isinstance(value, list) else value
 
 
+def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, value: Any,
+                       *, kind: str = "") -> Any:
+    """Recursively persist every Mattermost object exposing an ID and readable name."""
+    if directory is None:
+        return value
+    if isinstance(value, list):
+        for item in value:
+            remember_named_ids(directory, base_url, item, kind=kind)
+        return value
+    if not isinstance(value, dict):
+        return value
+    identifier = str(value.get("id") or "").strip()
+    aliases = list(dict.fromkeys(
+        str(value.get(field) or "").strip()[:512]
+        for field in ("display_name", "name", "username")
+        if str(value.get(field) or "").strip()
+    ))
+    inferred_kind = kind
+    if not inferred_kind and value.get("username"):
+        inferred_kind = "user"
+    elif not inferred_kind and value.get("team_id"):
+        inferred_kind = "channel"
+    if identifier and aliases:
+        metadata = {key: item for key, item in value.items() if key != "id"}
+        instance = _instance(base_url)
+        for alias in aliases:
+            directory.remember(identifier, alias, system=f"mm/{instance}",
+                               kind=inferred_kind, metadata=metadata)
+            directory.remember(identifier, alias, system="mm/0",
+                               kind=inferred_kind, metadata=metadata)
+    for item in value.values():
+        if isinstance(item, (dict, list)):
+            remember_named_ids(directory, base_url, item)
+    return value
+
+
 def _request(session: requests.Session, base_url: str, method: str, path: str,
              body: Any = None) -> Any:
     response = session.request(method, f"{base_url.rstrip('/')}{path}", json=body, timeout=30)
@@ -178,7 +214,9 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
         method = str(arguments.get("method") or "GET").upper()
         if not path.startswith("/api/v4/") or "://" in path or method not in {"GET", "POST", "PUT", "DELETE"}:
             raise ValueError("raw requests require GET/POST/PUT/DELETE and a local /api/v4/ path")
-        return _request(session, base_url, method, path, arguments.get("body"))
+        return remember_named_ids(directory, base_url, _request(
+            session, base_url, method, path, arguments.get("body"),
+        ))
     me = _me(session, base_url)
     me_id = str(me["id"])
     if command == "ping":

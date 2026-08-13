@@ -235,6 +235,9 @@ Mattermost discovery saves teams, channels, direct/group-message channels,
 threads, and users in the durable identifier registry. After discovery, a
 unique readable alias can replace an opaque ID, including
 `/console mm/0/Town-Square`; subscriptions are saved using the resolved ID.
+Every Mattermost response is also scanned recursively: whenever an object has
+an `id` together with `display_name`, `name`, or `username`, all readable
+aliases are refreshed under both the concrete instance and `mm/0`.
 `mode mm/0/CHANNEL public|private` maps visibility, while `mode mm/0/CHANNEL
 +o USER` or `mode mm/0/CHANNEL -o USER` grants or revokes Mattermost
 channel-admin membership. `notice mm/0/CHANNEL`

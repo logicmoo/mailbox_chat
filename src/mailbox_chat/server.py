@@ -493,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 if request_path == "/v1/mm/command":
-                    from .mattermost_admin import execute
+                    from .mattermost_admin import execute, remember_named_ids
                     if not relay.status.get("enabled"):
                         raise ValueError("Mattermost adapter is not enabled")
                     if not relay.status.get("connected"):
@@ -503,6 +503,7 @@ def main(argv: list[str] | None = None) -> int:
                                      session=relay.session,
                                      base_url=relay.base_url,
                                      directory=identifiers)
+                    remember_named_ids(identifiers, relay.base_url, result)
                     self._json(200, {"result": result})
                     return
                 if request_path == "/v1/irc/command":

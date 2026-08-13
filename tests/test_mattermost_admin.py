@@ -1,7 +1,9 @@
 import argparse
 
 from mailbox_channels.identifier_directory import IdentifierDirectory
-from mailbox_channels.mattermost_admin import COMMANDS, _payload, execute, parser, resolve_address
+from mailbox_channels.mattermost_admin import (
+    COMMANDS, _payload, execute, parser, remember_named_ids, resolve_address,
+)
 
 
 class Response:
@@ -141,3 +143,18 @@ def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
     saved = _remember(directory, "https://chat.example", record, kind="thread")
     assert saved["address"] == f"mm/chat.example/{'p' * 26}"
     assert len(directory.find(system="mm/0", kind="thread")[0]["text"]) == 512
+
+
+def test_every_nested_mattermost_id_and_name_pair_is_persisted(tmp_path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    payload = {
+        "channels": [{"id": "channel-1", "name": "town-square",
+                      "display_name": "Town Square", "team_id": "team-1"}],
+        "owner": {"id": "user-1", "username": "alice"},
+    }
+
+    assert remember_named_ids(directory, "https://chat.singularitynet.io", payload) is payload
+    assert {item["text"] for item in directory.find(
+        system="mm/chat.singularitynet.io", identifier="channel-1",
+    )} == {"town-square", "Town Square"}
+    assert directory.find(system="mm/0", text="alice", kind="user")[0]["identifier"] == "user-1"
