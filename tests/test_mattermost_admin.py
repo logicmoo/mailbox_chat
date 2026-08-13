@@ -151,6 +151,9 @@ def test_every_nested_mattermost_id_and_name_pair_is_persisted(tmp_path) -> None
         "channels": [{"id": "channel-1", "name": "town-square",
                       "display_name": "Town Square", "team_id": "team-1"}],
         "owner": {"id": "user-1", "username": "alice"},
+        "deeply": {"nested": [{"channel_id": "channel-2",
+                                 "channel_name": "developers"},
+                                {"user_id": "user-2", "username": "bob"}]},
     }
 
     assert remember_named_ids(directory, "https://chat.singularitynet.io", payload) is payload
@@ -158,3 +161,13 @@ def test_every_nested_mattermost_id_and_name_pair_is_persisted(tmp_path) -> None
         system="mm/chat.singularitynet.io", identifier="channel-1",
     )} == {"town-square", "Town Square"}
     assert directory.find(system="mm/0", text="alice", kind="user")[0]["identifier"] == "user-1"
+    assert directory.find(system="mm/0", text="developers", kind="channel")[0]["identifier"] == "channel-2"
+    assert directory.find(system="mm/0", text="bob", kind="user")[0]["identifier"] == "user-2"
+
+
+def test_registry_walker_ignores_unlabelled_ids_but_visits_all_objects(tmp_path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    payload = [{"event_id": "opaque-only", "child": {"id": "named", "nickname": "helper"}}]
+    remember_named_ids(directory, "https://chat.example", payload)
+    assert directory.find(system="mm/0", identifier="opaque-only") == []
+    assert directory.find(system="mm/0", identifier="named")[0]["text"] == "helper"

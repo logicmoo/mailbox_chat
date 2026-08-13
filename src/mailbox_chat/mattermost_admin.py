@@ -149,7 +149,7 @@ def _remember_many(directory: IdentifierDirectory | None, base_url: str, value: 
 
 def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, value: Any,
                        *, kind: str = "") -> Any:
-    """Recursively persist every Mattermost object exposing an ID and readable name."""
+    """Visit every JSON object and persist each trustworthy ID/name pairing."""
     if directory is None:
         return value
     if isinstance(value, list):
@@ -158,25 +158,46 @@ def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, val
         return value
     if not isinstance(value, dict):
         return value
-    identifier = str(value.get("id") or "").strip()
-    aliases = list(dict.fromkeys(
+    pairs: list[tuple[str, list[str], str]] = []
+    direct_id = str(value.get("id") or "").strip()
+    direct_aliases = list(dict.fromkeys(
         str(value.get(field) or "").strip()[:512]
-        for field in ("display_name", "name", "username")
-        if str(value.get(field) or "").strip()
+        for field in ("display_name", "name", "username", "nickname")
+        if isinstance(value.get(field), (str, int)) and str(value.get(field) or "").strip()
     ))
-    inferred_kind = kind
-    if not inferred_kind and value.get("username"):
-        inferred_kind = "user"
-    elif not inferred_kind and value.get("team_id"):
-        inferred_kind = "channel"
-    if identifier and aliases:
-        metadata = {key: item for key, item in value.items() if key != "id"}
+    direct_kind = kind or ("user" if value.get("username") else
+                           "channel" if value.get("team_id") else "")
+    if direct_id and direct_aliases:
+        pairs.append((direct_id, direct_aliases, direct_kind))
+    for field, raw_identifier in value.items():
+        if not field.endswith("_id") or not isinstance(raw_identifier, (str, int)):
+            continue
+        stem = field[:-3]
+        aliases = list(dict.fromkeys(
+            str(value.get(alias_field) or "").strip()[:512]
+            for alias_field in (
+                f"{stem}_display_name", f"{stem}_name", f"{stem}_username",
+                # Common JSON objects use username beside user_id.
+                *(('username', 'display_name', 'nickname') if stem in {'user', 'owner', 'creator'} else ()),
+            )
+            if isinstance(value.get(alias_field), (str, int)) and
+            str(value.get(alias_field) or "").strip()
+        ))
+        identifier = str(raw_identifier).strip()
+        if identifier and aliases:
+            inferred_kind = ({"user": "user", "owner": "user", "creator": "user",
+                              "channel": "channel", "team": "team", "post": "post",
+                              "root": "thread"}.get(stem, stem))
+            pairs.append((identifier, aliases, inferred_kind))
+    if pairs:
+        metadata = dict(value)
         instance = _instance(base_url)
-        for alias in aliases:
-            directory.remember(identifier, alias, system=f"mm/{instance}",
-                               kind=inferred_kind, metadata=metadata)
-            directory.remember(identifier, alias, system="mm/0",
-                               kind=inferred_kind, metadata=metadata)
+        for identifier, aliases, inferred_kind in pairs:
+            for alias in aliases:
+                directory.remember(identifier, alias, system=f"mm/{instance}",
+                                   kind=inferred_kind, metadata=metadata)
+                directory.remember(identifier, alias, system="mm/0",
+                                   kind=inferred_kind, metadata=metadata)
     for item in value.values():
         if isinstance(item, (dict, list)):
             remember_named_ids(directory, base_url, item)
