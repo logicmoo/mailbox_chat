@@ -450,7 +450,9 @@ def _id(value: str, *, directory: IdentifierDirectory | None = None,
             raise ValueError(f"expected an mm address, received {value}")
         value = endpoint.identifier
     if directory and not (len(value) == 26 and value.isalnum()):
-        systems = [f"mm/{_instance(base_url)}", "mm/0"]
+        # mm/0 is a routing alias, not a second registry namespace. Resolve it
+        # against the canonical instance derived from the active base URL.
+        systems = [f"mm/{_instance(base_url)}"]
         matches = [entry for system in systems for entry in directory.find(
             system=system, text=value, kind=kind, limit=2,
         )]
@@ -487,7 +489,6 @@ def _remember(directory: IdentifierDirectory | None, base_url: str, record: dict
                                      if str(record.get(field) or "").strip())) or [text]
         for alias in aliases:
             directory.remember(identifier, alias, system=f"mm/{instance}", kind=kind, metadata=metadata)
-            directory.remember(identifier, alias, system="mm/0", kind=kind, metadata=metadata)
     return {**record, "address": f"mm/{instance}/{identifier}", "resource_type": kind}
 
 
@@ -544,8 +545,6 @@ def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, val
         for identifier, aliases, inferred_kind in pairs:
             for alias in aliases:
                 directory.remember(identifier, alias, system=f"mm/{instance}",
-                                   kind=inferred_kind, metadata=metadata)
-                directory.remember(identifier, alias, system="mm/0",
                                    kind=inferred_kind, metadata=metadata)
     for item in value.values():
         if isinstance(item, (dict, list)):

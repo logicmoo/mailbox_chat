@@ -37,6 +37,17 @@ def test_directory_system_filter_prevents_cross_platform_matches(tmp_path: Path)
     assert directory.entry_count(system="mm/0") == 1
 
 
+def test_directory_removes_only_redundant_default_instance_aliases(tmp_path: Path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    directory.remember("same-id", "Alice", system="mm/0", kind="user")
+    directory.remember("legacy-only", "Bob", system="mm/0", kind="user")
+    directory.remember("same-id", "Alice", system="mm/chat.example", kind="user")
+
+    assert directory.find(system="mm/0", identifier="same-id") == []
+    assert directory.find(system="mm/0", identifier="legacy-only")[0]["text"] == "Bob"
+    assert directory.find(system="mm/chat.example", identifier="same-id")[0]["text"] == "Alice"
+
+
 def test_directory_enriches_known_ids_without_replacing_them(tmp_path: Path) -> None:
     directory = IdentifierDirectory(tmp_path)
     identifier = "12345678-1234-5678-9abc-1234567890ab"

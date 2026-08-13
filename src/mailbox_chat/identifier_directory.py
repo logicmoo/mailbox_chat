@@ -53,6 +53,23 @@ class IdentifierDirectory:
             "CREATE INDEX IF NOT EXISTS identifier_directory_text "
             "ON identifier_directory_entries(system, text, kind)"
         )
+        # Older releases stored each Mattermost discovery both under its real
+        # instance and under mm/0. Keep legacy-only records, but discard an
+        # alias row when the identical canonical record is present.
+        connection.execute(
+            """
+            DELETE FROM identifier_directory_entries AS alias
+            WHERE alias.system = 'mm/0'
+              AND EXISTS (
+                SELECT 1 FROM identifier_directory_entries AS canonical
+                WHERE canonical.system LIKE 'mm/%'
+                  AND canonical.system != 'mm/0'
+                  AND canonical.identifier = alias.identifier
+                  AND canonical.text = alias.text
+                  AND canonical.kind = alias.kind
+              )
+            """
+        )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS identifier_resolution_requests (

@@ -132,7 +132,8 @@ def test_mm_discovery_persists_teams_channels_and_readable_addresses(tmp_path) -
                            base_url="https://chat.example") == f"mm/0/{'c' * 26}"
     assert resolve_address("mm/0/town-square", directory,
                            base_url="https://chat.example") == f"mm/0/{'c' * 26}"
-    assert directory.find(system="mm/0", text="Engineering", kind="team")
+    assert directory.find(system="mm/chat.example", text="Engineering", kind="team")
+    assert directory.find(system="mm/0") == []
 
 
 def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
@@ -142,7 +143,7 @@ def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
 
     saved = _remember(directory, "https://chat.example", record, kind="thread")
     assert saved["address"] == f"mm/chat.example/{'p' * 26}"
-    assert len(directory.find(system="mm/0", kind="thread")[0]["text"]) == 512
+    assert len(directory.find(system="mm/chat.example", kind="thread")[0]["text"]) == 512
 
 
 def test_every_nested_mattermost_id_and_name_pair_is_persisted(tmp_path) -> None:
@@ -160,14 +161,16 @@ def test_every_nested_mattermost_id_and_name_pair_is_persisted(tmp_path) -> None
     assert {item["text"] for item in directory.find(
         system="mm/chat.singularitynet.io", identifier="channel-1",
     )} == {"town-square", "Town Square"}
-    assert directory.find(system="mm/0", text="alice", kind="user")[0]["identifier"] == "user-1"
-    assert directory.find(system="mm/0", text="developers", kind="channel")[0]["identifier"] == "channel-2"
-    assert directory.find(system="mm/0", text="bob", kind="user")[0]["identifier"] == "user-2"
+    system = "mm/chat.singularitynet.io"
+    assert directory.find(system=system, text="alice", kind="user")[0]["identifier"] == "user-1"
+    assert directory.find(system=system, text="developers", kind="channel")[0]["identifier"] == "channel-2"
+    assert directory.find(system=system, text="bob", kind="user")[0]["identifier"] == "user-2"
+    assert directory.find(system="mm/0") == []
 
 
 def test_registry_walker_ignores_unlabelled_ids_but_visits_all_objects(tmp_path) -> None:
     directory = IdentifierDirectory(tmp_path)
     payload = [{"event_id": "opaque-only", "child": {"id": "named", "nickname": "helper"}}]
     remember_named_ids(directory, "https://chat.example", payload)
-    assert directory.find(system="mm/0", identifier="opaque-only") == []
-    assert directory.find(system="mm/0", identifier="named")[0]["text"] == "helper"
+    assert directory.find(system="mm/chat.example", identifier="opaque-only") == []
+    assert directory.find(system="mm/chat.example", identifier="named")[0]["text"] == "helper"
