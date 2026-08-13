@@ -46,8 +46,7 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 - [`src/mailbox_channels/listener_registry.py`](src/mailbox_channels/listener_registry.py) - Loading, expansion, validation, and safe publication of listener/route configuration.
 - [`src/mailbox_channels/subscriptions.py`](src/mailbox_channels/subscriptions.py) - Durable qualified-address subscriptions and atomic subscriber updates.
 - [`src/mailbox_channels/channel_admin.py`](src/mailbox_channels/channel_admin.py) - Unified local and external platform channel creation.
-- [`src/mailbox_channels/irc_admin.py`](src/mailbox_channels/irc_admin.py) - Top-level standard IRC commands executed through the active relay connection.
-- [`src/mailbox_channels/mattermost_admin.py`](src/mailbox_channels/mattermost_admin.py) - Mattermost discovery, durable readable-name resolution, membership, profile, message, and API commands.
+- [`src/mailbox_channels/chat_admin.py`](src/mailbox_channels/chat_admin.py) - Platform-neutral chat command parsing, address inference, and adapter dispatch.
 - [`src/mailbox_channels/admin_io.py`](src/mailbox_channels/admin_io.py) - Shared `--input`, `--input-format`, and output formatting for platform commands.
 - [`src/mailbox_channels/adapters/`](src/mailbox_channels/adapters/) - External chat-platform transport implementations.
 - [`src/mailbox_channels/endpoint_address.py`](src/mailbox_channels/endpoint_address.py) - Parsing and canonicalization of `TYPE/INSTANCE/SOURCE_OR_DESTINATION` addresses.
@@ -69,10 +68,12 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 ### Platform adapters
 
 - [`src/mailbox_channels/adapters/mattermost_adapter.py`](src/mailbox_channels/adapters/mattermost_adapter.py) - Mattermost channel/DM polling, posts, files, threads, subscriber fan-out, and echo suppression.
+- [`src/mailbox_channels/adapters/mattermost_commands.py`](src/mailbox_channels/adapters/mattermost_commands.py) - Mattermost discovery, command mapping, durable readable-name resolution, membership, profiles, and REST operations.
 - [`src/mailbox_channels/adapters/discord_adapter.py`](src/mailbox_channels/adapters/discord_adapter.py) - Discord channel polling and outbound message/file delivery.
 - [`src/mailbox_channels/adapters/slack_adapter.py`](src/mailbox_channels/adapters/slack_adapter.py) - Slack Web API polling, threaded messages, files, and multiple listener presences.
 - [`src/mailbox_channels/adapters/matrix_adapter.py`](src/mailbox_channels/adapters/matrix_adapter.py) - Matrix Client-Server sync, room messages, threads, and media transfer.
 - [`src/mailbox_channels/adapters/irc_adapter.py`](src/mailbox_channels/adapters/irc_adapter.py) - IRC/TLS connection, joins, channel/private messages, and attachment-link delivery.
+- [`src/mailbox_channels/adapters/irc_commands.py`](src/mailbox_channels/adapters/irc_commands.py) - IRC protocol command encoding and relay submission.
 - [`src/mailbox_channels/adapters/telegram_adapter.py`](src/mailbox_channels/adapters/telegram_adapter.py) - Telegram Bot API polling, topics, chat-name resolution, text, and documents.
 - [`src/mailbox_channels/adapters/whatsapp_adapter.py`](src/mailbox_channels/adapters/whatsapp_adapter.py) - WhatsApp Business Cloud API webhooks, direct/group delivery, and media handling.
 - [`src/mailbox_channels/adapters/whatsapp_personal_adapter.py`](src/mailbox_channels/adapters/whatsapp_personal_adapter.py) - Signed integration with the local personal-WhatsApp companion.

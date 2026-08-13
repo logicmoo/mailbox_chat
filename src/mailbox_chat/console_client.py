@@ -14,7 +14,7 @@ import websocket
 
 from . import agent_mailbox
 from .agent_mailbox import CHAT_COMMANDS
-from . import channel_admin, contact_admin, discovery_admin, irc_admin, registry_admin, route_admin, token_admin
+from . import channel_admin, chat_admin, contact_admin, discovery_admin, registry_admin, route_admin, token_admin
 
 CLIENT_NAME = "Mailbox Console"
 CHAT_PATH = "/v1/chat/ws"
@@ -123,7 +123,7 @@ def run_administration(command: str, arguments: str | list[str], *, url: str,
         ):
             argv = ["--url", relay_http_url(url), *argv]
     elif command in CHAT_COMMANDS:
-        handler = irc_admin.main
+        handler = chat_admin.main
         argv = [command, *argv]
         if directory is None and not any(
             item == "--url" or item.startswith("--url=") for item in argv

@@ -493,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 if request_path == "/v1/mm/command":
-                    from .mattermost_admin import execute, remember_named_ids
+                    from .adapters.mattermost_commands import execute, remember_named_ids
                     if not relay.status.get("enabled"):
                         raise ValueError("Mattermost adapter is not enabled")
                     if not relay.status.get("connected"):
@@ -551,7 +551,7 @@ def main(argv: list[str] | None = None) -> int:
                 if request_path == "/v1/subscriptions":
                     channel = str(payload.get("channel") or "")
                     if channel.lower().startswith(("mm/", "mattermost/")):
-                        from .mattermost_admin import resolve_address
+                        from .adapters.mattermost_commands import resolve_address
                         channel = resolve_address(channel, identifiers,
                                                   base_url=relay.base_url)
                     result = set_subscription(

@@ -1,7 +1,7 @@
 import argparse
 
 from mailbox_channels.identifier_directory import IdentifierDirectory
-from mailbox_channels.mattermost_admin import (
+from mailbox_channels.adapters.mattermost_commands import (
     COMMANDS, _payload, execute, parser, remember_named_ids, resolve_address,
 )
 
@@ -138,7 +138,7 @@ def test_mm_discovery_persists_teams_channels_and_readable_addresses(tmp_path) -
 def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
     record = {"post": {"id": "p" * 26, "message": "x" * 700}}
     directory = IdentifierDirectory(tmp_path)
-    from mailbox_channels.mattermost_admin import _remember
+    from mailbox_channels.adapters.mattermost_commands import _remember
 
     saved = _remember(directory, "https://chat.example", record, kind="thread")
     assert saved["address"] == f"mm/chat.example/{'p' * 26}"

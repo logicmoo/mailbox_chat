@@ -1,6 +1,8 @@
 from mailbox_channels.admin_io import normalize_options
 from mailbox_channels.agent_mailbox import CHAT_COMMANDS
-from mailbox_channels.irc_admin import _mattermost_arguments, _platform, main, parser, protocol_line
+from mailbox_channels.chat_admin import _platform, main, parser
+from mailbox_channels.adapters.irc_commands import protocol_line
+from mailbox_channels.adapters.mattermost_commands import arguments_from_namespace
 
 
 def test_irc_help_lists_normal_commands() -> None:
@@ -33,7 +35,7 @@ def test_platform_options_can_follow_command() -> None:
 def test_qualified_mattermost_address_selects_platform_and_maps_mode() -> None:
     args = parser().parse_args(["mode", "mm/0/town-square", "+o", "alice"])
     assert _platform(args) == "mm"
-    assert _mattermost_arguments(args, None) == {
+    assert arguments_from_namespace(args, None) == {
         "channel": "mm/0/town-square", "setting": "+o", "user": "alice",
     }
 
@@ -53,7 +55,7 @@ def test_command_help_explains_targets_platform_and_mattermost_modes() -> None:
 
 
 def test_mattermost_command_reports_new_registry_entries(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("mailbox_channels.irc_admin._post_mattermost", lambda *_args, **_kwargs: {
+    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command", lambda *_args, **_kwargs: {
         "result": [], "registry": {"new_entries": 3, "total_entries": 20},
     })
     assert main(["list", "--on", "mm/0"]) == 0

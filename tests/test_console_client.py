@@ -76,7 +76,7 @@ def test_any_console_slash_command_dispatches_to_mailbox_client(monkeypatch, tmp
 
 def test_console_default_on_is_injected_but_qualified_address_wins(monkeypatch) -> None:
     calls = []
-    monkeypatch.setattr(console_client.irc_admin, "main", lambda argv: calls.append(argv) or 0)
+    monkeypatch.setattr(console_client.chat_admin, "main", lambda argv: calls.append(argv) or 0)
     run_client_command("list", identity="agent", destination="unused",
                        url="http://relay:46667", directory=None,
                        chat_instance="mm/chat.singularitynet.io")

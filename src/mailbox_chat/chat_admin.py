@@ -1,16 +1,19 @@
-"""Top-level chat commands routed to IRC or Mattermost."""
+"""Platform-neutral top-level chat command parsing and dispatch."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
-import urllib.request
 
 from .admin_io import load_input, normalize_options, render
 from .agent_mailbox import CHAT_COMMANDS
 from .endpoint_address import parse_endpoint
+from .adapters.irc_commands import post_relay_command as post_irc_command, protocol_line
+from .adapters.mattermost_commands import (
+    arguments_from_namespace as mattermost_arguments,
+    post_relay_command as post_mattermost_command,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -81,46 +84,6 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def protocol_line(args: argparse.Namespace) -> str:
-    command = args.command
-    if command == "ping":
-        return f"PING :{args.token}"
-    if command == "join":
-        return f"JOIN {args.channel}" + (f" {args.key}" if args.key else "")
-    if command == "part":
-        return f"PART {args.channel}" + (f" :{args.message}" if args.message else "")
-    if command == "topic":
-        return f"TOPIC {args.channel}" + (f" :{args.text}" if args.text is not None else "")
-    if command == "nick":
-        return f"NICK {args.nickname}"
-    if command == "whois":
-        return f"WHOIS {args.nickname}"
-    if command == "mode":
-        return " ".join(["MODE", args.target, *args.modes])
-    if command == "invite":
-        return f"INVITE {args.nickname} {args.channel}"
-    if command == "kick":
-        return f"KICK {args.channel} {args.nickname}" + (f" :{args.reason}" if args.reason else "")
-    if command == "message":
-        return f"PRIVMSG {args.target} :{args.text}"
-    if command == "notice":
-        return f"NOTICE {args.target} :{args.text}"
-    if command == "raw":
-        return " ".join(args.arguments)
-    raise ValueError(f"{command} is handled by IRC discovery")
-
-
-def _post(url: str, token: str, line: str) -> dict:
-    body = json.dumps({"line": line}).encode("utf-8")
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    with urllib.request.urlopen(urllib.request.Request(
-        f"{url.rstrip('/')}/v1/irc/command", data=body, headers=headers, method="POST",
-    ), timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
 def _platform(args: argparse.Namespace) -> str:
     selected = str(args.on or "").split("/", 1)[0].lower()
     if selected:
@@ -139,59 +102,6 @@ def _platform(args: argparse.Namespace) -> str:
             if endpoint and endpoint.adapter == "mattermost":
                 return "mm"
     return "mm" if args.command in {"teams", "threads"} else "irc"
-
-
-def _mattermost_arguments(args: argparse.Namespace, loaded: object | None) -> dict:
-    command = args.command
-    if command in {"ping", "teams"}:
-        return {}
-    if command == "list":
-        return {"team": args.team}
-    if command == "names":
-        return {"channel": args.channel}
-    if command == "threads":
-        return {"team": args.team}
-    if command in {"join", "part"}:
-        return {"channel": args.channel}
-    if command == "topic":
-        return {"channel": args.channel, "text": loaded}
-    if command == "nick":
-        return {"nickname": args.nickname}
-    if command == "whois":
-        return {"user": args.nickname}
-    if command == "mode":
-        return {"channel": args.target,
-                "setting": args.modes[0] if args.modes else None,
-                "user": args.modes[1] if len(args.modes) > 1 else None}
-    if command == "invite":
-        return {"user": args.nickname, "channel": args.channel}
-    if command == "kick":
-        return {"channel": args.channel, "user": args.nickname}
-    if command in {"message", "notice"}:
-        return {"target": args.target, "text": loaded,
-                **({"user": args.user} if command == "notice" else {})}
-    if command == "raw":
-        if len(args.arguments) < 2:
-            raise ValueError("Mattermost raw requires METHOD and /api/v4/PATH")
-        body = loaded
-        if body is None and len(args.arguments) > 2:
-            try:
-                body = json.loads(args.arguments[2])
-            except json.JSONDecodeError as error:
-                raise ValueError(f"invalid Mattermost raw JSON: {error}") from error
-        return {"method": args.arguments[0], "path": args.arguments[1], "body": body}
-    raise ValueError(f"{command} is not supported by Mattermost")
-
-
-def _post_mattermost(url: str, token: str, command: str, arguments: dict) -> dict:
-    body = json.dumps({"command": command, "arguments": arguments}).encode("utf-8")
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    with urllib.request.urlopen(urllib.request.Request(
-        f"{url.rstrip('/')}/v1/mm/command", data=body, headers=headers, method="POST",
-    ), timeout=35) as response:
-        return json.loads(response.read().decode("utf-8"))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -214,8 +124,8 @@ def main(argv: list[str] | None = None) -> int:
         loaded = None
     token = args.token or os.environ.get("AGENT_MAILBOX_TOKEN", "")
     if platform == "mm":
-        result = _post_mattermost(args.url, token, args.command,
-                                  _mattermost_arguments(args, loaded))
+        result = post_mattermost_command(args.url, token, args.command,
+                                         mattermost_arguments(args, loaded))
         print(render(result.get("result", result), args.format))
         registry = result.get("registry") if isinstance(result, dict) else None
         if isinstance(registry, dict):
@@ -234,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             nested.extend(["--channel", args.channel])
         return discover(nested)
     line = protocol_line(args)
-    result = _post(args.url, token, line)
+    result = post_irc_command(args.url, token, line)
     print(render(result, args.format))
     return 0
 

@@ -983,7 +983,7 @@ def main(argv: list[str] | None = None) -> int:
         elif family == "channels":
             from .channel_admin import main as administration_main
         elif family in CHAT_COMMANDS:
-            from .irc_admin import main as administration_main
+            from .chat_admin import main as administration_main
             nested = [family, *nested]
         return administration_main(nested)
     try:
@@ -1079,7 +1079,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             if channel.lower().startswith(("mm/", "mattermost/")):
                 from .identifier_directory import IdentifierDirectory
-                from .mattermost_admin import resolve_address
+                from .adapters.mattermost_commands import resolve_address
                 channel = resolve_address(
                     channel, IdentifierDirectory(mailbox_root or mailbox_dir()),
                     base_url=os.environ.get("MM_URL", ""),
@@ -1107,7 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
             channel = args.channel
             if not use_rest and channel.lower().startswith(("mm/", "mattermost/")):
                 from .identifier_directory import IdentifierDirectory
-                from .mattermost_admin import resolve_address
+                from .adapters.mattermost_commands import resolve_address
                 channel = resolve_address(
                     channel, IdentifierDirectory(mailbox_root or mailbox_dir()),
                     base_url=os.environ.get("MM_URL", ""),
