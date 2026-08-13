@@ -205,11 +205,11 @@ The same family works as `/channels create ...` in the console. Telegram and
 WhatsApp Business bot APIs do not expose arbitrary group creation, so those
 adapters report the operation as unsupported.
 
-Standard IRC commands are grouped under `mailbox-client irc` and are all shown
-by `mailbox-client irc --help`: `ping`, `list`, `names`, `join`, `part`, `topic`,
-`nick`, `whois`, `mode`, `invite`, `kick`, `message`, `notice`, and `raw`.
-Stateful commands run through the relay's active IRC connection. The same forms
-work interactively, for example `/irc join #testing` and `/irc whois alice`.
+Standard IRC operations are top-level `mailbox-client` commands and are all
+shown by `mailbox-client --help`: `ping`, `list`, `names`, `join`, `part`,
+`topic`, `nick`, `whois`, `mode`, `invite`, `kick`, `message`, `notice`, and
+`raw`. Stateful commands run through the relay's active IRC connection. For
+example, use `mailbox-client join #testing` or `mailbox-client whois alice`.
 
 Mattermost exposes the same familiar command vocabulary under
 `mailbox-client mm --help`. The relay maps it to channel listing, membership,

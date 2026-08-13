@@ -56,6 +56,8 @@ REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
 MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
 DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
+IRC_COMMANDS = ("ping", "list", "names", "join", "part", "topic", "nick", "whois",
+                "mode", "invite", "kick", "message", "notice", "raw")
 _MESSAGE_WRITE_LOCK = threading.Lock()
 UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 GLOBAL_RUN_FIELDS = (
@@ -539,7 +541,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mailbox-client",
         description=__doc__,
-        epilog="Use 'mailbox-client COMMAND --help' for command-specific options. Global options may appear before or after COMMAND; -- stops option processing.",
+        epilog=(
+            "IRC commands:\n  "
+            + ", ".join(IRC_COMMANDS)
+            + "\n\nUse 'mailbox-client COMMAND --help' for command-specific options. "
+              "Global options may appear before or after COMMAND; -- stops option processing."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--run", type=Path, metavar="COMMAND.json",
                         help="execute the entire command from a JSON document")
@@ -695,8 +703,11 @@ def build_parser() -> argparse.ArgumentParser:
                         add_help=False)
     commands.add_parser("channels", help="create channels on supported platforms",
                         add_help=False)
-    commands.add_parser("irc", help="run PING, LIST, NAMES, JOIN, PART, TOPIC, NICK, WHOIS, MODE, and other IRC commands",
-                        add_help=False)
+    for irc_command in IRC_COMMANDS:
+        commands.add_parser(
+            irc_command, help=f"IRC {irc_command.upper()} through the relay connection",
+            add_help=False,
+        )
     commands.add_parser("mm", help="run channel, membership, profile, and messaging commands on Mattermost",
                         add_help=False)
     return parser
@@ -852,7 +863,9 @@ def _enable_unbuffered_output() -> None:
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
-    if supplied and supplied[0] in {"token", "route", "contacts", "registry", "discover", "channels", "irc", "mm"}:
+    if supplied and supplied[0] in {
+        "token", "route", "contacts", "registry", "discover", "channels", "mm", *IRC_COMMANDS,
+    }:
         family, nested = supplied[0], supplied[1:]
         if family == "token":
             from .token_admin import main as administration_main
@@ -866,8 +879,9 @@ def main(argv: list[str] | None = None) -> int:
             from .discovery_admin import main as administration_main
         elif family == "channels":
             from .channel_admin import main as administration_main
-        elif family == "irc":
+        elif family in IRC_COMMANDS:
             from .irc_admin import main as administration_main
+            nested = [family, *nested]
         else:
             from .mattermost_admin import main as administration_main
         return administration_main(nested)

@@ -9,12 +9,13 @@ import sys
 import urllib.request
 
 from .admin_io import load_input, normalize_options, render
+from .agent_mailbox import IRC_COMMANDS
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="mailbox-client irc",
-        description="Run standard IRC commands through the relay's active IRC connection",
+        prog="mailbox-client",
+        description="Run standard top-level IRC commands through the relay's active connection",
     )
     result.add_argument("--url", default="http://127.0.0.1:46667",
                         help="relay HTTP base URL (default: http://127.0.0.1:46667)")

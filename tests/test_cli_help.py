@@ -6,6 +6,7 @@ from mailbox_channels.server import build_parser as server_parser
 from mailbox_channels.token_admin import parser as token_parser
 from mailbox_channels.contact_admin import parser as contact_parser
 from mailbox_channels.route_admin import parser as route_parser
+from mailbox_channels.agent_mailbox import IRC_COMMANDS
 
 
 def _agent_commands():
@@ -50,17 +51,20 @@ def test_agent_help_lists_every_global_option() -> None:
         assert option in help_text
     assert "COMMAND --help" in help_text
     assert "channel endpoints" in help_text
+    assert "\n    irc " not in help_text
+    for command in IRC_COMMANDS:
+        assert command in help_text.partition("IRC commands:")[2]
     _assert_actions_documented(parser)
 
 
 def test_every_agent_command_has_comprehensive_help() -> None:
     expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
                 "subscribe", "unsubscribe", "subscriptions", "token", "route", "contacts",
-                "registry", "discover", "channels", "irc", "mm"}
+                "registry", "discover", "channels", "mm", *IRC_COMMANDS}
     commands = _agent_commands()
     assert set(commands) == expected
     for name, command_parser in commands.items():
-        if name in {"token", "route", "contacts", "registry", "discover", "channels", "irc", "mm"}:
+        if name in {"token", "route", "contacts", "registry", "discover", "channels", "mm", *IRC_COMMANDS}:
             continue
         help_text = command_parser.format_help()
         assert command_parser.description
