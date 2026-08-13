@@ -234,6 +234,12 @@ Mattermost discovery saves teams, channels, direct/group-message channels,
 threads, and users in the durable identifier registry. After discovery, a
 unique readable alias can replace an opaque ID, including
 `/console mm/0/Town-Square`; subscriptions are saved using the resolved ID.
+`mm mode CHANNEL public|private` maps visibility, while `mm mode CHANNEL
++o USER` or `mm mode CHANNEL -o USER` grants or revokes Mattermost
+channel-admin membership. `mm notice`
+creates a tagged channel post, or an ephemeral user-only post with `--user`.
+IRC voice and moderated-channel flags have no safe one-to-one Mattermost
+equivalent and are not silently approximated.
 
 Every `TYPE/INSTANCE/ID` resolves to a structured endpoint with common
 `platform`, `instance`, `id`, `type`, and `properties` fields. Resource types

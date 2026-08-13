@@ -58,6 +58,9 @@ MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
 DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
 IRC_COMMANDS = ("ping", "list", "names", "join", "part", "topic", "nick", "whois",
                 "mode", "invite", "kick", "message", "notice", "raw")
+MATTERMOST_COMMANDS = ("ping", "teams", "list", "names", "threads", "join", "part",
+                       "topic", "nick", "whois", "mode", "invite", "kick", "message",
+                       "notice", "raw")
 _MESSAGE_WRITE_LOCK = threading.Lock()
 UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 GLOBAL_RUN_FIELDS = (
@@ -544,6 +547,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "IRC commands:\n  "
             + ", ".join(IRC_COMMANDS)
+            + "\n\nMattermost commands available through 'mailbox-client mm COMMAND':\n  "
+            + ", ".join(MATTERMOST_COMMANDS)
+            + "\nMattermost mode supports public/private and +o/-o channel-operator roles; "
+              "notice supports tagged channel posts and --user ephemeral posts."
             + "\n\nUse 'mailbox-client COMMAND --help' for command-specific options. "
               "Global options may appear before or after COMMAND; -- stops option processing."
         ),
@@ -708,7 +715,7 @@ def build_parser() -> argparse.ArgumentParser:
             irc_command, help=f"IRC {irc_command.upper()} through the relay connection",
             add_help=False,
         )
-    commands.add_parser("mm", help="run channel, membership, profile, and messaging commands on Mattermost",
+    commands.add_parser("mm", help="Mattermost commands: " + ", ".join(MATTERMOST_COMMANDS),
                         add_help=False)
     return parser
 

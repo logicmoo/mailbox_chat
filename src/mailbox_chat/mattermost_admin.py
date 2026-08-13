@@ -15,10 +15,10 @@ import requests
 from .endpoint_address import parse_endpoint
 from .admin_io import load_input, normalize_options, render
 from .identifier_directory import IdentifierDirectory
+from .agent_mailbox import MATTERMOST_COMMANDS
 
 
-COMMANDS = ("ping", "teams", "list", "names", "threads", "join", "part", "topic", "nick", "whois", "mode",
-            "invite", "kick", "message", "notice", "raw")
+COMMANDS = MATTERMOST_COMMANDS
 
 
 def parser() -> argparse.ArgumentParser:
@@ -54,9 +54,16 @@ def parser() -> argparse.ArgumentParser:
     nick.add_argument("nickname")
     whois = commands.add_parser("whois", help="show a user by ID or username")
     whois.add_argument("user")
-    mode = commands.add_parser("mode", help="read or set channel visibility (public/private)")
-    mode.add_argument("channel")
-    mode.add_argument("visibility", nargs="?", choices=("public", "private"))
+    mode = commands.add_parser(
+        "mode", help="read/set public/private visibility or channel operator (+o/-o)",
+        description=("Read channel details; change public/private visibility; or map IRC-style "
+                     "+o/-o to Mattermost channel-admin membership."),
+        epilog=("Examples: mailbox-client mm mode CHANNEL public; "
+                "mailbox-client mm mode CHANNEL +o USER"),
+    )
+    mode.add_argument("channel", help="channel ID, discovered name, or mm/INSTANCE/ID address")
+    mode.add_argument("setting", nargs="?", help="public, private, +o, or -o; omit to inspect")
+    mode.add_argument("user", nargs="?", help="user ID/name required by +o or -o")
     invite = commands.add_parser("invite", help="add a user to a channel")
     invite.add_argument("user")
     invite.add_argument("channel")
@@ -66,9 +73,15 @@ def parser() -> argparse.ArgumentParser:
     message = commands.add_parser("message", help="post a message to a channel or DM channel")
     message.add_argument("target")
     message.add_argument("text", nargs="?")
-    notice = commands.add_parser("notice", help="post a message marked as a mailbox notice")
-    notice.add_argument("target")
-    notice.add_argument("text", nargs="?")
+    notice = commands.add_parser(
+        "notice", help="post a tagged notice or an ephemeral user-only notice",
+        description=("Post a mailbox-tagged channel message. With --user, use Mattermost's "
+                     "ephemeral-post API so only that user sees it."),
+        epilog="Example: mailbox-client mm notice CHANNEL --user USER 'Maintenance soon'",
+    )
+    notice.add_argument("target", help="channel ID, discovered name, or mm/INSTANCE/ID address")
+    notice.add_argument("text", nargs="?", help="notice text; alternatively use --input FILE")
+    notice.add_argument("--user", help="user ID or discovered username for an ephemeral post")
     raw = commands.add_parser("raw", help="make an expert-level authenticated /api/v4 request")
     raw.add_argument("method", choices=("GET", "POST", "PUT", "DELETE"), type=str.upper)
     raw.add_argument("path", help="Mattermost path beginning /api/v4/")
@@ -223,16 +236,31 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
         return _request(session, base_url, "GET", path)
     if command == "mode":
         channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
-        if not arguments.get("visibility"):
+        setting = str(arguments.get("setting") or "").lower()
+        if not setting:
             return _request(session, base_url, "GET", f"/api/v4/channels/{channel}")
-        return _request(session, base_url, "PUT", f"/api/v4/channels/{channel}/patch",
-                        {"type": "O" if arguments["visibility"] == "public" else "P"})
+        if setting in {"public", "private"}:
+            return _request(session, base_url, "PUT", f"/api/v4/channels/{channel}/patch",
+                            {"type": "O" if setting == "public" else "P"})
+        if setting in {"+o", "-o"}:
+            if not arguments.get("user"):
+                raise ValueError(f"mm mode {setting} requires a user")
+            user_id = _user_id(session, base_url, str(arguments["user"]), directory)
+            roles = "channel_user channel_admin" if setting == "+o" else "channel_user"
+            return _request(session, base_url, "PUT",
+                            f"/api/v4/channels/{channel}/members/{user_id}/roles",
+                            {"roles": roles})
+        raise ValueError("Mattermost mode supports public, private, +o, and -o")
     if command in {"message", "notice"}:
-        body: dict[str, Any] = {"channel_id": _id(str(arguments["target"]), directory=directory,
-                                                   base_url=base_url, kind="channel"),
-                                "message": arguments["text"]}
+        channel = _id(str(arguments["target"]), directory=directory,
+                      base_url=base_url, kind="channel")
+        body: dict[str, Any] = {"channel_id": channel, "message": arguments["text"]}
         if command == "notice":
             body["props"] = {"mailbox_notice": True}
+            if arguments.get("user"):
+                user_id = _user_id(session, base_url, str(arguments["user"]), directory)
+                return _request(session, base_url, "POST", "/api/v4/posts/ephemeral",
+                                {"user_id": user_id, "post": body})
         return _request(session, base_url, "POST", "/api/v4/posts", body)
     raise AssertionError(command)
 

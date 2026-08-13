@@ -6,7 +6,7 @@ from mailbox_channels.server import build_parser as server_parser
 from mailbox_channels.token_admin import parser as token_parser
 from mailbox_channels.contact_admin import parser as contact_parser
 from mailbox_channels.route_admin import parser as route_parser
-from mailbox_channels.agent_mailbox import IRC_COMMANDS
+from mailbox_channels.agent_mailbox import IRC_COMMANDS, MATTERMOST_COMMANDS
 
 
 def _agent_commands():
@@ -54,6 +54,10 @@ def test_agent_help_lists_every_global_option() -> None:
     assert "\n    irc " not in help_text
     for command in IRC_COMMANDS:
         assert command in help_text.partition("IRC commands:")[2]
+    mattermost_help = help_text.partition("Mattermost commands available")[2]
+    for command in MATTERMOST_COMMANDS:
+        assert command in mattermost_help
+    assert "+o/-o" in mattermost_help and "ephemeral" in mattermost_help
     _assert_actions_documented(parser)
 
 

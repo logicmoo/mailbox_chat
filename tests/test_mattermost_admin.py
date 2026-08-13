@@ -66,6 +66,28 @@ def test_mm_join_adds_authenticated_bot() -> None:
     )
 
 
+def test_mm_mode_maps_operator_to_channel_admin_role() -> None:
+    session = Session()
+    execute("mode", {"channel": "channel-id", "setting": "+o", "user": "b" * 26},
+            session=session, base_url="https://chat.example")
+    assert session.calls[-1][:3] == (
+        "PUT", f"https://chat.example/api/v4/channels/channel-id/members/{'b' * 26}/roles",
+        {"roles": "channel_user channel_admin"},
+    )
+
+
+def test_mm_notice_can_be_ephemeral_to_one_user() -> None:
+    session = Session()
+    execute("notice", {"target": "channel-id", "text": "maintenance",
+                       "user": "b" * 26}, session=session, base_url="https://chat.example")
+    assert session.calls[-1][:3] == (
+        "POST", "https://chat.example/api/v4/posts/ephemeral",
+        {"user_id": "b" * 26, "post": {"channel_id": "channel-id",
+                                         "message": "maintenance",
+                                         "props": {"mailbox_notice": True}}},
+    )
+
+
 def test_mm_ping_checks_authenticated_user() -> None:
     session = Session()
     result = execute("ping", {}, session=session, base_url="https://chat.example")
