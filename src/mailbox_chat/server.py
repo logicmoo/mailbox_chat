@@ -498,13 +498,18 @@ def main(argv: list[str] | None = None) -> int:
                         raise ValueError("Mattermost adapter is not enabled")
                     if not relay.status.get("connected"):
                         relay._connect()
+                    registry_count_before = identifiers.entry_count()
                     result = execute(str(payload.get("command") or ""),
                                      dict(payload.get("arguments") or {}),
                                      session=relay.session,
                                      base_url=relay.base_url,
                                      directory=identifiers)
                     remember_named_ids(identifiers, relay.base_url, result)
-                    self._json(200, {"result": result})
+                    registry_count_after = identifiers.entry_count()
+                    self._json(200, {"result": result, "registry": {
+                        "new_entries": registry_count_after - registry_count_before,
+                        "total_entries": registry_count_after,
+                    }})
                     return
                 if request_path == "/v1/irc/command":
                     line = str(payload.get("line") or "").replace("\r", " ").replace("\n", " ").strip()

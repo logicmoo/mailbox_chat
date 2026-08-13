@@ -119,6 +119,17 @@ class IdentifierDirectory:
             metadata=entry.get("metadata") if isinstance(entry.get("metadata"), dict) else None,
         ) for entry in entries]
 
+    def entry_count(self, *, system: str = "") -> int:
+        """Count durable identifier/name/kind aliases, optionally for one system."""
+        if system:
+            query = "SELECT COUNT(*) FROM identifier_directory_entries WHERE system = ?"
+            values: tuple[str, ...] = (self._system(system),)
+        else:
+            query = "SELECT COUNT(*) FROM identifier_directory_entries"
+            values = ()
+        with self._connect() as connection:
+            return int(connection.execute(query, values).fetchone()[0])
+
     def find(self, *, system: str = "", identifier: str = "", text: str = "", kind: str = "",
              limit: int = 100) -> list[dict[str, Any]]:
         clauses: list[str] = []

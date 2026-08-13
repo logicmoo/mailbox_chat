@@ -33,6 +33,8 @@ def test_directory_system_filter_prevents_cross_platform_matches(tmp_path: Path)
     directory.remember("mattermost-id", "general", system="mm/0", kind="channel")
 
     assert directory.find(system="mm/0", text="general", kind="channel")[0]["identifier"] == "mattermost-id"
+    assert directory.entry_count() == 2
+    assert directory.entry_count(system="mm/0") == 1
 
 
 def test_directory_enriches_known_ids_without_replacing_them(tmp_path: Path) -> None:

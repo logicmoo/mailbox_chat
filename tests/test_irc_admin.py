@@ -1,6 +1,6 @@
 from mailbox_channels.admin_io import normalize_options
 from mailbox_channels.agent_mailbox import CHAT_COMMANDS
-from mailbox_channels.irc_admin import _mattermost_arguments, _platform, parser, protocol_line
+from mailbox_channels.irc_admin import _mattermost_arguments, _platform, main, parser, protocol_line
 
 
 def test_irc_help_lists_normal_commands() -> None:
@@ -50,3 +50,12 @@ def test_command_help_explains_targets_platform_and_mattermost_modes() -> None:
     assert "qualified channel/user address" in mode_help
     assert "Mattermost public/private/+o USER/-o USER" in mode_help
     assert "--on TYPE/INSTANCE" in mode_help
+
+
+def test_mattermost_command_reports_new_registry_entries(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("mailbox_channels.irc_admin._post_mattermost", lambda *_args, **_kwargs: {
+        "result": [], "registry": {"new_entries": 3, "total_entries": 20},
+    })
+    assert main(["list", "--on", "mm/0"]) == 0
+    captured = capsys.readouterr()
+    assert "[registry] 3 new entries found" in captured.err

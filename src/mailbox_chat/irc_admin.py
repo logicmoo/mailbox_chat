@@ -217,6 +217,11 @@ def main(argv: list[str] | None = None) -> int:
         result = _post_mattermost(args.url, token, args.command,
                                   _mattermost_arguments(args, loaded))
         print(render(result.get("result", result), args.format))
+        registry = result.get("registry") if isinstance(result, dict) else None
+        if isinstance(registry, dict):
+            count = int(registry.get("new_entries") or 0)
+            print(f"[registry] {count} new entr{'y' if count == 1 else 'ies'} found",
+                  file=sys.stderr)
         return 0
     if args.command in {"teams", "threads"}:
         raise ValueError(f"{args.command} is not available on IRC")

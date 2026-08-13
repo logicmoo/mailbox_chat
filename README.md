@@ -238,6 +238,8 @@ unique readable alias can replace an opaque ID, including
 Every Mattermost response is also scanned recursively: whenever an object has
 an `id` together with `display_name`, `name`, or `username`, all readable
 aliases are refreshed under both the concrete instance and `mm/0`.
+At the end of each Mattermost-backed command, the client reports the number of
+new durable aliases found on stderr without corrupting JSON or JSONL stdout.
 `mode mm/0/CHANNEL public|private` maps visibility, while `mode mm/0/CHANNEL
 +o USER` or `mode mm/0/CHANNEL -o USER` grants or revokes Mattermost
 channel-admin membership. `notice mm/0/CHANNEL`
