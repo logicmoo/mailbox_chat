@@ -1005,8 +1005,18 @@ surfaces that the CLI does not currently wrap.
 | Identifier-resolution requests | No | Yes | Use `GET/POST /v1/identifier-resolution-requests`. |
 
 The equivalent client and console command family is `mailbox-client registry`
-or `/registry`. It supports `remember`, `find`, `request`, and `requests` while
+or `/registry`. It supports `remember`, `alias`, `find`, `request`, and
+`requests` while
 preserving the source system for every UUID or opaque identifier.
+
+Assign a collision-safe manual user nickname with:
+
+```powershell
+mailbox-client registry alias mm/chat.singularitynet.io USER_ID patrick.hammer --kind user
+```
+
+The same alias may be re-applied to the same ID. The command rejects assigning
+it to a different ID in that instance, preventing friendly-name ambiguity.
 
 `mailbox-client list` without `--on` loops through every enabled configured
 provider and returns provider-grouped results. `mailbox-client list --on

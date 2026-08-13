@@ -96,3 +96,18 @@ def test_directory_tracks_resolution_requests_by_system(tmp_path: Path) -> None:
         "telegram", "-100123", resolver="getChat", text="Operations", kind="chat",
     )
     assert directory.resolution_requests(system="telegram")[0]["status"] == "resolved"
+
+
+def test_manual_alias_is_idempotent_and_rejects_collision(tmp_path: Path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    first = directory.remember_alias(
+        "user-1", "patrick.hammer", system="mm/chat.example", kind="user",
+    )
+    again = directory.remember_alias(
+        "user-1", "patrick.hammer", system="mm/chat.example", kind="user",
+    )
+    assert first["identifier"] == again["identifier"] == "user-1"
+    with pytest.raises(ValueError, match="already names another identifier"):
+        directory.remember_alias(
+            "user-2", "patrick.hammer", system="mm/chat.example", kind="user",
+        )

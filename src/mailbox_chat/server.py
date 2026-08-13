@@ -566,7 +566,15 @@ def main(argv: list[str] | None = None) -> int:
                         entries = [payload]
                     if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
                         raise ValueError("entries must be a list of identifier records")
-                    self._json(201, {"identifiers": identifiers.remember_many(entries)})
+                    saved = []
+                    for entry in entries:
+                        values = {key: value for key, value in entry.items()
+                                  if key != "friendly_alias"}
+                        saved.append(
+                            identifiers.remember_alias(**values)
+                            if entry.get("friendly_alias") else identifiers.remember(**values)
+                        )
+                    self._json(201, {"identifiers": saved})
                     return
                 if request_path == "/v1/identifier-resolution-requests":
                     result = identifiers.request_resolution(

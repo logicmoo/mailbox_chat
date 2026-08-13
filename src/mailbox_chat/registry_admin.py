@@ -49,6 +49,13 @@ def parser() -> argparse.ArgumentParser:
     remember.add_argument("identifier", help="UUID or opaque platform identifier")
     remember.add_argument("text", help="readable label")
     remember.add_argument("--kind", default="", help="identifier kind")
+    alias = commands.add_parser(
+        "alias", help="assign a collision-safe friendly name to one identifier",
+    )
+    alias.add_argument("system", help="canonical source system, such as mm/chat.example")
+    alias.add_argument("identifier", help="UUID or opaque platform identifier")
+    alias.add_argument("text", help="unique friendly name")
+    alias.add_argument("--kind", default="", help="identifier kind, such as user or channel")
     request = commands.add_parser("request", help="request identifier resolution once per system")
     request.add_argument("system", help="source system")
     request.add_argument("identifier", help="UUID or opaque platform identifier")
@@ -74,11 +81,17 @@ def main(argv: list[str] | None = None) -> int:
                       system=args.system, identifier=args.identifier, text=args.text,
                       kind=args.kind, limit=args.limit,
                   )})
-    elif args.command == "remember":
+    elif args.command in {"remember", "alias"}:
         entry = {"system": args.system, "identifier": args.identifier,
                  "text": args.text, "kind": args.kind}
+        if args.command == "alias":
+            entry["friendly_alias"] = True
         result = (_request(args.url, "POST", "/v1/identifiers", token=token, payload=entry)
-                  if args.url else {"identifiers": [directory.remember(**entry)]})
+                  if args.url else {"identifiers": [
+                      directory.remember_alias(**{key: value for key, value in entry.items()
+                                                  if key != "friendly_alias"})
+                      if args.command == "alias" else directory.remember(**entry)
+                  ]})
     elif args.command == "request":
         payload = {"system": args.system, "identifier": args.identifier,
                    "resolver": args.resolver, "force": args.force}

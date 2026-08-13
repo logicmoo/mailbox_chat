@@ -534,6 +534,7 @@ access:
 
 ```powershell
 mailbox-client registry remember discord UUID "Operations room" --kind channel
+mailbox-client registry alias mm/chat.singularitynet.io USER_ID patrick.hammer --kind user
 mailbox-client registry find --system discord --identifier UUID
 mailbox-client registry request discord UUID --resolver get-channel
 mailbox-client registry requests --system discord
@@ -549,6 +550,11 @@ Registry records are stored once under their canonical `TYPE/INSTANCE` source.
 Default-instance forms such as `mm/0` are resolved from configuration rather
 than duplicated in SQLite. Existing identical `mm/0` duplicates are removed
 automatically; legacy-only records are preserved.
+Use `registry alias` for a manually chosen friendly name. An alias is
+idempotent for its existing ID and rejected if the same case-insensitive name
+already belongs to another ID in that platform instance. `registry remember`
+remains available for importing ordinary platform-supplied mappings, where
+duplicate human display names may be legitimate.
 
 Resolution requests are keyed by source system, identifier, and resolver. An
 already-pending request is not issued again unless `--force` is supplied. The

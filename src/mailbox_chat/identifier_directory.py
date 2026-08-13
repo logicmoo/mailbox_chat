@@ -162,6 +162,28 @@ class IdentifierDirectory:
             metadata=entry.get("metadata") if isinstance(entry.get("metadata"), dict) else None,
         ) for entry in entries]
 
+    def remember_alias(self, identifier: str, text: str, *, system: str,
+                       kind: str = "", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Save a manually chosen alias only when it cannot name another ID."""
+        canonical = self.normalize(identifier)
+        source_system = self._system(system)
+        readable = str(text).strip()
+        collisions = {
+            entry["identifier"] for entry in self.find(
+                system=source_system, text=readable, limit=1000,
+            )
+            if entry["identifier"] != canonical
+        }
+        if collisions:
+            raise ValueError(
+                f"alias {readable!r} already names another identifier in {source_system}: "
+                f"{', '.join(sorted(collisions))}"
+            )
+        return self.remember(
+            canonical, readable, system=source_system, kind=kind,
+            metadata={**(metadata or {}), "manual_alias": True},
+        )
+
     def entry_count(self, *, system: str = "") -> int:
         """Count durable identifier/name/kind aliases, optionally for one system."""
         if system:
