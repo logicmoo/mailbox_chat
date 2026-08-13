@@ -9,7 +9,7 @@ from typing import Any
 
 def normalize_options(argv: list[str]) -> list[str]:
     """Allow family-global value options on either side of the subcommand."""
-    names = {"--url", "--token", "--input", "--input-format", "--format"}
+    names = {"--url", "--token", "--on", "--input", "--input-format", "--format"}
     moved: list[str] = []
     remaining: list[str] = []
     index = 0

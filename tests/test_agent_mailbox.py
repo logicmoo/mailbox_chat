@@ -17,6 +17,41 @@ def test_served_client_runs_as_standalone_script() -> None:
     assert result.stdout.startswith("mailbox-client ")
 
 
+def test_batch_runs_each_nonblank_line_in_order(monkeypatch, tmp_path: Path) -> None:
+    batch = tmp_path / "commands.txt"
+    batch.write_text("status\n\nmailbox-client check --quiet\n", encoding="utf-8")
+    calls = []
+
+    def fake_main(arguments):
+        calls.append(arguments)
+        return 0
+
+    monkeypatch.setattr(agent_mailbox, "main", fake_main)
+    assert agent_mailbox._run_batch(batch) == 0
+    assert calls == [["status"], ["check", "--quiet"]]
+
+
+def test_batch_stops_at_first_failed_command(monkeypatch, tmp_path: Path, capsys) -> None:
+    batch = tmp_path / "commands.txt"
+    batch.write_text("status\ncheck\nsend later\n", encoding="utf-8")
+    calls = []
+
+    def fake_main(arguments):
+        calls.append(arguments)
+        return 7 if arguments[0] == "check" else 0
+
+    monkeypatch.setattr(agent_mailbox, "main", fake_main)
+    assert agent_mailbox._run_batch(batch) == 7
+    assert calls == [["status"], ["check"]]
+    assert f"{batch}:2" in capsys.readouterr().err
+
+
+def test_chat_command_is_found_after_position_independent_options() -> None:
+    assert agent_mailbox._normalize_chat_dispatch([
+        "--on", "mm/0", "--format=text", "list",
+    ]) == ["list", "--on", "mm/0", "--format=text"]
+
+
 def test_jsonl_send_receive_and_cursor(tmp_path: Path) -> None:
     sent = agent_mailbox.send("agent-b", "hello", sender="agent-a", root=tmp_path)
     assert agent_mailbox.receive("agent-b", root=tmp_path) == [sent]

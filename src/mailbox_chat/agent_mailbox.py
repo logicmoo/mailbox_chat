@@ -61,6 +61,25 @@ IRC_COMMANDS = ("ping", "list", "names", "join", "part", "topic", "nick", "whois
 MATTERMOST_COMMANDS = ("ping", "teams", "list", "names", "threads", "join", "part",
                        "topic", "nick", "whois", "mode", "invite", "kick", "message",
                        "notice", "raw")
+CHAT_COMMANDS = tuple(dict.fromkeys((*IRC_COMMANDS, *MATTERMOST_COMMANDS)))
+CHAT_COMMAND_HELP = {
+    "ping": "check connectivity to a configured chat platform",
+    "teams": "list visible teams (where supported)",
+    "list": "list visible channels and conversations",
+    "names": "list users in a channel",
+    "threads": "list followed threads (where supported)",
+    "join": "join a channel or add the connected account",
+    "part": "leave a channel",
+    "topic": "read or change a channel topic/header",
+    "nick": "change the connected account nickname",
+    "whois": "show information about a user",
+    "mode": "inspect or change channel visibility, roles, or modes",
+    "invite": "add or invite a user to a channel",
+    "kick": "remove a user from a channel",
+    "message": "send a message to a channel or user",
+    "notice": "send an informational or user-only notice",
+    "raw": "perform an advanced platform-specific operation",
+}
 _MESSAGE_WRITE_LOCK = threading.Lock()
 UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 GLOBAL_RUN_FIELDS = (
@@ -545,12 +564,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="mailbox-client",
         description=__doc__,
         epilog=(
-            "IRC commands:\n  "
-            + ", ".join(IRC_COMMANDS)
-            + "\n\nMattermost commands available through 'mailbox-client mm COMMAND':\n  "
-            + ", ".join(MATTERMOST_COMMANDS)
-            + "\nMattermost mode supports public/private and +o/-o channel-operator roles; "
-              "notice supports tagged channel posts and --user ephemeral posts."
+            "Chat commands select a platform from a TYPE/INSTANCE/ID address or --on "
+            "TYPE/INSTANCE; IRC is the default when neither is supplied.\n"
+            "Mattermost mode supports public/private and +o/-o channel-operator roles; "
+            "notice supports tagged channel posts and --user ephemeral posts."
             + "\n\nUse 'mailbox-client COMMAND --help' for command-specific options. "
               "Global options may appear before or after COMMAND; -- stops option processing."
         ),
@@ -558,6 +575,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--run", type=Path, metavar="COMMAND.json",
                         help="execute the entire command from a JSON document")
+    parser.add_argument("--batch", type=Path, metavar="COMMANDS.txt",
+                        help="run each nonblank line as one mailbox-client command")
     transport = parser.add_mutually_exclusive_group()
     transport.add_argument("--dir", type=Path, help="use this JSONL mailbox directory")
     transport.add_argument("--url", help=f"use REST instead of JSONL (default service: {DEFAULT_MAILBOX_URL})")
@@ -710,13 +729,11 @@ def build_parser() -> argparse.ArgumentParser:
                         add_help=False)
     commands.add_parser("channels", help="create channels on supported platforms",
                         add_help=False)
-    for irc_command in IRC_COMMANDS:
+    for chat_command in CHAT_COMMANDS:
         commands.add_parser(
-            irc_command, help=f"IRC {irc_command.upper()} through the relay connection",
+            chat_command, help=CHAT_COMMAND_HELP[chat_command],
             add_help=False,
         )
-    commands.add_parser("mm", help="Mattermost commands: " + ", ".join(MATTERMOST_COMMANDS),
-                        add_help=False)
     return parser
 
 
@@ -809,6 +826,78 @@ def _expand_run_document(argv: list[str]) -> list[str]:
     return _command_document_argv(document)
 
 
+def _batch_path(argv: list[str]) -> Path | None:
+    """Extract a position-independent --batch option that defines the whole invocation."""
+    boundary = argv.index("--") if "--" in argv else len(argv)
+    active = argv[:boundary]
+    matches = [index for index, value in enumerate(active)
+               if value == "--batch" or value.startswith("--batch=")]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError("--batch may be specified only once")
+    index = matches[0]
+    if active[index] == "--batch":
+        if index + 1 >= len(active):
+            raise ValueError("--batch requires a command file")
+        path_text, consumed = active[index + 1], {index, index + 1}
+    else:
+        path_text, consumed = active[index].partition("=")[2], {index}
+    if any(position not in consumed for position in range(len(active))) or boundary != len(argv):
+        raise ValueError("--batch defines the entire invocation; put shared options on each file line")
+    return Path(path_text).expanduser()
+
+
+def _run_batch(path: Path) -> int:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise ValueError(f"cannot read --batch: {error}") from error
+    for line_number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            arguments = shlex.split(line, posix=os.name != "nt")
+        except ValueError as error:
+            print(f"{path}:{line_number}: cannot parse command: {error}", file=sys.stderr)
+            return 2
+        if arguments and arguments[0].lower() in {"mailbox-client", "mailbox-client.cmd"}:
+            arguments = arguments[1:]
+        if not arguments:
+            continue
+        if any(item == "--batch" or item.startswith("--batch=") for item in arguments):
+            print(f"{path}:{line_number}: nested --batch is not allowed", file=sys.stderr)
+            return 2
+        try:
+            result = main(arguments)
+        except SystemExit as error:
+            result = int(error.code or 0)
+        if result:
+            print(f"{path}:{line_number}: command failed with exit status {result}", file=sys.stderr)
+            return result
+    return 0
+
+
+def _normalize_chat_dispatch(argv: list[str]) -> list[str]:
+    """Move a top-level chat command ahead of its position-independent platform options."""
+    if not argv or argv[0] in CHAT_COMMANDS:
+        return argv
+    paired = {"--url", "--token", "--on", "--input", "--input-format", "--format"}
+    index = 0
+    while index < len(argv):
+        item = argv[index]
+        if item in CHAT_COMMANDS:
+            return [item, *argv[:index], *argv[index + 1:]]
+        if item.partition("=")[0] in paired:
+            index += 1 if "=" in item else 2
+            continue
+        if item.startswith("-"):
+            index += 1
+            continue
+        return argv
+    return argv
+
+
 def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     """Move position-independent global options ahead of the subcommand."""
     boundary = argv.index("--") if "--" in argv else len(argv)
@@ -870,8 +959,15 @@ def _enable_unbuffered_output() -> None:
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
+    try:
+        batch_path = _batch_path(supplied)
+        if batch_path is not None:
+            return _run_batch(batch_path)
+    except ValueError as error:
+        build_parser().error(str(error))
+    supplied = _normalize_chat_dispatch(supplied)
     if supplied and supplied[0] in {
-        "token", "route", "contacts", "registry", "discover", "channels", "mm", *IRC_COMMANDS,
+        "token", "route", "contacts", "registry", "discover", "channels", *CHAT_COMMANDS,
     }:
         family, nested = supplied[0], supplied[1:]
         if family == "token":
@@ -886,11 +982,9 @@ def main(argv: list[str] | None = None) -> int:
             from .discovery_admin import main as administration_main
         elif family == "channels":
             from .channel_admin import main as administration_main
-        elif family in IRC_COMMANDS:
+        elif family in CHAT_COMMANDS:
             from .irc_admin import main as administration_main
             nested = [family, *nested]
-        else:
-            from .mattermost_admin import main as administration_main
         return administration_main(nested)
     try:
         supplied = _expand_run_document(supplied)

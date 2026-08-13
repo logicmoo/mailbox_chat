@@ -23,7 +23,7 @@ COMMANDS = MATTERMOST_COMMANDS
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="mailbox-client mm",
+        prog="mailbox-client",
         description="Run familiar channel and user commands through the relay's Mattermost bot",
     )
     result.add_argument("--url", default="http://127.0.0.1:46667",
@@ -58,8 +58,8 @@ def parser() -> argparse.ArgumentParser:
         "mode", help="read/set public/private visibility or channel operator (+o/-o)",
         description=("Read channel details; change public/private visibility; or map IRC-style "
                      "+o/-o to Mattermost channel-admin membership."),
-        epilog=("Examples: mailbox-client mm mode CHANNEL public; "
-                "mailbox-client mm mode CHANNEL +o USER"),
+        epilog=("Examples: mailbox-client mode mm/0/CHANNEL public; "
+                "mailbox-client mode mm/0/CHANNEL +o USER"),
     )
     mode.add_argument("channel", help="channel ID, discovered name, or mm/INSTANCE/ID address")
     mode.add_argument("setting", nargs="?", help="public, private, +o, or -o; omit to inspect")
@@ -77,7 +77,7 @@ def parser() -> argparse.ArgumentParser:
         "notice", help="post a tagged notice or an ephemeral user-only notice",
         description=("Post a mailbox-tagged channel message. With --user, use Mattermost's "
                      "ephemeral-post API so only that user sees it."),
-        epilog="Example: mailbox-client mm notice CHANNEL --user USER 'Maintenance soon'",
+        epilog="Example: mailbox-client notice mm/0/CHANNEL --user USER 'Maintenance soon'",
     )
     notice.add_argument("target", help="channel ID, discovered name, or mm/INSTANCE/ID address")
     notice.add_argument("text", nargs="?", help="notice text; alternatively use --input FILE")

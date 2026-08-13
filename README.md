@@ -211,20 +211,21 @@ shown by `mailbox-client --help`: `ping`, `list`, `names`, `join`, `part`,
 `raw`. Stateful commands run through the relay's active IRC connection. For
 example, use `mailbox-client join #testing` or `mailbox-client whois alice`.
 
-Mattermost exposes the same familiar command vocabulary under
-`mailbox-client mm --help`. The relay maps it to channel listing, membership,
-headers, bot nickname, user lookup, visibility, posts, notices, and constrained
-authenticated `/api/v4/` requests. For example:
+The same top-level commands operate on Mattermost when an `mm/INSTANCE/ID`
+address is supplied. For commands without a channel argument, select the
+platform instance with `--on mm/INSTANCE`. The relay maps the operations to
+channel listing, membership, headers, bot nickname, user lookup, visibility,
+posts, notices, and constrained authenticated `/api/v4/` requests. For example:
 
 ```powershell
-mailbox-client mm names mm/0/CHANNEL_ID
-mailbox-client mm teams
-mailbox-client mm list --team engineering
-mailbox-client mm threads engineering
-mailbox-client mm ping
-mailbox-client mm invite USER_ID mm/0/CHANNEL_ID
-mailbox-client mm message mm/0/CHANNEL_ID --input message.txt --format text
-mailbox-client mm raw POST /api/v4/posts --input post.json --input-format json
+mailbox-client names mm/0/CHANNEL_ID
+mailbox-client teams --on mm/0
+mailbox-client list --on mm/0 --team engineering
+mailbox-client threads engineering --on mm/0
+mailbox-client ping --on mm/0
+mailbox-client invite USER_ID mm/0/CHANNEL_ID
+mailbox-client message mm/0/CHANNEL_ID --input message.txt --format text
+mailbox-client raw --on mm/0 POST /api/v4/posts --input post.json --input-format json
 ```
 
 `--input FILE` chooses the content source, `--input-format text|json` controls
@@ -234,9 +235,9 @@ Mattermost discovery saves teams, channels, direct/group-message channels,
 threads, and users in the durable identifier registry. After discovery, a
 unique readable alias can replace an opaque ID, including
 `/console mm/0/Town-Square`; subscriptions are saved using the resolved ID.
-`mm mode CHANNEL public|private` maps visibility, while `mm mode CHANNEL
-+o USER` or `mm mode CHANNEL -o USER` grants or revokes Mattermost
-channel-admin membership. `mm notice`
+`mode mm/0/CHANNEL public|private` maps visibility, while `mode mm/0/CHANNEL
++o USER` or `mode mm/0/CHANNEL -o USER` grants or revokes Mattermost
+channel-admin membership. `notice mm/0/CHANNEL`
 creates a tagged channel post, or an ephemeral user-only post with `--user`.
 IRC voice and moderated-channel flags have no safe one-to-one Mattermost
 equivalent and are not silently approximated.
@@ -254,6 +255,12 @@ types are `wa`, `wab`, `viber`, `mm`, `discord`, `discourse`, `irc`, `slack`,
 `docs/INSTRUCTIONS.md`.
 
 ## Client commands
+
+Run a UTF-8 command file sequentially with `mailbox-client --batch FILE`.
+Each nonblank line contains one complete command after the `mailbox-client`
+executable name (the name itself is also accepted). Quoting follows the local
+platform command-line rules. Execution stops at the first failed line and
+reports its file name and line number.
 
 Client installation, repository-local launchers, `mailbox-client`, named
 mailboxes, command documents, cursor behavior, Trusted Speaker, REST, JSONL,

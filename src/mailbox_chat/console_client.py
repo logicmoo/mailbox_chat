@@ -13,8 +13,8 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import websocket
 
 from . import agent_mailbox
-from .agent_mailbox import IRC_COMMANDS
-from . import channel_admin, contact_admin, discovery_admin, irc_admin, mattermost_admin, registry_admin, route_admin, token_admin
+from .agent_mailbox import CHAT_COMMANDS
+from . import channel_admin, contact_admin, discovery_admin, irc_admin, registry_admin, route_admin, token_admin
 
 CLIENT_NAME = "Mailbox Console"
 CHAT_PATH = "/v1/chat/ws"
@@ -120,16 +120,12 @@ def run_administration(command: str, arguments: str | list[str], *, url: str,
             item == "--url" or item.startswith("--url=") for item in argv
         ):
             argv = ["--url", relay_http_url(url), *argv]
-    elif command in IRC_COMMANDS:
+    elif command in CHAT_COMMANDS:
         handler = irc_admin.main
         argv = [command, *argv]
         if directory is None and not any(
             item == "--url" or item.startswith("--url=") for item in argv
         ):
-            argv = ["--url", relay_http_url(url), *argv]
-    else:
-        handler = mattermost_admin.main
-        if not any(item == "--url" or item.startswith("--url=") for item in argv):
             argv = ["--url", relay_http_url(url), *argv]
     try:
         return handler(argv)
@@ -147,7 +143,7 @@ def run_client_command(command_line: str, *, identity: str, destination: str,
         return 2
     if not argv:
         return 0
-    if argv[0] in {"token", "route", "contacts", "registry", "discover", "channels", "mm", *IRC_COMMANDS}:
+    if argv[0] in {"token", "route", "contacts", "registry", "discover", "channels", *CHAT_COMMANDS}:
         return run_administration(argv[0], argv[1:], url=url, directory=directory)
     transport = ["--dir", str(directory)] if directory is not None else ["--url", relay_http_url(url)]
     explicit_to = any(item == "--to" or item.startswith("--to=") for item in argv)

@@ -6,7 +6,7 @@ from mailbox_channels.server import build_parser as server_parser
 from mailbox_channels.token_admin import parser as token_parser
 from mailbox_channels.contact_admin import parser as contact_parser
 from mailbox_channels.route_admin import parser as route_parser
-from mailbox_channels.agent_mailbox import IRC_COMMANDS, MATTERMOST_COMMANDS
+from mailbox_channels.agent_mailbox import CHAT_COMMANDS, IRC_COMMANDS, MATTERMOST_COMMANDS
 
 
 def _agent_commands():
@@ -44,7 +44,7 @@ def test_agent_help_lists_every_global_option() -> None:
     parser = agent_parser()
     help_text = parser.format_help()
     for option in (
-        "--run", "--dir", "--url", "--mailbox", "--config", "--as", "--from", "--to", "--format",
+        "--run", "--batch", "--dir", "--url", "--mailbox", "--config", "--as", "--from", "--to", "--format",
         "--output", "--timeout", "--token", "--curl", "--input", "--subscribed", "--retry",
         "--retry-delay", "--quiet", "--verbose", "--nobuffer", "--version",
     ):
@@ -52,23 +52,22 @@ def test_agent_help_lists_every_global_option() -> None:
     assert "COMMAND --help" in help_text
     assert "channel endpoints" in help_text
     assert "\n    irc " not in help_text
-    for command in IRC_COMMANDS:
-        assert command in help_text.partition("IRC commands:")[2]
-    mattermost_help = help_text.partition("Mattermost commands available")[2]
-    for command in MATTERMOST_COMMANDS:
-        assert command in mattermost_help
-    assert "+o/-o" in mattermost_help and "ephemeral" in mattermost_help
+    assert "--on TYPE/INSTANCE" in help_text
+    assert "mm COMMAND" not in help_text
+    assert "list visible channels" in help_text
+    assert "show information about a user" in help_text
+    assert "+o/-o" in help_text and "ephemeral" in help_text
     _assert_actions_documented(parser)
 
 
 def test_every_agent_command_has_comprehensive_help() -> None:
     expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
                 "subscribe", "unsubscribe", "subscriptions", "token", "route", "contacts",
-                "registry", "discover", "channels", "mm", *IRC_COMMANDS}
+                "registry", "discover", "channels", *CHAT_COMMANDS}
     commands = _agent_commands()
     assert set(commands) == expected
     for name, command_parser in commands.items():
-        if name in {"token", "route", "contacts", "registry", "discover", "channels", "mm", *IRC_COMMANDS}:
+        if name in {"token", "route", "contacts", "registry", "discover", "channels", *CHAT_COMMANDS}:
             continue
         help_text = command_parser.format_help()
         assert command_parser.description
