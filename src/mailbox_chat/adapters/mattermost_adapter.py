@@ -17,7 +17,7 @@ from ..listener_registry import config_dir, listeners_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..channel_routes import dispatch_routes
 from ..subscriptions import subscribers
-from ..endpoint_address import EndpointAddress
+from ..endpoint_address import EndpointAddress, endpoint_instance
 from urllib.parse import urlsplit
 
 
@@ -49,11 +49,29 @@ class MattermostRelay:
         self._latest_create_at: dict[str, int] = {}
         self._bot_user_id = ""
         self._next_dm_refresh = 0.0
+        self.listener: dict[str, Any] = {}
+        self.base_url = ""
+        self.token = ""
+        self.default_channel = ""
 
     def configure(self) -> bool:
         load_dotenv(config_dir() / ".env", override=False)
-        required = ("MM_URL", "MM_BOT_TOKEN", "MM_CHANNEL_ID")
-        missing = [name for name in required if not os.environ.get(name, "").strip()]
+        configured = listeners_for("mattermost")
+        self.listener = configured[0] if configured else {}
+        self.base_url = str(self.listener.get("base_url") or os.environ.get("MM_URL") or "").rstrip("/")
+        token_env = str(self.listener.get("token_env") or "MM_BOT_TOKEN")
+        self.token = os.environ.get(token_env, "").strip()
+        configured_channels = list(self.listener.get("channel_ids") or [])
+        legacy_channels = [item.strip() for item in os.environ.get(
+            "MM_CHANNEL_IDS", os.environ.get("MM_CHANNEL_ID", ""),
+        ).split(",") if item.strip()]
+        channels = configured_channels or legacy_channels
+        self.default_channel = channels[0] if channels else ""
+        missing = [name for name, value in (
+            ("listeners[].base_url (or MM_URL)", self.base_url),
+            (f"environment variable {token_env}", self.token),
+            ("listeners[].channel_ids (or MM_CHANNEL_ID)", self.default_channel),
+        ) if not value]
         enabled = os.environ.get("MATTERMOST_RELAY_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
         self.status["enabled"] = enabled and not missing
         if enabled and missing:
@@ -72,9 +90,7 @@ class MattermostRelay:
         ]
         if configured_channels:
             return list(dict.fromkeys(configured_channels))
-        primary = os.environ["MM_CHANNEL_ID"].strip()
-        configured = os.environ.get("MM_CHANNEL_IDS", primary)
-        return list(dict.fromkeys([primary, *(item.strip() for item in configured.split(",") if item.strip())]))
+        return [self.default_channel] if self.default_channel else []
 
     def _inbound_recipients(self, channel_id: str) -> list[str]:
         configured = [
@@ -89,7 +105,8 @@ class MattermostRelay:
         if not configured:
             fallback = os.environ.get("MATTERMOST_RELAY_RECIPIENTS", ",".join(DEFAULT_INBOUND_RECIPIENTS))
             configured = [item.strip() for item in fallback.split(",") if item.strip()]
-        instance = (urlsplit(os.environ.get("MM_URL", "")).hostname or "mattermost").lower()
+        instance = endpoint_instance("mattermost", self.listener) if self.listener else (
+            urlsplit(self.base_url).hostname or "mattermost").lower()
         return list(dict.fromkeys([
             *configured,
             *subscribers(EndpointAddress("mattermost", instance, channel_id).canonical),
@@ -97,7 +114,8 @@ class MattermostRelay:
         ]))
 
     def _post_recipients(self, channel_id: str, author_id: str) -> list[str]:
-        instance = (urlsplit(os.environ.get("MM_URL", "")).hostname or "mattermost").lower()
+        instance = endpoint_instance("mattermost", self.listener) if self.listener else (
+            urlsplit(self.base_url).hostname or "mattermost").lower()
         direct_subscribers = (list(dict.fromkeys([
             *subscribers(EndpointAddress("mattermost", instance, author_id).canonical),
             *subscribers(EndpointAddress("mattermost", "0", author_id).canonical),
@@ -105,8 +123,8 @@ class MattermostRelay:
         return list(dict.fromkeys([*self._inbound_recipients(channel_id), *direct_subscribers]))
 
     def _connect(self) -> None:
-        base_url = os.environ["MM_URL"].rstrip("/")
-        self.session.headers.update({"Authorization": f"Bearer {os.environ['MM_BOT_TOKEN']}"})
+        base_url = self.base_url
+        self.session.headers.update({"Authorization": f"Bearer {self.token}"})
         response = self.session.get(f"{base_url}/api/v4/users/me", timeout=15)
         response.raise_for_status()
         self._bot_user_id = str(response.json()["id"])
@@ -251,7 +269,7 @@ class MattermostRelay:
     def _send_outbound(self, base_url: str) -> None:
         mailbox = _mailbox_module()
         for message in mailbox.receive(RELAY_RECIPIENT):
-            channel_id = str(message.get("channel_id") or os.environ["MM_CHANNEL_ID"])
+            channel_id = str(message.get("channel_id") or self.default_channel)
             payload: dict[str, Any] = {
                 "channel_id": channel_id,
                 "message": str(message.get("text", "")),
@@ -266,7 +284,7 @@ class MattermostRelay:
     def cycle(self) -> None:
         if not self._bot_user_id:
             self._connect()
-        base_url = os.environ["MM_URL"].rstrip("/")
+        base_url = self.base_url
         self._refresh_direct_channels(base_url)
         self._poll_inbound(base_url)
         self._send_outbound(base_url)

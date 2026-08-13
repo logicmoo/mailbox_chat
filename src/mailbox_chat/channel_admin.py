@@ -51,12 +51,12 @@ def create_channel(address_text: str, *, title: str = "", topic: str = "",
     listener = _listener(address.adapter, address.instance)
     instance = endpoint_instance(address.adapter, listener)
     if address.adapter == "mattermost":
-        base = os.environ.get("MM_URL", "").rstrip("/")
+        base = str(listener.get("base_url") or os.environ.get("MM_URL") or "").rstrip("/")
         team_id = container or str(listener.get("team_id") or "")
         if not base or not team_id:
-            raise ValueError("Mattermost creation requires MM_URL and --container TEAM_ID")
+            raise ValueError("Mattermost creation requires listener base_url and --container TEAM_ID")
         response = client.post(f"{base}/api/v4/channels", headers={
-            "Authorization": f"Bearer {os.environ.get('MM_BOT_TOKEN', '')}",
+            "Authorization": f"Bearer {_token(listener, 'MM_BOT_TOKEN')}",
         }, json={"team_id": team_id, "name": name, "display_name": title or name,
                  "type": "P" if private else "O", "purpose": topic}, timeout=30)
         response.raise_for_status()

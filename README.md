@@ -353,17 +353,30 @@ transit.
 
 ## Configuration and security
 
-The daemon binds only `127.0.0.1`. Mattermost credentials are read from the
-ignored `config/.env`:
+The daemon binds only `127.0.0.1`. Put the non-secret Mattermost connection
+and channel configuration in `config/relays.json`:
+
+```json
+{
+  "id": "mattermost-primary",
+  "adapter": "mattermost",
+  "instance": "chat.singularitynet.io",
+  "base_url": "https://chat.singularitynet.io",
+  "token_env": "MM_BOT_TOKEN",
+  "channel_ids": ["CHANNEL_ID", "ANOTHER_CHANNEL_ID"]
+}
+```
+
+Only the secret belongs in ignored `config/.env` or the process environment:
 
 ```dotenv
-MM_URL=https://mattermost.example
 MM_BOT_TOKEN=...
-MM_CHANNEL_ID=...
-MM_CHANNEL_IDS=optional-second-channel,optional-third-channel
 MATTERMOST_RELAY_RECIPIENTS=local-agent
 MATTERMOST_RELAY_ENABLED=1
 ```
+
+The former `MM_URL`, `MM_CHANNEL_ID`, and `MM_CHANNEL_IDS` variables remain a
+legacy fallback when the JSON listener omits those fields.
 
 Never store tokens in workspace resources, workflow files, mailbox records, or
 this README. Remote-machine access should be provided through an authenticated

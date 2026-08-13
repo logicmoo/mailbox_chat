@@ -21,6 +21,9 @@
     {
       "id": "mattermost-primary",
       "adapter": "mattermost",
+      "instance": "chat.singularitynet.io",
+      "base_url": "https://chat.singularitynet.io",
+      "token_env": "MM_BOT_TOKEN",
       "enabled": true,
       "direction": "bidirectional",
       "channel_ids": ["$MM_CHANNEL_ID", "$MM_CHANNEL_IDS"],

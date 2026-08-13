@@ -392,17 +392,20 @@ reference only their environment-variable names from listener entries.
 
 ### Setup
 
-Create a bot account in the Mattermost system console, add it to the required
-channels, then set `MM_URL`, `MM_BOT_TOKEN`, and `MM_CHANNEL_ID`. Keep the
-token only in `config/.env` or a secret manager.
+Create a bot account in the Mattermost system console and add it to the
+required channels. Put the instance, URL, and channel IDs in `relays.json`;
+keep only the token in `config/.env` or a secret manager.
 
 ```json
 {
   "id": "mattermost-team",
   "adapter": "mattermost",
+  "instance": "chat.singularitynet.io",
+  "base_url": "https://chat.singularitynet.io",
+  "token_env": "MM_BOT_TOKEN",
   "enabled": true,
   "direction": "bidirectional",
-  "channel_ids": ["$MM_CHANNEL_ID", "$MM_CHANNEL_IDS"],
+  "channel_ids": ["CHANNEL_ID", "ANOTHER_CHANNEL_ID"],
   "bridge_agent": "mattermost-bridge-agent",
   "mailbox_recipients": ["local-agent", "automation-agent"],
   "include_direct_messages": true,
@@ -410,8 +413,10 @@ token only in `config/.env` or a secret manager.
 }
 ```
 
-Required `.env` values: `MM_URL`, `MM_BOT_TOKEN`, `MM_CHANNEL_ID`. Optional:
-`MM_CHANNEL_IDS` and `MATTERMOST_RELAY_RECIPIENTS` for legacy fallback.
+Required `.env` value: `MM_BOT_TOKEN` (or the variable named by `token_env`).
+`MM_URL`, `MM_CHANNEL_ID`, and `MM_CHANNEL_IDS` remain legacy fallbacks when
+the equivalent JSON fields are omitted. `MATTERMOST_RELAY_RECIPIENTS` remains
+an optional legacy recipient fallback.
 
 ## Discord — implemented adapter
 

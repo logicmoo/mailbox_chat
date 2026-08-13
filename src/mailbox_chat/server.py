@@ -501,7 +501,7 @@ def main(argv: list[str] | None = None) -> int:
                     result = execute(str(payload.get("command") or ""),
                                      dict(payload.get("arguments") or {}),
                                      session=relay.session,
-                                     base_url=__import__("os").environ["MM_URL"],
+                                     base_url=relay.base_url,
                                      directory=identifiers)
                     self._json(200, {"result": result})
                     return
@@ -547,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
                     if channel.lower().startswith(("mm/", "mattermost/")):
                         from .mattermost_admin import resolve_address
                         channel = resolve_address(channel, identifiers,
-                                                  base_url=__import__("os").environ.get("MM_URL", ""))
+                                                  base_url=relay.base_url)
                     result = set_subscription(
                         channel, str(payload.get("identity") or ""),
                         enabled=bool(payload.get("subscribed", True)),

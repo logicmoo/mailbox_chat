@@ -163,6 +163,7 @@ def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_pa
     monkeypatch.setenv("MM_BOT_TOKEN", "token")
     monkeypatch.setenv("MM_CHANNEL_ID", "public-channel")
     monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "omegaclaw-core-codex")
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for", lambda *_args, **_kwargs: [])
     session = Session()
     session.empty_channel = True
     relay = ChannelRelay(session=session)
@@ -180,6 +181,26 @@ def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_pa
     assert session.direct_requests == [["bot", "person-1"]]
     assert session.posts == [{"channel_id": "direct-channel", "message": "private", "file_ids": []}]
     assert agent_mailbox.receive("omegaclaw-core-codex", root=tmp_path) == []
+
+
+def test_mattermost_connection_comes_from_json_listener(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.delenv("MM_URL", raising=False)
+    monkeypatch.delenv("MM_CHANNEL_ID", raising=False)
+    monkeypatch.setenv("CUSTOM_MM_TOKEN", "secret")
+    listener = {
+        "id": "singularitynet", "adapter": "mattermost", "enabled": True,
+        "instance": "chat.singularitynet.io", "base_url": "https://chat.singularitynet.io",
+        "token_env": "CUSTOM_MM_TOKEN", "channel_ids": ["channel-from-json"],
+    }
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for",
+                        lambda *_args, **_kwargs: [listener])
+    relay = ChannelRelay(session=Session())
+
+    assert relay.configure() is True
+    assert relay.base_url == "https://chat.singularitynet.io"
+    assert relay.default_channel == "channel-from-json"
+    assert relay.token == "secret"
 
 
 def test_adapter_failure_names_service_for_supervisor_retry(tmp_path: Path, monkeypatch) -> None:

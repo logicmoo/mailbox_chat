@@ -129,7 +129,7 @@ class ChannelRelay(MattermostRelay):
             if recipient
         ]
         if name == "mattermost" and not recipients:
-            recipients = self._inbound_recipients(__import__("os").environ.get("MM_CHANNEL_ID", ""))
+            recipients = self._inbound_recipients(self.default_channel)
         return list(dict.fromkeys(recipients))
 
     def _adapter_context(self, name: str, adapter: Any) -> dict[str, Any]:
@@ -305,7 +305,7 @@ class ChannelRelay(MattermostRelay):
                 self._publish_adapter_event(
                     "mattermost", self, "connected", "mattermost chat server connected",
                 )
-            base_url = __import__("os").environ["MM_URL"].rstrip("/")
+            base_url = self.base_url
             try:
                 self._refresh_direct_channels(base_url)
                 self._poll_inbound(base_url)
@@ -396,7 +396,7 @@ class ChannelRelay(MattermostRelay):
             try:
                 if channel_type == "mattermost" and self.mattermost_enabled:
                     posted = self._send_mattermost_message(
-                        __import__("os").environ["MM_URL"].rstrip("/"), message,
+                        self.base_url, message,
                     )
                     if not address or address.identifier in set(self._channels()):
                         self._fanout_mattermost_outbound(message, posted)
@@ -449,7 +449,7 @@ class ChannelRelay(MattermostRelay):
     ) -> None:
         """Deliver a bot-authored channel post once to the other mailbox subscribers."""
         mailbox = self._mailbox()
-        channel_id = str(message.get("channel_id") or __import__("os").environ["MM_CHANNEL_ID"])
+        channel_id = str(message.get("channel_id") or self.default_channel)
         sender = str(message.get("from") or "local-agent")
         source_id = str(posted.get("id") or message.get("id") or "")
         listener = next((
@@ -494,7 +494,7 @@ class ChannelRelay(MattermostRelay):
             )
 
     def _send_mattermost_message(self, base_url: str, message: dict[str, Any]) -> dict[str, Any]:
-        channel_id = str(message.get("channel_id") or __import__("os").environ["MM_CHANNEL_ID"])
+        channel_id = str(message.get("channel_id") or self.default_channel)
         address = parse_endpoint(str(message.get("endpoint_address") or ""))
         if address:
             from urllib.parse import urlsplit
