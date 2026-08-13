@@ -54,8 +54,8 @@ def test_agent_help_lists_every_global_option() -> None:
     assert "\n    irc " not in help_text
     assert "--on TYPE/INSTANCE" in help_text
     assert "mm COMMAND" not in help_text
-    assert "list visible channels" in help_text
-    assert "show information about a user" in help_text
+    assert "list channels across configured providers" in help_text
+    assert "registered names and bare IDs infer their" in help_text
     assert "+o/-o" in help_text and "ephemeral" in help_text
     _assert_actions_documented(parser)
 

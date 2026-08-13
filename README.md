@@ -211,6 +211,16 @@ shown by `mailbox-client --help`: `ping`, `list`, `names`, `join`, `part`,
 `raw`. Stateful commands run through the relay's active IRC connection. For
 example, use `mailbox-client join #testing` or `mailbox-client whois alice`.
 
+With no `--on` selector, `mailbox-client list` visits every enabled configured
+provider and groups the channel results by provider. An unavailable provider is
+reported in its own result instead of hiding successful results from the other
+providers. Use `--on TYPE/INSTANCE` to restrict listing to one provider:
+
+```powershell
+mailbox-client list
+mailbox-client list --on mm/chat.singularitynet.io
+```
+
 The same top-level commands operate on Mattermost when an `mm/INSTANCE/ID`
 address is supplied. For commands without a channel argument, select the
 platform instance with `--on mm/INSTANCE`. The relay maps the operations to
@@ -219,6 +229,10 @@ posts, notices, and constrained authenticated `/api/v4/` requests. For example:
 
 ```powershell
 mailbox-client names mm/0/CHANNEL_ID
+mailbox-client names test
+mailbox-client names --on mm `
+  https://chat.singularitynet.io/chat/channels/image-perception-to-recognizable-memory-and-arc3
+mailbox-client whois j4pok4rbqtfytcrcn8d3nhgkto
 mailbox-client teams --on mm/0
 mailbox-client list --on mm/0 --team engineering
 mailbox-client threads engineering --on mm/0
@@ -233,11 +247,20 @@ how the file is interpreted, and `--format jsonl|json|text` controls output.
 These switches may appear before or after the IRC or Mattermost subcommand.
 Mattermost discovery saves teams, channels, direct/group-message channels,
 threads, and users in the durable identifier registry. After discovery, a
-unique readable alias can replace an opaque ID, including
+unique readable alias or bare opaque ID also identifies its platform, so
+`mailbox-client names test` and `mailbox-client whois OPAQUE_USER_ID` do not
+need `--on`. Qualified addresses remain available, including
 `/console mm/0/Town-Square`; subscriptions are saved using the resolved ID.
+Mattermost browser URLs containing `/channels/CHANNEL_SLUG` are accepted as
+channel arguments when Mattermost is selected or inferred. The URL hostname
+must match the configured Mattermost server.
 Every Mattermost response is also scanned recursively: whenever an object has
 an `id` together with `display_name`, `name`, or `username`, all readable
-aliases are refreshed under both the concrete instance and `mm/0`.
+aliases are refreshed under the concrete instance, such as
+`mm/chat.singularitynet.io`. `mm/0` remains a routing shortcut but is not stored
+as a second registry copy. Relationship fields such as `team_id` and
+`creator_id` are retained as metadata; they receive names only from separately
+downloaded team or user objects, never from the containing channel's name.
 At the end of each Mattermost-backed command, the client reports the number of
 new durable aliases found on stderr without corrupting JSON or JSONL stdout.
 `mode mm/0/CHANNEL public|private` maps visibility, while `mode mm/0/CHANNEL
@@ -512,6 +535,17 @@ mailbox-client registry find --system discord --identifier UUID
 mailbox-client registry request discord UUID --resolver get-channel
 mailbox-client registry requests --system discord
 ```
+
+Look up a downloaded identifier without knowing its system:
+
+```powershell
+mailbox-client registry find --identifier j4pok4rbqtfytcrcn8d3nhgkto
+```
+
+Registry records are stored once under their canonical `TYPE/INSTANCE` source.
+Default-instance forms such as `mm/0` are resolved from configuration rather
+than duplicated in SQLite. Existing identical `mm/0` duplicates are removed
+automatically; legacy-only records are preserved.
 
 Resolution requests are keyed by source system, identifier, and resolver. An
 already-pending request is not issued again unless `--force` is supplied. The

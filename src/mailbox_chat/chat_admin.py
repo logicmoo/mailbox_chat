@@ -70,8 +70,12 @@ def parser() -> argparse.ArgumentParser:
         "list", help="list channels across all providers, or one selected with --on",
     )
     listing.add_argument("--team", help="limit Mattermost results to a team ID or name")
-    names = commands.add_parser("names", help="list users in a channel")
-    names.add_argument("channel", help="qualified channel address or IRC channel name")
+    names = commands.add_parser(
+        "names", help="list channel users by registered name, ID, address, or platform URL",
+    )
+    names.add_argument(
+        "channel", help="registered name, ID, qualified address, Mattermost URL, or IRC channel",
+    )
     threads = commands.add_parser("threads", help="list followed threads (Mattermost)")
     threads.add_argument("team", help="Mattermost team ID or discovered name")
     join = commands.add_parser("join", help="join or create a channel")
@@ -85,7 +89,9 @@ def parser() -> argparse.ArgumentParser:
     topic.add_argument("text", nargs="?", help="new topic; omit to query")
     nick = commands.add_parser("nick", help="change the connected account nickname")
     nick.add_argument("nickname", help="new IRC nickname or Mattermost account nickname")
-    whois = commands.add_parser("whois", help="show information about a user")
+    whois = commands.add_parser(
+        "whois", help="show a user; registered names and bare IDs infer their provider",
+    )
     whois.add_argument("nickname", help="qualified user address, user ID, username, or IRC nickname")
     mode = commands.add_parser("mode", help="inspect or change channel visibility, roles, or modes")
     mode.add_argument("target", help="qualified channel/user address or IRC target")

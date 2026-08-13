@@ -802,6 +802,22 @@ create or find the bot's direct-message channel with that user and sends the
 message privately. The persistent identifier directory remembers platform ID
 kind and readable names learned from inbound traffic and resolution requests.
 
+Channel discovery also records a channel's display name and URL slug. Once a
+record has been downloaded, all of these forms resolve to the same channel:
+
+```powershell
+mailbox-client names c83yjesfejgbmdptwtjqgqis9h
+mailbox-client names "Image Perception to Recognizable Memory and ARC3"
+mailbox-client names image-perception-to-recognizable-memory-and-arc3
+mailbox-client names mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h
+mailbox-client names --on mm https://chat.singularitynet.io/chat/channels/image-perception-to-recognizable-memory-and-arc3
+```
+
+The same inference applies to a downloaded user ID, for example
+`mailbox-client whois j4pok4rbqtfytcrcn8d3nhgkto`. A full Mattermost web URL
+must contain `/channels/CHANNEL_SLUG`, and its hostname must match the active
+Mattermost connection.
+
 For inbound traffic, `--from mm/chat.snt/ID` is an idempotent subscription. A
 matching configured channel delivers all its posts; a matching Mattermost user
 ID delivers that person's direct/channel posts observed by the listener. The
@@ -814,6 +830,9 @@ Instance `0` always means the configured/default instance, so
 `mm/0/CHANNEL_ID` is valid without knowing the Mattermost hostname. The same
 shortcut works for every adapter type. Use an explicit instance when selecting
 among multiple configured servers or accounts.
+Instance `0` is resolved dynamically and is not a duplicate identifier-registry
+namespace. Registry rows use the canonical concrete instance, such as
+`mm/chat.singularitynet.io`.
 The final component is opaque and keeps the platform's native ID:
 
 | Platform | Type | Instance convention | Example source/destination |
@@ -986,6 +1005,14 @@ surfaces that the CLI does not currently wrap.
 The equivalent client and console command family is `mailbox-client registry`
 or `/registry`. It supports `remember`, `find`, `request`, and `requests` while
 preserving the source system for every UUID or opaque identifier.
+
+`mailbox-client list` without `--on` loops through every enabled configured
+provider and returns provider-grouped results. `mailbox-client list --on
+TYPE/INSTANCE` restricts the operation to one provider. Discovery results are
+walked recursively for trustworthy ID/name pairs and the command reports how
+many new registry aliases were learned. Relationship IDs without their own
+label are kept in metadata but are not incorrectly paired with the containing
+object's display name.
 
 For IRC, `mailbox-client discover users --platform irc --channel irc/0/testing`
 uses `NAMES` replies to list visible channel members and stores their nicknames,
