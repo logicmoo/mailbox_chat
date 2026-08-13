@@ -56,6 +56,15 @@ def test_downloaded_bare_id_selects_its_registered_platform(tmp_path, monkeypatc
     assert _platform(args) == "mm"
 
 
+def test_downloaded_channel_name_selects_its_registered_platform(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_MAILBOX_DIR", str(tmp_path))
+    IdentifierDirectory(tmp_path).remember(
+        "channel-id", "test", system="mm/chat.singularitynet.io", kind="channel",
+    )
+    args = parser().parse_args(["names", "test"])
+    assert _platform(args) == "mm"
+
+
 def test_command_help_explains_targets_platform_and_mattermost_modes() -> None:
     choices = next(action for action in parser()._actions
                    if isinstance(action, __import__("argparse")._SubParsersAction)).choices
@@ -72,3 +81,25 @@ def test_mattermost_command_reports_new_registry_entries(monkeypatch, capsys) ->
     assert main(["list", "--on", "mm/0"]) == 0
     captured = capsys.readouterr()
     assert "[registry] 3 new entries found" in captured.err
+
+
+def test_bare_list_loops_through_configured_providers(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("mailbox_channels.chat_admin.load_listeners", lambda: [
+        {"enabled": True, "adapter": "mattermost"},
+        {"enabled": True, "adapter": "irc"},
+        {"enabled": True, "adapter": "mattermost"},
+    ])
+    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command",
+                        lambda *_args, **_kwargs: {
+                            "result": [{"address": "mm/chat.example/general"}],
+                            "registry": {"new_entries": 2},
+                        })
+    monkeypatch.setattr("mailbox_channels.chat_admin._remote_irc_list",
+                        lambda *_args: {"channels": [{"address": "irc/example/#general"}]})
+
+    assert main(["list"]) == 0
+    captured = capsys.readouterr()
+    assert '"provider": "mm"' in captured.out
+    assert '"provider": "irc"' in captured.out
+    assert captured.out.count('"provider": "mm"') == 1
+    assert "[registry] 2 new entries found" in captured.err

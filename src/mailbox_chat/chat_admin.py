@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+import urllib.parse
+import urllib.request
 
 from .admin_io import load_input, normalize_options, render
 from .agent_mailbox import CHAT_COMMANDS
 from .endpoint_address import parse_endpoint
+from .listener_registry import load_listeners
 from .adapters.irc_adapter import post_relay_command as post_irc_command, protocol_line
 from .adapters.mattermost_adapter import (
     arguments_from_namespace as mattermost_arguments,
@@ -16,14 +20,17 @@ from .adapters.mattermost_adapter import (
 )
 
 
-def _registered_platform(identifier: str) -> str:
-    """Infer a supported platform from an exact identifier saved by discovery."""
-    if not identifier or "/" in identifier:
+def _registered_platform(identifier_or_name: str) -> str:
+    """Infer a supported platform from an exact ID or name saved by discovery."""
+    if not identifier_or_name or "/" in identifier_or_name:
         return ""
     from .agent_mailbox import mailbox_dir
     from .identifier_directory import IdentifierDirectory
 
-    matches = IdentifierDirectory(mailbox_dir()).find(identifier=identifier, limit=100)
+    directory = IdentifierDirectory(mailbox_dir())
+    matches = directory.find(identifier=identifier_or_name, limit=100)
+    if not matches:
+        matches = directory.find(text=identifier_or_name, limit=100)
     platforms = {
         "mm" if str(entry["system"]).split("/", 1)[0] in {"mm", "mattermost"}
         else "irc" if str(entry["system"]).split("/", 1)[0] == "irc"
@@ -32,7 +39,8 @@ def _registered_platform(identifier: str) -> str:
     } - {""}
     if len(platforms) > 1:
         raise ValueError(
-            f"identifier {identifier!r} occurs on multiple platforms; select one with --on"
+            f"name or identifier {identifier_or_name!r} occurs on multiple platforms; "
+            "select one with --on"
         )
     return next(iter(platforms), "")
 
@@ -58,7 +66,9 @@ def parser() -> argparse.ArgumentParser:
     ping.add_argument("token", nargs="?", default="mailbox-client",
                       help="IRC PING token/server; ignored by Mattermost")
     commands.add_parser("teams", help="list visible teams (Mattermost)")
-    listing = commands.add_parser("list", help="list visible channels and conversations")
+    listing = commands.add_parser(
+        "list", help="list channels across all providers, or one selected with --on",
+    )
     listing.add_argument("--team", help="limit Mattermost results to a team ID or name")
     names = commands.add_parser("names", help="list users in a channel")
     names.add_argument("channel", help="qualified channel address or IRC channel name")
@@ -133,8 +143,51 @@ def _platform(args: argparse.Namespace) -> str:
     return "mm" if args.command in {"teams", "threads"} else "irc"
 
 
+def _remote_irc_list(url: str, token: str) -> dict:
+    query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "channel": ""})
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    with urllib.request.urlopen(urllib.request.Request(
+        f"{url.rstrip('/')}/v1/discovery/channels?{query}", headers=headers,
+    ), timeout=35) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
+    """List channels from every configured, enabled provider with discovery support."""
+    listeners = [item for item in load_listeners() if item["enabled"]]
+    providers: list[dict] = []
+    new_entries = 0
+    for adapter in dict.fromkeys(str(item["adapter"]) for item in listeners):
+        try:
+            if adapter == "mattermost":
+                response = post_mattermost_command(args.url, token, "list", {"team": None})
+                registry = response.get("registry") if isinstance(response, dict) else None
+                if isinstance(registry, dict):
+                    new_entries += int(registry.get("new_entries") or 0)
+                providers.append({"provider": "mm", "result": response.get("result", response)})
+            elif adapter == "irc":
+                response = _remote_irc_list(args.url, token)
+                providers.append({"provider": "irc", "result": response.get("channels", response)})
+            else:
+                providers.append({"provider": adapter,
+                                  "error": "channel listing is not implemented by this adapter"})
+        except Exception as error:  # One unavailable provider must not hide the others.
+            providers.append({"provider": "mm" if adapter == "mattermost" else adapter,
+                              "error": str(error)})
+    return {"providers": providers}, new_entries
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(normalize_options(list(sys.argv[1:] if argv is None else argv)))
+    token = args.token or os.environ.get("AGENT_MAILBOX_TOKEN", "")
+    if args.command == "list" and not args.on:
+        result, count = _list_providers(args, token)
+        print(render(result, args.format))
+        print(f"[registry] {count} new entr{'y' if count == 1 else 'ies'} found",
+              file=sys.stderr)
+        return 0
     platform = _platform(args)
     field = {"part": "message", "topic": "text", "message": "text",
              "notice": "text", "raw": "arguments"}.get(args.command)
@@ -151,7 +204,6 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"{args.command} requires inline content or --input FILE")
     else:
         loaded = None
-    token = args.token or os.environ.get("AGENT_MAILBOX_TOKEN", "")
     if platform == "mm":
         result = post_mattermost_command(args.url, token, args.command,
                                          mattermost_arguments(args, loaded))
