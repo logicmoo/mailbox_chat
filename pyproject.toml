@@ -18,13 +18,9 @@ dependencies = [
 dev = ["pytest>=8"]
 
 [project.scripts]
-mailbox-relay-server = "mailbox_channel_relay_bridging_proxy.server:main"
-agent-mailbox = "mailbox_channel_relay_bridging_proxy.agent_mailbox:main"
-mailbox-chat = "mailbox_channel_relay_bridging_proxy.console_client:main"
-trusted-speaker = "mailbox_channel_relay_bridging_proxy.console_client:main"
-mailbox-relay-token = "mailbox_channel_relay_bridging_proxy.token_admin:main"
-mailbox-relay-contacts = "mailbox_channel_relay_bridging_proxy.contact_admin:main"
-mailbox-relay-route = "mailbox_channel_relay_bridging_proxy.route_admin:main"
+mailbox-server = "mailbox_channels.server:main"
+mailbox-client = "mailbox_channels.agent_mailbox:main"
+mailbox-console = "mailbox_channels.console_client:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -34,7 +30,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-mailbox_channel_relay_bridging_proxy = ["resources/*"]
+mailbox_channels = ["resources/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

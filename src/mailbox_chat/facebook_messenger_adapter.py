@@ -11,6 +11,7 @@ import requests
 
 from .channel_routes import dispatch_routes
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .identifier_directory import IdentifierDirectory
 from .listener_registry import listeners_for
 
@@ -110,7 +111,10 @@ class FacebookMessengerAdapter:
                     continue
                 text = str(message.get("text") or "")
                 recipients = list(dict.fromkeys([listener.get("bridge_agent"),
-                                                  *listener.get("mailbox_recipients", [])]))
+                                                  *listener.get("mailbox_recipients", []),
+                                                  *subscription_recipients(
+                                                      "facebook_messenger", listener, sender_id,
+                                                  )]))
                 for recipient in filter(None, recipients):
                     mailbox.send(recipient, text, sender=f"facebook:{author}",
                                  message_type="facebook_messenger_message", channel_id=sender_id,

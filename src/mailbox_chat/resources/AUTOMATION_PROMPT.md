@@ -16,7 +16,7 @@ Mailbox token environment variable: AGENT_MAILBOX_TOKEN
 Workspace directory: <WORKSPACE_DIRECTORY>
 
 From the workspace directory, first inspect running processes and reuse or
-await any active `agent_mailbox.py poll <AGENT_ID>` subprocess. Never start an
+await any active `agent_mailbox.py poll --to <AGENT_ID>` subprocess. Never start an
 overlapping polling session for this identity.
 
 Set AGENT_MAILBOX_URL to <MAILBOX_URL>. If the relay requires authentication,
@@ -30,7 +30,7 @@ otherwise use `python3` or `python`.
 
 When no prior polling session is running, execute the platform-equivalent of:
 
-python agent_mailbox.py poll <AGENT_ID> --interval 30 --checks 10 <REQUIRED_PORT_ARGUMENTS>
+python agent_mailbox.py poll --to <AGENT_ID> --interval 30 --checks 10 <REQUIRED_PORT_ARGUMENTS>
 
 The poll checks immediately and then every 30 seconds for ten checks maximum.
 It exits early when addressed mail arrives. Exit status 2 with a
@@ -90,7 +90,7 @@ python agent_mailbox.py check
 Manual polling test:
 
 ```powershell
-python agent_mailbox.py poll my-agent --interval 30 --checks 10 `
+python agent_mailbox.py poll --to my-agent --interval 30 --checks 10 `
   --require-port 46667
 ```
 
@@ -108,7 +108,7 @@ python3 agent_mailbox.py check
 Manual polling test:
 
 ```bash
-python3 agent_mailbox.py poll my-agent \
+python3 agent_mailbox.py poll --to my-agent \
   --interval 30 --checks 10 --require-port 46667
 ```
 
@@ -117,8 +117,9 @@ does not, use the Windows host address or the relay's LAN/public HTTPS name.
 
 ## Direct JSONL alternative
 
-For machines sharing a filesystem, replace the REST environment with a direct
-directory. `AGENT_MAILBOX_DIR` takes precedence over `AGENT_MAILBOX_URL`:
+For processes on the same native filesystem, replace the REST environment with
+a direct directory. `AGENT_MAILBOX_DIR` takes precedence over
+`AGENT_MAILBOX_URL`:
 
 PowerShell:
 
@@ -128,13 +129,16 @@ Remove-Item Env:AGENT_MAILBOX_URL -ErrorAction SilentlyContinue
 python agent_mailbox.py check
 ```
 
-WSL/Linux:
+WSL/Linux with a mailbox stored in the Linux filesystem:
 
 ```bash
-export AGENT_MAILBOX_DIR='/mnt/c/mailboxes/team-a'
+export AGENT_MAILBOX_DIR="$HOME/mailboxes/team-a"
 unset AGENT_MAILBOX_URL
 python3 agent_mailbox.py check
 ```
+
+Do not use direct JSONL through `/mnt/c` to share a Windows relay mailbox with
+WSL. Use the relay's REST URL across the Windows/WSL boundary instead.
 
 Do not let two consumers share the same recipient and cursor unless they are
 intentionally sharing work. Use stable unique identities or `--cursor` names

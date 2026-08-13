@@ -14,6 +14,7 @@ import requests
 from .attachment_gateway import attachment_url
 from .channel_routes import dispatch_routes
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .identifier_directory import IdentifierDirectory
 from .listener_registry import listeners_for
 
@@ -89,7 +90,8 @@ class ViberAdapter:
         )):
             return
         recipients = list(dict.fromkeys([listener.get("bridge_agent"),
-                                          *listener.get("mailbox_recipients", [])]))
+                                         *listener.get("mailbox_recipients", []),
+                                         *subscription_recipients("viber", listener, sender_id)]))
         for recipient in filter(None, recipients):
             mailbox.send(recipient, text, sender=f"viber:{name}", message_type="viber_message",
                          channel_id=sender_id, channel_type="viber", source_id=source_id,

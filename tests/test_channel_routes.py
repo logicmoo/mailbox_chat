@@ -1,4 +1,4 @@
-from mailbox_channel_relay_bridging_proxy import channel_routes
+from mailbox_channels import channel_routes
 
 
 class Mailbox:

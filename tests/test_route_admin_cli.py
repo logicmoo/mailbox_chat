@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from mailbox_channel_relay_bridging_proxy import route_admin
-from mailbox_channel_relay_bridging_proxy.route_admin import main
+from mailbox_channels import route_admin
+from mailbox_channels.route_admin import main
 
 
 def registry(path: Path) -> Path:

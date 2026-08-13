@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_channel_relay_bridging_proxy.listener_registry import config_dir, listeners_file, load_listeners, relays_file
+from mailbox_channels.listener_registry import (
+    agent_for_presence, config_dir, listeners_file, load_agents, load_listeners, relays_file,
+)
 
 
 def test_listener_registry_expands_environment_channel_lists(tmp_path: Path, monkeypatch) -> None:
@@ -48,3 +50,42 @@ def test_registry_falls_back_to_legacy_listeners_file(tmp_path: Path, monkeypatc
     legacy = tmp_path / "listeners.json"
     legacy.write_text('{"version": 1, "listeners": []}', encoding="utf-8")
     assert relays_file() == legacy
+
+
+def test_agent_can_own_multiple_presences_and_listener_delivers_to_agent(tmp_path: Path) -> None:
+    path = tmp_path / "relays.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "agents": [{
+            "agent_id": "symbolic-workbench-codex",
+            "presences": [
+                {"presence_id": "symbolic-codex-app", "kind": "codex"},
+                {"presence_id": "symbolic-console", "kind": "console"},
+                {"presence_id": "symbolic-mm", "kind": "platform"},
+                {"presence_id": "symbolic-wa", "kind": "platform"},
+            ],
+        }],
+        "listeners": [{
+            "id": "mm", "adapter": "mattermost",
+            "agent_id": "symbolic-workbench-codex", "presence_id": "symbolic-mm",
+        }],
+    }), encoding="utf-8")
+    assert len(load_agents(path)[0]["presences"]) == 4
+    assert agent_for_presence("symbolic-wa", path) == "symbolic-workbench-codex"
+    assert load_listeners(path)[0]["mailbox_recipients"] == ["symbolic-workbench-codex"]
+
+
+def test_listener_rejects_presence_owned_by_another_agent(tmp_path: Path) -> None:
+    path = tmp_path / "relays.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "agents": [
+            {"agent_id": "one", "presences": [{"presence_id": "one-mm"}]},
+            {"agent_id": "two", "presences": []},
+        ],
+        "listeners": [{
+            "id": "mm", "adapter": "mattermost", "agent_id": "two", "presence_id": "one-mm",
+        }],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="different agent"):
+        load_listeners(path)

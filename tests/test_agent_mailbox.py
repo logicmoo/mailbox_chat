@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_channel_relay_bridging_proxy import agent_mailbox
+from mailbox_channels import agent_mailbox
 
 
 def test_served_client_runs_as_standalone_script() -> None:
@@ -14,7 +14,7 @@ def test_served_client_runs_as_standalone_script() -> None:
         check=False, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.startswith("agent-mailbox ")
+    assert result.stdout.startswith("mailbox-client ")
 
 
 def test_jsonl_send_receive_and_cursor(tmp_path: Path) -> None:
@@ -303,6 +303,36 @@ def test_to_and_positional_recipient_are_mutually_exclusive(tmp_path) -> None:
         agent_mailbox.main([
             "--dir", str(tmp_path), "send", "agent-beta", "hello", "--to", "other",
         ])
+
+
+def test_to_supplies_receiver_for_read_commands(tmp_path, capsys) -> None:
+    agent_mailbox.send("agent-beta", "hello", root=tmp_path)
+    assert agent_mailbox.main(["--dir", str(tmp_path), "peek", "--to", "agent-beta"]) == 0
+    assert json.loads(capsys.readouterr().out)["text"] == "hello"
+
+
+def test_from_and_to_work_after_send_command(tmp_path, capsys) -> None:
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "send", "hello", "--from", "agent-a", "--to", "agent-b",
+    ]) == 0
+    record = json.loads(capsys.readouterr().out)
+    assert (record["from"], record["to"]) == ("agent-a", "agent-b")
+
+
+def test_ack_uses_from_for_cursor_owner(tmp_path, capsys) -> None:
+    record = agent_mailbox.send("symbolic-workbench-codex", "hello", root=tmp_path)
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "ack", "--from", "symbolic-workbench-codex", record["id"],
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["acknowledged"] is True
+
+
+def test_ack_uses_as_for_cursor_owner(tmp_path, capsys) -> None:
+    record = agent_mailbox.send("symbolic-workbench-codex", "hello", root=tmp_path)
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "ack", "--as", "symbolic-workbench-codex", record["id"],
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["acknowledged"] is True
 
 
 def test_run_document_accepts_to_alias(tmp_path, capsys) -> None:

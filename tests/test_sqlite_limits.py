@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from mailbox_channel_relay_bridging_proxy.sqlite_limits import MAX_SQLITE_ENV, apply_sqlite_limit
+from mailbox_channels.sqlite_limits import MAX_SQLITE_ENV, apply_sqlite_limit
 
 
 def test_sqlite_page_count_is_bounded(tmp_path: Path, monkeypatch) -> None:

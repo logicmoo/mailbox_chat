@@ -15,6 +15,7 @@ import requests
 from .attachment_storage import write_bytes
 from .channel_routes import dispatch_routes
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .identifier_directory import IdentifierDirectory
 from .listener_registry import listeners_for
 
@@ -113,7 +114,10 @@ class WhatsAppPersonalAdapter:
             return
         text = str(payload.get("text") or ("[attachment]" if attachments else ""))
         recipients = list(dict.fromkeys([listener.get("bridge_agent"),
-                                          *listener.get("mailbox_recipients", [])]))
+                                         *listener.get("mailbox_recipients", []),
+                                         *subscription_recipients(
+                                             "whatsapp_personal", listener, chat_id,
+                                         )]))
         for recipient in filter(None, recipients):
             mailbox.send(recipient, text, sender=f"whatsapp-personal:{author}",
                          message_type="whatsapp_personal_message", channel_id=chat_id,

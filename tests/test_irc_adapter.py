@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from mailbox_channel_relay_bridging_proxy import agent_mailbox, irc_adapter
-from mailbox_channel_relay_bridging_proxy.irc_adapter import IrcAdapter
+from mailbox_channels import agent_mailbox, irc_adapter
+from mailbox_channels.irc_adapter import IrcAdapter
 
 
 class FakeSocket:

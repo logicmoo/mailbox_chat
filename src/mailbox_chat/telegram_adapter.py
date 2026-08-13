@@ -12,6 +12,7 @@ import requests
 
 from .channel_routes import dispatch_routes
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .listener_registry import listeners_for
 from .identifier_directory import IdentifierDirectory
 
@@ -179,6 +180,7 @@ class TelegramAdapter:
         recipients = list(dict.fromkeys([
             *([listener["bridge_agent"]] if listener.get("bridge_agent") else []),
             *listener.get("mailbox_recipients", []),
+            *subscription_recipients("telegram", listener, channel_id),
         ]))
         for recipient in recipients:
             mailbox.send(

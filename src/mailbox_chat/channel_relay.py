@@ -21,6 +21,8 @@ from .discourse_adapter import DiscourseAdapter
 from .whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 from .listener_registry import listeners_for
+from .local_channels import SERVER_EVENTS_CHANNEL, subscribers
+from .endpoint_address import endpoint_instance, parse_endpoint
 
 
 RELAY_RECIPIENT = "channel-relay"
@@ -156,7 +158,10 @@ class ChannelRelay(MattermostRelay):
             return
         self._adapter_event_states[name] = state
         mailbox = self._mailbox()
-        for recipient in self._adapter_recipients(name, adapter):
+        recipients = list(dict.fromkeys([
+            *subscribers(SERVER_EVENTS_CHANNEL), *self._adapter_recipients(name, adapter),
+        ]))
+        for recipient in recipients:
             try:
                 mailbox.send(
                     recipient,
@@ -361,6 +366,14 @@ class ChannelRelay(MattermostRelay):
         mailbox = self._mailbox()
         for message in mailbox.receive(RELAY_RECIPIENT):
             channel_type = str(message.get("channel_type") or "mattermost").lower()
+            address = parse_endpoint(str(message.get("endpoint_address") or ""))
+            if address and not message.get("listener_id") and channel_type != "mattermost":
+                matches = [
+                    listener for listener in listeners_for(channel_type, direction="outbound")
+                    if address.instance == "0" or endpoint_instance(channel_type, listener) == address.instance
+                ]
+                if matches and (address.instance == "0" or len(matches) == 1):
+                    message["listener_id"] = matches[0]["id"]
             destination = endpoint_id(
                 channel_type,
                 listener_id=str(message.get("listener_id") or ""),
@@ -382,7 +395,11 @@ class ChannelRelay(MattermostRelay):
                 continue
             try:
                 if channel_type == "mattermost" and self.mattermost_enabled:
-                    self._send_mattermost_message(__import__("os").environ["MM_URL"].rstrip("/"), message)
+                    posted = self._send_mattermost_message(
+                        __import__("os").environ["MM_URL"].rstrip("/"), message,
+                    )
+                    if not address or address.identifier in set(self._channels()):
+                        self._fanout_mattermost_outbound(message, posted)
                 elif channel_type == "irc" and self.irc.status["enabled"]:
                     self.irc.send_message(message)
                 elif channel_type == "discord" and self.discord.status["enabled"]:
@@ -427,8 +444,78 @@ class ChannelRelay(MattermostRelay):
 
         return agent_mailbox
 
-    def _send_mattermost_message(self, base_url: str, message: dict[str, Any]) -> None:
+    def _fanout_mattermost_outbound(
+        self, message: dict[str, Any], posted: dict[str, Any],
+    ) -> None:
+        """Deliver a bot-authored channel post once to the other mailbox subscribers."""
+        mailbox = self._mailbox()
         channel_id = str(message.get("channel_id") or __import__("os").environ["MM_CHANNEL_ID"])
+        sender = str(message.get("from") or "local-agent")
+        source_id = str(posted.get("id") or message.get("id") or "")
+        listener = next((
+            item for item in listeners_for("mattermost", direction="inbound")
+            if channel_id in item.get("channel_ids", [])
+        ), {})
+        origin_fields = {
+            "origin": {
+                "adapter": "mailbox",
+                "listener_id": str(listener.get("id") or "mattermost-default"),
+                "source_id": str(message.get("id") or source_id),
+                "channel_id": channel_id,
+                "presence_id": str(listener.get("presence_id") or ""),
+            },
+            "origin_id": origin_id(message),
+            "relay_trace": list(dict.fromkeys([
+                *list(message.get("relay_trace") or []),
+                endpoint_id(
+                    "mattermost",
+                    listener_id=str(listener.get("id") or "mattermost-default"),
+                    channel_id=channel_id,
+                    presence_id=str(listener.get("presence_id") or ""),
+                ),
+            ])),
+            "platform_author": self._bot_user_id,
+            "relayed_from": sender,
+        }
+        for recipient in self._inbound_recipients(channel_id):
+            if recipient == sender:
+                continue
+            mailbox.send(
+                recipient,
+                str(message.get("text") or ""),
+                sender=sender,
+                message_type="mattermost_message",
+                channel_id=channel_id,
+                channel_type="mattermost",
+                source_id=source_id,
+                thread_id=str(message.get("root_id") or message.get("thread_id") or "") or None,
+                attachments=list(message.get("attachments") or []),
+                extra_fields=origin_fields,
+            )
+
+    def _send_mattermost_message(self, base_url: str, message: dict[str, Any]) -> dict[str, Any]:
+        channel_id = str(message.get("channel_id") or __import__("os").environ["MM_CHANNEL_ID"])
+        address = parse_endpoint(str(message.get("endpoint_address") or ""))
+        if address:
+            from urllib.parse import urlsplit
+            active_instance = (urlsplit(base_url).hostname or "").lower()
+            if address.instance not in {"0", active_instance}:
+                raise ValueError(
+                    f"Mattermost endpoint server {address.instance} does not match {active_instance}"
+                )
+            configured_channels = set(self._channels())
+            if address.identifier in configured_channels:
+                channel_id = address.identifier
+            else:
+                response = self.session.post(
+                    f"{base_url}/api/v4/channels/direct",
+                    json=[self._bot_user_id, address.identifier], timeout=15,
+                )
+                response.raise_for_status()
+                direct = response.json()
+                channel_id = str(direct.get("id") or "")
+                if not channel_id:
+                    raise RuntimeError(f"Mattermost did not resolve DM recipient {address.identifier}")
         payload: dict[str, Any] = {
             "channel_id": channel_id,
             "message": str(message.get("text", "")),
@@ -439,6 +526,8 @@ class ChannelRelay(MattermostRelay):
             payload["root_id"] = root_id
         response = self.session.post(f"{base_url}/api/v4/posts", json=payload, timeout=15)
         response.raise_for_status()
+        posted = response.json()
+        return posted if isinstance(posted, dict) else {}
 
 
 __all__ = [

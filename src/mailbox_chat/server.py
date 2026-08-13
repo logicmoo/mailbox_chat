@@ -40,6 +40,7 @@ from .sqlite_limits import DEFAULT_MAX_SQLITE_BYTES, MAX_SQLITE_ENV
 from .identifier_directory import IdentifierDirectory
 from .meta_webhooks import verify_challenge, verify_signature
 from .route_admin import attach as attach_route, detach as detach_route
+from .local_channels import set_subscription, subscriptions
 
 
 def runtime_paths(port: int, mailbox_root: Path | None = None) -> tuple[Path, Path, Path]:
@@ -103,7 +104,7 @@ def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep, verbose: int 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="mailbox-relay-server",
+        prog="mailbox-server",
         description=__doc__,
         epilog="Bind address controls where the server listens; public address is the URL clients can reach.",
     )
@@ -319,6 +320,13 @@ def main(argv: list[str] | None = None) -> int:
                 except (OSError, ValueError, json.JSONDecodeError) as error:
                     self._json(500, {"error": str(error)})
                 return
+            if parsed.path == "/v1/subscriptions":
+                identity = parse_qs(parsed.query).get("identity", [""])[0].strip()
+                if not identity:
+                    self._json(400, {"error": "identity is required"})
+                    return
+                self._json(200, {"identity": identity, "channels": subscriptions(identity)})
+                return
             if parsed.path == "/v1/identifiers":
                 query = parse_qs(parsed.query)
                 try:
@@ -447,7 +455,8 @@ def main(argv: list[str] | None = None) -> int:
             if not self._authorized():
                 return
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/identifiers",
-                                     "/v1/identifier-resolution-requests", "/v1/routes"}:
+                                     "/v1/identifier-resolution-requests", "/v1/routes",
+                                     "/v1/subscriptions"}:
                 self._json(404, {"error": "not found"})
                 return
             try:
@@ -470,6 +479,13 @@ def main(argv: list[str] | None = None) -> int:
                         self._json(200, {"detached": detach_route(str(payload.get("route_id") or ""))})
                         return
                     raise ValueError("route action must be attach or detach")
+                if request_path == "/v1/subscriptions":
+                    result = set_subscription(
+                        str(payload.get("channel") or ""), str(payload.get("identity") or ""),
+                        enabled=bool(payload.get("subscribed", True)),
+                    )
+                    self._json(200, result)
+                    return
                 if request_path == "/v1/identifiers":
                     entries = payload.get("entries") if isinstance(payload, dict) else None
                     if entries is None:

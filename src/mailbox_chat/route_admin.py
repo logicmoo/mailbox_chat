@@ -70,7 +70,7 @@ def attach(source_listener: str, source_channel: str, destination_listener: str,
                           "listener_id": destination_listener,
                           "channel_id": destination_channel}],
         "controller": controller_record,
-        "created_by": "mailbox-relay-route",
+        "created_by": "mailbox-client route",
     }
     payload["routes"].append(record)
     _write(path, payload)
@@ -114,7 +114,7 @@ def _request(base_url: str, method: str, *, token: str = "", payload: Any = None
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="mailbox-relay-route",
+        prog="mailbox-client route",
         description="List, attach, or detach persistent routes in relays.json",
         epilog="Use '*' as SOURCE_CHANNEL to match every channel heard by the source listener.",
     )

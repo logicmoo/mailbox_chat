@@ -13,6 +13,7 @@ import requests
 from .attachment_gateway import attachment_url
 from .channel_routes import dispatch_routes
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .identifier_directory import IdentifierDirectory
 from .listener_registry import listeners_for
 
@@ -104,7 +105,8 @@ class DiscourseAdapter:
         )):
             return
         recipients = list(dict.fromkeys([listener.get("bridge_agent"),
-                                          *listener.get("mailbox_recipients", [])]))
+                                         *listener.get("mailbox_recipients", []),
+                                         *subscription_recipients("discourse", listener, topic_id)]))
         for recipient in filter(None, recipients):
             mailbox.send(recipient, text, sender=f"discourse:{username}",
                          message_type="discourse_post", channel_id=topic_id,

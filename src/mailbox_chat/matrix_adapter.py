@@ -14,6 +14,7 @@ from urllib.parse import quote
 import requests
 
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .listener_registry import listeners_for
 from .channel_routes import dispatch_routes
 
@@ -133,6 +134,7 @@ class MatrixAdapter:
         recipients = list(dict.fromkeys([
             *([listener["bridge_agent"]] if listener.get("bridge_agent") else []),
             *listener.get("mailbox_recipients", []),
+            *subscription_recipients("matrix", listener, room_id),
         ]))
         for recipient in recipients:
             mailbox.send(

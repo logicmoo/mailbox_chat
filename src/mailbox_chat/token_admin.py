@@ -55,7 +55,7 @@ def token_registered(configuration: Path) -> bool:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="mailbox-relay-token",
+    result = argparse.ArgumentParser(prog="mailbox-client token",
                                      description="Register relay REST authentication locally")
     result.add_argument("action", choices=("register", "status"),
                         help="register/rotate a token or report whether one exists")
@@ -64,8 +64,8 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def main() -> int:
-    arguments = parser().parse_args()
+def main(argv: list[str] | None = None) -> int:
+    arguments = parser().parse_args(argv)
     configuration = (arguments.config_dir or config_dir()).expanduser().resolve()
     if arguments.action == "status":
         print("registered" if token_registered(configuration) else "not registered")

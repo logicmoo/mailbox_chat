@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from mailbox_channel_relay_bridging_proxy.delivery_ledger import DeliveryLedger, endpoint_id, origin_id, with_origin
+from mailbox_channels.delivery_ledger import DeliveryLedger, endpoint_id, origin_id, with_origin
 
 
 def test_origin_survives_relay_message_ids() -> None:

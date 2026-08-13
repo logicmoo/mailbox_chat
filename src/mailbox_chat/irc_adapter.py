@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from .listener_registry import listeners_for
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .attachment_gateway import attachment_url
 from .channel_routes import dispatch_routes
 
@@ -126,6 +127,7 @@ class IrcAdapter:
         recipients = list(dict.fromkeys([
             *([str(listener["bridge_agent"])] if listener.get("bridge_agent") else []),
             *listener.get("mailbox_recipients", []),
+            *subscription_recipients("irc", listener, target),
         ]))
         source_id = tags.get("msgid") or f"irc-{uuid.uuid4()}"
         extra_fields = with_origin(

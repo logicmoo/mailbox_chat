@@ -83,7 +83,7 @@ def _request(url: str, method: str, *, token: str = "", payload: Any = None) -> 
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(prog="mailbox-relay-contacts",
+    result = argparse.ArgumentParser(prog="mailbox-client contacts",
                                      description="Import or list durable relay contact identifiers")
     transport = result.add_mutually_exclusive_group()
     transport.add_argument("--dir", type=Path, help="local mailbox directory")

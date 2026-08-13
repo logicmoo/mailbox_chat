@@ -16,6 +16,9 @@ from .attachment_storage import write_bytes
 from .listener_registry import config_dir, listeners_for
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from .channel_routes import dispatch_routes
+from .local_channels import subscribers
+from .endpoint_address import EndpointAddress
+from urllib.parse import urlsplit
 
 
 LOGGER = logging.getLogger(__name__)
@@ -83,10 +86,20 @@ class MattermostRelay:
             for recipient in [listener.get("bridge_agent"), *listener["mailbox_recipients"]]
             if recipient
         ]
-        if configured:
-            return list(dict.fromkeys(configured))
-        configured = os.environ.get("MATTERMOST_RELAY_RECIPIENTS", ",".join(DEFAULT_INBOUND_RECIPIENTS))
-        return list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+        if not configured:
+            fallback = os.environ.get("MATTERMOST_RELAY_RECIPIENTS", ",".join(DEFAULT_INBOUND_RECIPIENTS))
+            configured = [item.strip() for item in fallback.split(",") if item.strip()]
+        instance = (urlsplit(os.environ.get("MM_URL", "")).hostname or "mattermost").lower()
+        return list(dict.fromkeys([
+            *configured, *subscribers(f"mm_{channel_id}"),
+            *subscribers(EndpointAddress("mattermost", instance, channel_id).canonical),
+        ]))
+
+    def _post_recipients(self, channel_id: str, author_id: str) -> list[str]:
+        instance = (urlsplit(os.environ.get("MM_URL", "")).hostname or "mattermost").lower()
+        direct_subscribers = (subscribers(EndpointAddress("mattermost", instance, author_id).canonical)
+                              if channel_id not in self._channels() else [])
+        return list(dict.fromkeys([*self._inbound_recipients(channel_id), *direct_subscribers]))
 
     def _connect(self) -> None:
         base_url = os.environ["MM_URL"].rstrip("/")
@@ -180,7 +193,7 @@ class MattermostRelay:
                         presence_id=str(matching.get("presence_id") or ""),
                     ),
                 )
-                for recipient in self._inbound_recipients(channel_id):
+                for recipient in self._post_recipients(channel_id, str(post.get("user_id", ""))):
                     mailbox.send(
                         recipient,
                         str(post.get("message", "")),

@@ -1,6 +1,6 @@
 import json
 
-from mailbox_channel_relay_bridging_proxy import runtime_admin
+from mailbox_channels import runtime_admin
 
 
 class Mailbox:

@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from mailbox_channel_relay_bridging_proxy.contact_admin import load_contacts, main
-from mailbox_channel_relay_bridging_proxy.identifier_directory import IdentifierDirectory
+from mailbox_channels.contact_admin import load_contacts, main
+from mailbox_channels.identifier_directory import IdentifierDirectory
 
 
 def test_loads_csv_json_and_vcard_contacts(tmp_path: Path) -> None:

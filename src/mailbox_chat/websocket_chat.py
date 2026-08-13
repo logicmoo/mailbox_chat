@@ -107,14 +107,18 @@ def handle_chat(connection: socket.socket, recipient: str, mailbox: Any) -> None
         message = mailbox.send(
             destination,
             str(request.get("text") or ""),
-            sender=recipient,
+            sender=str(request.get("as") or recipient).strip() or recipient,
             message_type=str(request.get("message_type") or "message"),
             channel_id=request.get("channel_id"),
             channel_type=request.get("channel_type"),
             thread_id=request.get("thread_id"),
             root_id=request.get("root_id"),
-            extra_fields={key: value for key, value in request.items() if key not in {
-                "action", "to", "text", "message_type", "channel_id", "channel_type", "thread_id", "root_id",
-            }},
+            extra_fields={
+                **({"source_presence": str(request.get("from") or "")} if request.get("from") else {}),
+                **{key: value for key, value in request.items() if key not in {
+                    "action", "as", "from", "to", "text", "message_type", "channel_id",
+                    "channel_type", "thread_id", "root_id",
+                }},
+            },
         )
         send_json(connection, {"type": "sent", "message": message})

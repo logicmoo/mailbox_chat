@@ -1,11 +1,11 @@
 import argparse
 
-from mailbox_channel_relay_bridging_proxy.agent_mailbox import build_parser as agent_parser
-from mailbox_channel_relay_bridging_proxy.console_client import parser as speaker_parser
-from mailbox_channel_relay_bridging_proxy.server import build_parser as server_parser
-from mailbox_channel_relay_bridging_proxy.token_admin import parser as token_parser
-from mailbox_channel_relay_bridging_proxy.contact_admin import parser as contact_parser
-from mailbox_channel_relay_bridging_proxy.route_admin import parser as route_parser
+from mailbox_channels.agent_mailbox import build_parser as agent_parser
+from mailbox_channels.console_client import parser as speaker_parser
+from mailbox_channels.server import build_parser as server_parser
+from mailbox_channels.token_admin import parser as token_parser
+from mailbox_channels.contact_admin import parser as contact_parser
+from mailbox_channels.route_admin import parser as route_parser
 
 
 def _agent_commands():
@@ -24,7 +24,7 @@ def _assert_actions_documented(parser: argparse.ArgumentParser) -> None:
 def test_server_help_lists_every_public_configuration_option() -> None:
     parser = server_parser()
     help_text = parser.format_help()
-    assert help_text.startswith("usage: mailbox-relay-server")
+    assert help_text.startswith("usage: mailbox-server")
     for option in (
         "--host", "--port", "--mailbox-dir", "--config-dir", "--public-address",
         "--public-url", "--token", "MAILBOX_RELAY_HOST", "MAILBOX_RELAY_PORT",
@@ -43,31 +43,35 @@ def test_agent_help_lists_every_global_option() -> None:
     parser = agent_parser()
     help_text = parser.format_help()
     for option in (
-        "--run", "--dir", "--url", "--mailbox", "--config", "--from", "--to", "--format",
-        "--output", "--timeout", "--token", "--curl", "--input", "--retry",
+        "--run", "--dir", "--url", "--mailbox", "--config", "--as", "--from", "--to", "--format",
+        "--output", "--timeout", "--token", "--curl", "--input", "--subscribed", "--retry",
         "--retry-delay", "--quiet", "--verbose", "--nobuffer", "--version",
     ):
         assert option in help_text
     assert "COMMAND --help" in help_text
+    assert "channel endpoints" in help_text
     _assert_actions_documented(parser)
 
 
 def test_every_agent_command_has_comprehensive_help() -> None:
-    expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check"}
+    expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
+                "subscribe", "unsubscribe", "subscriptions", "token", "route", "contacts"}
     commands = _agent_commands()
     assert set(commands) == expected
     for name, command_parser in commands.items():
+        if name in {"token", "route", "contacts"}:
+            continue
         help_text = command_parser.format_help()
         assert command_parser.description
         assert command_parser.epilog and "Example:" in command_parser.epilog
-        assert f"agent-mailbox {name}" in help_text or name in {"status", "check"}
+        assert f"mailbox-client {name}" in help_text or name in {"status", "check"}
         for action in command_parser._actions:
             if action.dest == "help":
                 continue
             assert action.help, f"{name}:{action.dest} is missing help text"
 
 
-def test_trusted_speaker_and_token_help_are_complete() -> None:
+def test_console_and_administration_help_are_complete() -> None:
     speaker = speaker_parser()
     speaker_help = speaker.format_help()
     assert all(item in speaker_help for item in ("identity", "--to", "--url", "--dir", "--interval"))

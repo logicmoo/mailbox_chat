@@ -1,7 +1,7 @@
 import base64
 import struct
 
-from mailbox_channel_relay_bridging_proxy.websocket_chat import accept_value, encode_frame, read_frame
+from mailbox_channels.websocket_chat import accept_value, encode_frame, read_frame
 
 
 class FakeConnection:

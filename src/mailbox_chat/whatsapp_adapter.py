@@ -11,6 +11,7 @@ import requests
 
 from .channel_routes import dispatch_routes
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from .endpoint_address import subscription_recipients
 from .identifier_directory import IdentifierDirectory
 from .listener_registry import listeners_for
 
@@ -95,7 +96,10 @@ class WhatsAppAdapter:
                     )):
                         continue
                     recipients = list(dict.fromkeys([listener.get("bridge_agent"),
-                                                      *listener.get("mailbox_recipients", [])]))
+                                                     *listener.get("mailbox_recipients", []),
+                                                     *subscription_recipients(
+                                                         "whatsapp", listener, conversation_id,
+                                                     )]))
                     for recipient in filter(None, recipients):
                         mailbox.send(recipient, text, sender=f"whatsapp:{author}",
                                      message_type="whatsapp_message", channel_id=conversation_id,

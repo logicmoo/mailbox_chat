@@ -59,8 +59,8 @@ DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
 _MESSAGE_WRITE_LOCK = threading.Lock()
 UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 GLOBAL_RUN_FIELDS = (
-    "dir", "url", "mailbox", "config", "from", "format", "output", "timeout", "token",
-    "curl", "input", "retry", "retry_delay", "quiet", "verbose", "nobuffer",
+    "dir", "url", "mailbox", "config", "as", "from", "to", "subscribed", "format", "output",
+    "timeout", "token", "curl", "input", "retry", "retry_delay", "quiet", "verbose", "nobuffer",
 )
 COMMAND_POSITIONALS = {
     "send": ("recipient", "text"),
@@ -356,11 +356,13 @@ def send_rest(recipient: str, text: str, *, sender: str = DEFAULT_SENDER, messag
               attachments: list[Path] | None = None, channel_id: str | None = None,
               channel_type: str | None = None, source_id: str | None = None,
               thread_id: str | None = None, root_id: str | None = None,
+              extra_fields: dict[str, Any] | None = None,
               base_url: str | None = None) -> dict[str, Any]:
     payload = {"to": recipient, "text": text, "from": sender, "type": message_type,
                "attachments": [str(path.expanduser().resolve()) for path in (attachments or [])],
                "channel_id": channel_id, "channel_type": channel_type, "source_id": source_id,
                "thread_id": thread_id, "root_id": root_id}
+    payload.update(extra_fields or {})
     return dict(_rest_request("POST", "/v1/messages", payload, base_url=base_url)["message"])
 
 
@@ -535,9 +537,9 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agent-mailbox",
+        prog="mailbox-client",
         description=__doc__,
-        epilog="Use 'agent-mailbox COMMAND --help' for command-specific options. Global options may appear before or after COMMAND; -- stops option processing.",
+        epilog="Use 'mailbox-client COMMAND --help' for command-specific options. Global options may appear before or after COMMAND; -- stops option processing.",
     )
     parser.add_argument("--run", type=Path, metavar="COMMAND.json",
                         help="execute the entire command from a JSON document")
@@ -546,8 +548,14 @@ def build_parser() -> argparse.ArgumentParser:
     transport.add_argument("--url", help=f"use REST instead of JSONL (default service: {DEFAULT_MAILBOX_URL})")
     transport.add_argument("--mailbox", help="use a named mailbox from the mailbox config")
     parser.add_argument("--config", type=Path, help="mailbox configuration file")
-    parser.add_argument("--from", dest="global_sender", help="default sender identity")
-    parser.add_argument("--to", dest="global_recipient", help="send destination identity")
+    parser.add_argument("--as", dest="local_identity",
+                        help="local mailbox identity performing the operation")
+    parser.add_argument("--from", dest="global_sender",
+                        help="source endpoint (for example mm/chat.snt/ID), or legacy sending identity")
+    parser.add_argument("--to", dest="global_recipient",
+                        help="mailbox identity or external endpoint (for example mm/chat.snt/ID)")
+    parser.add_argument("--subscribed", metavar="CHANNELS",
+                        help="comma-separated channel endpoints that --to/--as must be subscribed to")
     parser.add_argument("--format", choices=("jsonl", "json", "text"), default="jsonl",
                         help="output rendering format (default: jsonl)")
     parser.add_argument("--output", type=Path, help="write rendered output to this file instead of stdout")
@@ -569,7 +577,9 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     send_parser = commands.add_parser(
         "send", help="append a message", description="Append one durable mailbox message.",
-        epilog="Example: agent-mailbox send agent-beta 'Task complete' --type result",
+        epilog=("Example: mailbox-client send --as symbolic-workbench-codex --to "
+                "omegaclaw-core-codex 'Task complete'; mailbox-client send --as "
+                "symbolic-workbench-codex --to mm/chat.snt/CHANNEL_OR_PERSON_ID 'Hello'"),
     )
     send_parser.add_argument("recipient", nargs="?", help="destination identity; alternatively use --to")
     send_parser.add_argument("text", nargs="?", help="message text; alternatively use global --input PATH")
@@ -591,24 +601,26 @@ def build_parser() -> argparse.ArgumentParser:
     receive_parser = commands.add_parser(
         "receive", help="consume unread messages",
         description="Read unread messages and advance the selected durable cursor.",
-        epilog="Example: agent-mailbox receive worker-1 --limit 10 --where type=result",
+        epilog="Example: mailbox-client receive --to worker-1 --limit 10 --where type=result",
     )
-    receive_parser.add_argument("recipient", help="mailbox identity whose unread messages are consumed")
+    receive_parser.add_argument("recipient", nargs="?",
+                                help="mailbox identity whose unread messages are consumed; alternatively use --to")
     _add_read_options(receive_parser)
     receive_parser.add_argument("--ack", metavar="MESSAGE_ID", help="acknowledge through this message ID")
     peek_parser = commands.add_parser(
         "peek", help="show unread messages without advancing the cursor",
         description="Inspect unread messages without changing any cursor.",
-        epilog="Example: agent-mailbox peek worker-1 --cursor audit --limit 20",
+        epilog="Example: mailbox-client peek --to worker-1 --cursor audit --limit 20",
     )
-    peek_parser.add_argument("recipient", help="mailbox identity to inspect")
+    peek_parser.add_argument("recipient", nargs="?", help="mailbox identity to inspect; alternatively use --to")
     _add_read_options(peek_parser, waiting=False)
     poll_parser = commands.add_parser(
         "poll", help="poll for unread messages",
         description="Check repeatedly until mail arrives or the bounded check count is exhausted.",
-        epilog="Example: agent-mailbox poll worker-1 --interval 5 --checks 12 --nobuffer",
+        epilog=("Example: mailbox-client poll --to symbolic-workbench-codex; mailbox-client poll "
+                "--as symbolic-workbench-codex --from mm/chat.snt/CHANNEL_OR_PERSON_ID"),
     )
-    poll_parser.add_argument("recipient", help="mailbox identity to poll")
+    poll_parser.add_argument("recipient", nargs="?", help="mailbox identity to poll; alternatively use --to")
     poll_parser.add_argument("--interval", type=float, default=30.0,
                              help="seconds between checks (default: 30)")
     poll_parser.add_argument("--checks", type=int, default=10,
@@ -619,9 +631,9 @@ def build_parser() -> argparse.ArgumentParser:
     follow_parser = commands.add_parser(
         "follow", help="continuously stream incoming messages",
         description="Continuously read new messages, advancing the selected cursor as they arrive.",
-        epilog="Example: agent-mailbox follow worker-1 --interval 1 --nobuffer",
+        epilog="Example: mailbox-client follow --to worker-1 --interval 1 --nobuffer",
     )
-    follow_parser.add_argument("recipient", help="mailbox identity to follow")
+    follow_parser.add_argument("recipient", nargs="?", help="mailbox identity to follow; alternatively use --to")
     follow_parser.add_argument("--interval", type=float, default=1.0,
                                help="seconds between checks (default: 1)")
     follow_parser.add_argument("--require-port", action="append", default=[], type=int,
@@ -630,28 +642,53 @@ def build_parser() -> argparse.ArgumentParser:
     unread_parser = commands.add_parser(
         "unread-count", help="count unread messages without consuming them",
         description="Count unread messages without advancing the selected cursor.",
-        epilog="Example: agent-mailbox unread-count worker-1 --cursor monitor",
+        epilog="Example: mailbox-client unread-count --to worker-1 --cursor monitor",
     )
-    unread_parser.add_argument("recipient", help="mailbox identity whose unread messages are counted")
+    unread_parser.add_argument("recipient", nargs="?",
+                               help="mailbox identity whose unread messages are counted; alternatively use --to")
     unread_parser.add_argument("--cursor", help="independent cursor name")
     ack_parser = commands.add_parser(
         "ack", help="advance a cursor through a specific message",
         description="Explicitly acknowledge through a message ID on a durable cursor.",
-        epilog="Example: agent-mailbox ack worker-1 MESSAGE_ID --cursor audit",
+        epilog="Example: mailbox-client ack --from worker-1 MESSAGE_ID --cursor audit",
     )
-    ack_parser.add_argument("recipient", help="mailbox identity owning the cursor")
+    ack_parser.add_argument("recipient", nargs="?",
+                            help="mailbox identity owning the cursor; alternatively use --to")
     ack_parser.add_argument("message_id", help="message ID through which the cursor advances")
     ack_parser.add_argument("--cursor", help="independent cursor name")
+    subscribe_parser = commands.add_parser(
+        "subscribe", help="subscribe an identity to a relay-local channel",
+        description="Durably subscribe one mailbox identity to a relay-local publish/subscribe channel.",
+        epilog="Example: mailbox-client subscribe server_events --to symbolic-workbench-codex",
+    )
+    subscribe_parser.add_argument("channel", help="relay-local channel name")
+    unsubscribe_parser = commands.add_parser(
+        "unsubscribe", help="remove an identity from a relay-local channel",
+        description="Remove one mailbox identity's durable local-channel subscription.",
+        epilog="Example: mailbox-client unsubscribe server_events --to symbolic-workbench-codex",
+    )
+    unsubscribe_parser.add_argument("channel", help="relay-local channel name")
+    commands.add_parser(
+        "subscriptions", help="list an identity's relay-local channel subscriptions",
+        description="List every relay-local channel subscribed by one mailbox identity.",
+        epilog="Example: mailbox-client subscriptions --to symbolic-workbench-codex",
+    )
     commands.add_parser(
         "status", help="show mailbox configuration",
         description="Show the selected mailbox or REST service status without consuming messages.",
-        epilog="Example: agent-mailbox --url http://127.0.0.1:46667 status",
+        epilog="Example: mailbox-client --url http://127.0.0.1:46667 status",
     )
     commands.add_parser(
         "check", help="validate mailbox access without consuming messages",
         description="Validate mailbox access and report a nonzero exit status on failure.",
-        epilog="Example: agent-mailbox --url http://127.0.0.1:46667 check",
+        epilog="Example: mailbox-client --url http://127.0.0.1:46667 check",
     )
+    commands.add_parser("token", help="register or inspect server authentication tokens",
+                        add_help=False)
+    commands.add_parser("route", help="list, attach, or detach persistent relay routes",
+                        add_help=False)
+    commands.add_parser("contacts", help="import or inspect durable platform contacts",
+                        add_help=False)
     return parser
 
 
@@ -752,7 +789,9 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     nobuffer_requested = "--nobuffer" in options
     normalized: list[str] = []
     input_option: list[str] = []
-    to_option: list[str] = []
+    identity_options: dict[str, list[str]] = {
+        "--to": [], "--from": [], "--as": [], "--subscribed": [],
+    }
     index = 0
     while index < len(options):
         argument = options[index]
@@ -767,16 +806,19 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
             input_option = [argument, options[index + 1]]
             index += 2
             continue
-        if argument == "--to":
+        if argument in identity_options:
             if index + 1 >= len(options):
                 normalized.append(argument)
                 index += 1
                 continue
-            to_option = [argument, options[index + 1]]
+            identity_options[argument] = [argument, options[index + 1]]
             index += 2
             continue
-        if argument.startswith("--to="):
-            to_option = [argument]
+        if (argument.startswith("--to=") or argument.startswith("--from=") or
+                argument.startswith("--as=") or
+                argument.startswith("--subscribed=")):
+            option = argument.partition("=")[0]
+            identity_options[option] = [argument]
             index += 1
             continue
         if argument.startswith("--input="):
@@ -786,7 +828,8 @@ def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
         normalized.append(argument)
         index += 1
     leading = (["--curl"] if curl_requested else []) + (["--nobuffer"] if nobuffer_requested else [])
-    return leading + input_option + to_option + normalized + literal_arguments
+    return (leading + input_option + identity_options["--as"] + identity_options["--from"] +
+            identity_options["--to"] + identity_options["--subscribed"] + normalized + literal_arguments)
 
 
 def _enable_unbuffered_output() -> None:
@@ -799,16 +842,36 @@ def _enable_unbuffered_output() -> None:
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
+    if supplied and supplied[0] in {"token", "route", "contacts"}:
+        family, nested = supplied[0], supplied[1:]
+        if family == "token":
+            from .token_admin import main as administration_main
+        elif family == "route":
+            from .route_admin import main as administration_main
+        else:
+            from .contact_admin import main as administration_main
+        return administration_main(nested)
     try:
         supplied = _expand_run_document(supplied)
     except ValueError as error:
         build_parser().error(str(error))
     args = build_parser().parse_args(_normalize_anywhere_flags(supplied))
+    from .endpoint_address import parse_endpoint
+    source_endpoint = parse_endpoint(args.global_sender) if args.global_sender else None
+    destination_endpoint = parse_endpoint(args.global_recipient) if args.global_recipient else None
+    if source_endpoint and not args.local_identity:
+        build_parser().error("remote --from ENDPOINT requires --as IDENTITY")
     if args.nobuffer:
         _enable_unbuffered_output()
     if args.command != "send" and args.input_file:
         build_parser().error("--input is only valid with send")
     if args.command == "send":
+        if source_endpoint:
+            build_parser().error("send --from must be a local identity; use --as IDENTITY")
+        if destination_endpoint:
+            args.channel_type = destination_endpoint.adapter
+            args.channel_id = destination_endpoint.identifier
+            args.global_recipient = "channel-relay"
         if args.global_recipient and args.recipient:
             if args.text is not None:
                 build_parser().error("send accepts either positional recipient or --to, not both")
@@ -825,8 +888,26 @@ def main(argv: list[str] | None = None) -> int:
                 build_parser().error(f"cannot read --input: {error}")
         if args.text is None:
             build_parser().error("send requires inline text or --input PATH")
-    elif args.global_recipient:
-        build_parser().error("--to is only valid with send")
+    elif args.command in {"receive", "peek", "poll", "follow", "unread-count", "ack"}:
+        if args.command != "ack" and args.global_sender and not source_endpoint:
+            build_parser().error("--from is only valid with send")
+        if args.command == "ack" and args.global_sender and args.global_recipient:
+            build_parser().error("ack accepts --from or the compatibility --to alias, not both")
+        selected_identity = (args.local_identity or args.global_sender) if args.command == "ack" else (
+            args.local_identity if source_endpoint else args.global_recipient
+        )
+        selected_identity = selected_identity or args.global_recipient
+        if selected_identity and args.recipient:
+            build_parser().error(f"{args.command} accepts either positional recipient or --to, not both")
+        args.recipient = selected_identity or args.recipient
+        if not args.recipient:
+            option = "--as IDENTITY" if args.command == "ack" else "--to RECIPIENT"
+            build_parser().error(f"{args.command} requires positional recipient or {option}")
+    elif args.command in {"subscribe", "unsubscribe", "subscriptions"}:
+        if args.global_sender or not args.global_recipient:
+            build_parser().error(f"{args.command} requires --to IDENTITY")
+    elif args.global_recipient or args.global_sender:
+        build_parser().error("--from and --to require a message or mailbox command")
     if args.timeout <= 0 or args.retry < 0 or args.retry_delay < 0:
         build_parser().error("--timeout must be positive; retry values must be non-negative")
     REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY = args.timeout, args.retry, args.retry_delay
@@ -843,6 +924,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         rest_url = args.url or (None if mailbox_root else os.environ.get(MAILBOX_URL_ENV))
     use_rest = bool(rest_url)
+    subscription_identity = args.local_identity or args.global_recipient
+    declared_subscriptions = ([source_endpoint.canonical] if source_endpoint else [])
+    if args.subscribed:
+        if not subscription_identity:
+            build_parser().error("--subscribed requires --to or --as IDENTITY")
+        from .local_channels import set_subscription
+        declared_subscriptions.extend(
+            item.strip() for item in args.subscribed.split(",") if item.strip()
+        )
+    requested_channels = list(dict.fromkeys(declared_subscriptions))
+    if args.subscribed and not requested_channels:
+            build_parser().error("--subscribed requires at least one channel")
+    for channel in requested_channels:
+        if use_rest:
+            _rest_request("POST", "/v1/subscriptions", {
+                "channel": channel, "identity": subscription_identity, "subscribed": True,
+            }, base_url=rest_url)
+        else:
+            from .local_channels import set_subscription
+            set_subscription(channel, subscription_identity, enabled=True)
     if args.curl:
         if not use_rest:
             build_parser().error("--curl requires a REST transport selected by --url, --mailbox, or AGENT_MAILBOX_URL")
@@ -851,12 +952,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.verbose:
         target = rest_url if use_rest else str(mailbox_root or mailbox_dir())
         print(f"agent_mailbox transport={'REST' if use_rest else 'JSONL'} target={target}", file=sys.stderr)
-    if args.command == "send":
+    if args.command in {"subscribe", "unsubscribe", "subscriptions"}:
+        from .local_channels import set_subscription, subscriptions
+        if args.command == "subscriptions":
+            result = (_rest_request(
+                "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.global_recipient}),
+                base_url=rest_url,
+            ) if use_rest else {"identity": args.global_recipient,
+                                "channels": subscriptions(args.global_recipient)})
+        else:
+            enabled = args.command == "subscribe"
+            result = (_rest_request(
+                "POST", "/v1/subscriptions",
+                {"channel": args.channel, "identity": args.global_recipient, "subscribed": enabled},
+                base_url=rest_url,
+            ) if use_rest else set_subscription(args.channel, args.global_recipient, enabled=enabled))
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "send":
         record = (
                 (send_rest if use_rest else send)(
                     args.recipient,
                     args.text,
-                    sender=args.sender or args.global_sender or DEFAULT_SENDER,
+                    sender=args.sender or args.local_identity or args.global_sender or DEFAULT_SENDER,
                     message_type=args.message_type,
                     attachments=args.attach,
                     channel_id=args.channel_id,
@@ -864,6 +981,8 @@ def main(argv: list[str] | None = None) -> int:
                     source_id=args.source_id,
                     thread_id=args.thread_id,
                     root_id=args.root_id,
+                    extra_fields={"endpoint_address": destination_endpoint.canonical}
+                    if destination_endpoint else None,
                     **({"base_url": rest_url} if use_rest else {"root": mailbox_root}),
                 )
         )

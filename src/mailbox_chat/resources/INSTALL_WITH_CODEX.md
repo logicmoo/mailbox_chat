@@ -45,7 +45,7 @@ python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> check
 
 Then validate the bounded poll command without leaving a background poller:
 
-python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> poll <AGENT_ID> --interval 1 --checks 1
+python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> poll --to <AGENT_ID> --interval 1 --checks 1
 
 Customize the downloaded `.codex/mailbox/AUTOMATION_PROMPT.md` by replacing:
 

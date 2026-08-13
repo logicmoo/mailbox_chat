@@ -4,7 +4,7 @@ import hmac
 import json
 from pathlib import Path
 
-from mailbox_channel_relay_bridging_proxy.line_adapter import LineAdapter
+from mailbox_channels.line_adapter import LineAdapter
 
 
 class Response:
@@ -52,7 +52,7 @@ def test_line_signed_group_webhook_and_push(monkeypatch, tmp_path: Path) -> None
                 "bridge_agent": "line-agent", "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "access")
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "secret")
-    monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.line_adapter.listeners_for",
+    monkeypatch.setattr("mailbox_channels.line_adapter.listeners_for",
                         lambda adapter: [listener])
     session = Session()
     adapter = LineAdapter(session=session)
@@ -85,7 +85,7 @@ def test_line_downloads_inbound_content_through_quota_storage(monkeypatch, tmp_p
                 "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "access")
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "secret")
-    monkeypatch.setattr("mailbox_channel_relay_bridging_proxy.line_adapter.listeners_for",
+    monkeypatch.setattr("mailbox_channels.line_adapter.listeners_for",
                         lambda adapter: [listener])
     adapter = LineAdapter(session=Session())
     mailbox = Mailbox(tmp_path)
