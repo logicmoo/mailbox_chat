@@ -113,3 +113,20 @@ def test_irc_names_lists_channel_users_and_status(monkeypatch) -> None:
     assert [item["identifier"] for item in users] == ["alice", "bob", "carol"]
     assert users[0]["metadata"] == {"channel": "#testing", "status_prefix": "@"}
     assert "NAMES #testing\r\n" in "".join(connection.sent)
+
+
+def test_irc_status_address_receives_server_notices(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    monkeypatch.setattr(
+        irc_adapter, "subscription_recipients",
+        lambda adapter, _listener, identifier: ["observer"]
+        if (adapter, identifier) == ("irc", "status") else [],
+    )
+    adapter = IrcAdapter(socket_factory=lambda _address, _timeout: FakeSocket())
+    adapter.configure()
+    adapter._handle_line(":irc.example NOTICE relay :Scheduled maintenance", agent_mailbox)
+    message = agent_mailbox.receive("observer", root=tmp_path)[0]
+    assert message["type"] == "irc_status"
+    assert message["channel_id"] == "status"
+    assert message["text"] == "Scheduled maintenance"

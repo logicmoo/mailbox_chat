@@ -24,7 +24,7 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 
 - [`config/.env.example`](config/.env.example) - Non-secret template listing supported environment settings and credentials.
 - [`config/mailboxes.json`](config/mailboxes.json) - Named mailbox transport and location profiles.
-- [`config/relays.json`](config/relays.json) - Durable listeners, routes, local channels, and saved subscriptions.
+- [`config/relays.json`](config/relays.json) - Durable listeners, routes, qualified channels, and saved subscriptions.
 
 ## Documentation
 
@@ -44,7 +44,8 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 - [`src/mailbox_channels/channel_relay.py`](src/mailbox_channels/channel_relay.py) - Adapter orchestration, outbound dispatch, status events, retries, and channel fan-out.
 - [`src/mailbox_channels/channel_routes.py`](src/mailbox_channels/channel_routes.py) - Runtime dispatch of configured channel-to-channel routes.
 - [`src/mailbox_channels/listener_registry.py`](src/mailbox_channels/listener_registry.py) - Loading, expansion, validation, and safe publication of listener/route configuration.
-- [`src/mailbox_channels/local_channels.py`](src/mailbox_channels/local_channels.py) - Durable relay-local publish/subscribe channels and atomic subscriber updates.
+- [`src/mailbox_channels/subscriptions.py`](src/mailbox_channels/subscriptions.py) - Durable qualified-address subscriptions and atomic subscriber updates.
+- [`src/mailbox_channels/channel_admin.py`](src/mailbox_channels/channel_admin.py) - Unified local and external platform channel creation.
 - [`src/mailbox_channels/endpoint_address.py`](src/mailbox_channels/endpoint_address.py) - Parsing and canonicalization of `TYPE/INSTANCE/SOURCE_OR_DESTINATION` addresses.
 - [`src/mailbox_channels/delivery_ledger.py`](src/mailbox_channels/delivery_ledger.py) - SQLite origin/endpoint traversal ledger for durable loop and duplicate suppression.
 - [`src/mailbox_channels/identifier_directory.py`](src/mailbox_channels/identifier_directory.py) - Persistent system-scoped UUID, contact, name, and resolution-request directory.
@@ -103,7 +104,7 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 - [`tests/test_irc_adapter.py`](tests/test_irc_adapter.py) - IRC protocol parsing, outbound messages, and attachment-link tests.
 - [`tests/test_line_adapter.py`](tests/test_line_adapter.py) - LINE signatures, inbound events, groups/rooms, and outbound media tests.
 - [`tests/test_listener_registry.py`](tests/test_listener_registry.py) - Listener/route configuration validation and environment expansion tests.
-- [`tests/test_local_channels.py`](tests/test_local_channels.py) - Durable subscriptions and declarative polling-subscription tests.
+- [`tests/test_subscriptions.py`](tests/test_subscriptions.py) - Durable subscriptions and declarative polling-subscription tests.
 - [`tests/test_local_cmd_launchers.py`](tests/test_local_cmd_launchers.py) - Windows/POSIX launcher presence and location-independence tests.
 - [`tests/test_matrix_adapter.py`](tests/test_matrix_adapter.py) - Matrix sync, room messages, threads, media, and outbound tests.
 - [`tests/test_meta_adapters.py`](tests/test_meta_adapters.py) - WhatsApp Business and Facebook Messenger webhook/outbound/configuration tests.
@@ -24001,7 +24002,7 @@ This appendix inventories every currently present non-Git generated or runtime f
 - [`src/mailbox_channels/__pycache__/irc_adapter.cpython-313.pyc`](<src/mailbox_channels/__pycache__/irc_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
 - [`src/mailbox_channels/__pycache__/line_adapter.cpython-313.pyc`](<src/mailbox_channels/__pycache__/line_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
 - [`src/mailbox_channels/__pycache__/listener_registry.cpython-313.pyc`](<src/mailbox_channels/__pycache__/listener_registry.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_channels/__pycache__/local_channels.cpython-313.pyc`](<src/mailbox_channels/__pycache__/local_channels.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_channels/__pycache__/subscriptions.cpython-313.pyc`](<src/mailbox_channels/__pycache__/subscriptions.cpython-313.pyc>) - Generated Python bytecode cache.
 - [`src/mailbox_channels/__pycache__/matrix_adapter.cpython-313.pyc`](<src/mailbox_channels/__pycache__/matrix_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
 - [`src/mailbox_channels/__pycache__/mattermost_adapter.cpython-313.pyc`](<src/mailbox_channels/__pycache__/mattermost_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
 - [`src/mailbox_channels/__pycache__/meta_webhooks.cpython-313.pyc`](<src/mailbox_channels/__pycache__/meta_webhooks.cpython-313.pyc>) - Generated Python bytecode cache.
@@ -24421,7 +24422,7 @@ This appendix inventories every currently present non-Git generated or runtime f
 - [`tests/__pycache__/test_irc_adapter.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_irc_adapter.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.
 - [`tests/__pycache__/test_line_adapter.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_line_adapter.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.
 - [`tests/__pycache__/test_listener_registry.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_listener_registry.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.
-- [`tests/__pycache__/test_local_channels.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_local_channels.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.
+- [`tests/__pycache__/test_subscriptions.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_subscriptions.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.
 - [`tests/__pycache__/test_local_cmd_launchers.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_local_cmd_launchers.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.
 - [`tests/__pycache__/test_matrix_adapter.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_matrix_adapter.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.
 - [`tests/__pycache__/test_meta_adapters.cpython-313-pytest-9.1.1.pyc`](<tests/__pycache__/test_meta_adapters.cpython-313-pytest-9.1.1.pyc>) - Generated Python bytecode cache.

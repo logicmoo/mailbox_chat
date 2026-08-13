@@ -40,7 +40,7 @@ from .sqlite_limits import DEFAULT_MAX_SQLITE_BYTES, MAX_SQLITE_ENV
 from .identifier_directory import IdentifierDirectory
 from .meta_webhooks import verify_challenge, verify_signature
 from .route_admin import attach as attach_route, detach as detach_route
-from .local_channels import set_subscription, subscriptions
+from .subscriptions import set_subscription, subscriptions
 
 
 def runtime_paths(port: int, mailbox_root: Path | None = None) -> tuple[Path, Path, Path]:
@@ -485,12 +485,21 @@ def main(argv: list[str] | None = None) -> int:
                 return
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/identifiers",
                                      "/v1/identifier-resolution-requests", "/v1/routes",
-                                     "/v1/subscriptions"}:
+                                     "/v1/subscriptions", "/v1/channels"}:
                 self._json(404, {"error": "not found"})
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if request_path == "/v1/channels":
+                    from .channel_admin import create_channel
+                    channel = create_channel(
+                        str(payload.get("address") or ""), title=str(payload.get("title") or ""),
+                        topic=str(payload.get("topic") or ""), private=bool(payload.get("private")),
+                        container=str(payload.get("container") or ""),
+                    )
+                    self._json(201, {"channel": channel})
+                    return
                 if request_path == "/v1/routes":
                     action = str(payload.get("action") or "")
                     if action == "attach":

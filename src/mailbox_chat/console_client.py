@@ -13,7 +13,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import websocket
 
 from . import agent_mailbox
-from . import contact_admin, discovery_admin, registry_admin, route_admin, token_admin
+from . import channel_admin, contact_admin, discovery_admin, registry_admin, route_admin, token_admin
 
 CLIENT_NAME = "Mailbox Console"
 CHAT_PATH = "/v1/chat/ws"
@@ -107,8 +107,14 @@ def run_administration(command: str, arguments: str | list[str], *, url: str,
                    item == "--dir" or item.startswith("--dir=") for item in argv):
             argv = (["--dir", str(directory)] if directory is not None else
                     ["--url", relay_http_url(url)]) + argv
-    else:
+    elif command == "discover":
         handler = discovery_admin.main
+        if directory is None and not any(
+            item == "--url" or item.startswith("--url=") for item in argv
+        ):
+            argv = ["--url", relay_http_url(url), *argv]
+    else:
+        handler = channel_admin.main
         if directory is None and not any(
             item == "--url" or item.startswith("--url=") for item in argv
         ):
@@ -129,7 +135,7 @@ def run_client_command(command_line: str, *, identity: str, destination: str,
         return 2
     if not argv:
         return 0
-    if argv[0] in {"token", "route", "contacts", "registry", "discover"}:
+    if argv[0] in {"token", "route", "contacts", "registry", "discover", "channels"}:
         return run_administration(argv[0], argv[1:], url=url, directory=directory)
     transport = ["--dir", str(directory)] if directory is not None else ["--url", relay_http_url(url)]
     explicit_to = any(item == "--to" or item.startswith("--to=") for item in argv)
@@ -279,7 +285,7 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
                 parsed_address = parse_endpoint(address)
                 if parsed_address and parsed_address.adapter == "irc" and not parsed_address.identifier.startswith(
                     ("#", "&", "+", "!")
-                ):
+                ) and parsed_address.identifier != "status":
                     address = EndpointAddress(
                         "irc", parsed_address.instance, f"#{parsed_address.identifier}",
                     ).canonical

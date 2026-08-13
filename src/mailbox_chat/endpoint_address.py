@@ -9,6 +9,7 @@ from typing import Any
 
 
 ADAPTER_ALIASES = {
+    "local": "local",
     "mm": "mattermost",
     "discord": "discord",
     "slack": "slack",
@@ -40,6 +41,27 @@ class EndpointAddress:
         alias = CANONICAL_TYPES[self.adapter]
         return f"{alias}/{self.instance}/{quote(self.identifier, safe='!:@.-_~')}"
 
+    @property
+    def inferred_type(self) -> str:
+        if self.adapter == "local":
+            return "channel"
+        if self.adapter == "irc":
+            if self.identifier == "status":
+                return "status"
+            return "channel" if self.identifier.startswith(("#", "&", "+", "!")) else "user"
+        return "unknown"
+
+    def describe(self, *, resource_type: str = "", properties: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {
+            "address": self.canonical,
+            "platform": CANONICAL_TYPES[self.adapter],
+            "adapter": self.adapter,
+            "instance": self.instance,
+            "id": self.identifier,
+            "type": resource_type or self.inferred_type,
+            "properties": dict(properties or {}),
+        }
+
 
 def parse_endpoint(value: str) -> EndpointAddress | None:
     parts = value.strip().split("/", 2)
@@ -60,6 +82,7 @@ def endpoint_instance(adapter: str, listener: dict[str, Any]) -> str:
     if explicit:
         return explicit.lower()
     candidates = {
+        "local": "0",
         "discord": listener.get("id"),
         "slack": listener.get("workspace_id") or listener.get("id"),
         "matrix": listener.get("homeserver"),
@@ -79,7 +102,7 @@ def endpoint_instance(adapter: str, listener: dict[str, Any]) -> str:
 
 
 def subscription_recipients(adapter: str, listener: dict[str, Any], identifier: str) -> list[str]:
-    from .local_channels import subscribers
+    from .subscriptions import subscribers
 
     specific = EndpointAddress(adapter, endpoint_instance(adapter, listener), str(identifier)).canonical
     default = EndpointAddress(adapter, "0", str(identifier)).canonical

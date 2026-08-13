@@ -11,9 +11,9 @@
       ]
     }
   ],
-  "local_channels": [
+  "subscriptions": [
     {
-      "id": "server_events",
+      "id": "local/0/server_events",
       "subscribers": []
     }
   ],

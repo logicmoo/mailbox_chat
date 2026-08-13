@@ -2,7 +2,7 @@ import json
 
 from mailbox_channels import agent_mailbox
 from mailbox_channels.endpoint_address import parse_endpoint, subscription_recipients
-from mailbox_channels.local_channels import subscriptions
+from mailbox_channels.subscriptions import subscriptions
 
 
 def test_mattermost_endpoint_address_parses_canonically() -> None:
@@ -19,12 +19,23 @@ def test_zero_instance_is_canonical_default_instance(monkeypatch) -> None:
     assert endpoint is not None
     assert endpoint.canonical == "mm/0/channel-1"
     monkeypatch.setattr(
-        "mailbox_channels.local_channels.subscribers",
+        "mailbox_channels.subscriptions.subscribers",
         lambda address: ["default-agent"] if address == "mm/0/channel-1" else ["specific-agent"],
     )
     assert subscription_recipients(
         "mattermost", {"id": "primary", "instance": "chat.snt"}, "channel-1",
     ) == ["specific-agent", "default-agent"]
+
+
+def test_endpoint_descriptions_have_common_typed_properties() -> None:
+    status = parse_endpoint("irc/0/status")
+    channel = parse_endpoint("local/0/debug-console")
+    assert status is not None and status.describe()["type"] == "status"
+    assert channel is not None and channel.describe(properties={"topic": "debug"}) == {
+        "address": "local/0/debug-console", "platform": "local", "adapter": "local",
+        "instance": "0", "id": "debug-console", "type": "channel",
+        "properties": {"topic": "debug"},
+    }
 
 
 def test_every_platform_endpoint_type_round_trips() -> None:

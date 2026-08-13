@@ -16,7 +16,7 @@ from .attachment_storage import write_bytes
 from .listener_registry import config_dir, listeners_for
 from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from .channel_routes import dispatch_routes
-from .local_channels import subscribers
+from .subscriptions import subscribers
 from .endpoint_address import EndpointAddress
 from urllib.parse import urlsplit
 
@@ -91,14 +91,17 @@ class MattermostRelay:
             configured = [item.strip() for item in fallback.split(",") if item.strip()]
         instance = (urlsplit(os.environ.get("MM_URL", "")).hostname or "mattermost").lower()
         return list(dict.fromkeys([
-            *configured, *subscribers(f"mm_{channel_id}"),
+            *configured,
             *subscribers(EndpointAddress("mattermost", instance, channel_id).canonical),
+            *subscribers(EndpointAddress("mattermost", "0", channel_id).canonical),
         ]))
 
     def _post_recipients(self, channel_id: str, author_id: str) -> list[str]:
         instance = (urlsplit(os.environ.get("MM_URL", "")).hostname or "mattermost").lower()
-        direct_subscribers = (subscribers(EndpointAddress("mattermost", instance, author_id).canonical)
-                              if channel_id not in self._channels() else [])
+        direct_subscribers = (list(dict.fromkeys([
+            *subscribers(EndpointAddress("mattermost", instance, author_id).canonical),
+            *subscribers(EndpointAddress("mattermost", "0", author_id).canonical),
+        ])) if channel_id not in self._channels() else [])
         return list(dict.fromkeys([*self._inbound_recipients(channel_id), *direct_subscribers]))
 
     def _connect(self) -> None:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from mailbox_channels import agent_mailbox
 from mailbox_channels.channel_relay import ChannelRelay, RELAY_RECIPIENT
-from mailbox_channels.local_channels import set_subscription
+from mailbox_channels.subscriptions import set_subscription
 
 
 class FailingAdapter:
@@ -139,9 +139,9 @@ def test_adapter_state_is_always_published_to_server_events(tmp_path: Path, monk
     config = tmp_path / "config"
     config.mkdir()
     relays = config / "relays.json"
-    relays.write_text('{"version":1,"listeners":[],"local_channels":[]}', encoding="utf-8")
+    relays.write_text('{"version":1,"listeners":[],"subscriptions":[]}', encoding="utf-8")
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
-    set_subscription("server_events", "symbolic-workbench-codex", enabled=True)
+    set_subscription("local/0/server_events", "symbolic-workbench-codex", enabled=True)
     relay = ChannelRelay.__new__(ChannelRelay)
     relay._adapter_event_states = {}
     relay._publish_adapter_event(
@@ -154,7 +154,7 @@ def test_adapter_state_is_always_published_to_server_events(tmp_path: Path, monk
     assert event["type"] == "chat_server_status"
     assert event["connection_state"] == "connection_failed"
     assert event["diagnostic"]["error_message"] == "offline"
-    assert agent_mailbox.receive("server_events", root=tmp_path) == []
+    assert agent_mailbox.receive("local/0/server_events", root=tmp_path) == []
 
 
 def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_path: Path, monkeypatch) -> None:

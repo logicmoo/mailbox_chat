@@ -190,7 +190,7 @@ def listeners_for(adapter: str, *, direction: str | None = None) -> list[dict[st
 
 def public_registry() -> dict[str, Any]:
     """Return listener configuration with no credential values."""
-    from .local_channels import channels
+    from .subscriptions import channels
 
     return {"version": 1, "agents": load_agents(), "listeners": load_listeners(), "routes": load_routes(),
-            "local_channels": channels()}
+            "subscriptions": channels()}

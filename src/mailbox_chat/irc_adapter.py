@@ -114,6 +114,18 @@ class IrcAdapter:
             self._join_channels()
             return
         if " PRIVMSG " not in line or not line.startswith(":"):
+            if " NOTICE " in line or line.startswith("ERROR ") or (
+                line.startswith(":") and len(line.split(" ", 3)) >= 3
+                and line.split(" ", 3)[1].isdigit()
+            ):
+                listener = self.listener or {}
+                text = line.partition(" :")[2] or line
+                for recipient in subscription_recipients("irc", listener, "status"):
+                    mailbox.send(
+                        recipient, text, sender="irc:server", message_type="irc_status",
+                        channel_id="status", channel_type="irc",
+                        extra_fields={"irc_line": line},
+                    )
             return
         prefix, remainder = line[1:].split(" PRIVMSG ", 1)
         target, separator, text = remainder.partition(" :")
@@ -167,6 +179,8 @@ class IrcAdapter:
         target = str(message.get("channel_id") or "").strip()
         if not target:
             raise ValueError("IRC outbound message requires channel_id")
+        if target == "status":
+            raise ValueError("irc/INSTANCE/status is read-only")
         text = str(message.get("text") or "")
         attachment_lines = [f"Attachment: {attachment_url(record)}" for record in message.get("attachments") or []]
         for line in [*(text.splitlines() or [""]), *attachment_lines]:

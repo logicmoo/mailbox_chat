@@ -49,29 +49,29 @@ The accompanying `service_context` includes safe listener IDs, channel IDs,
 directions, current enabled/connected state, and the bounded retry policy.
 
 The relay also publishes every adapter lifecycle transition and safe diagnostic
-to the built-in local `server_events` channel. Like a Mattermost channel, it
+to the built-in local `local/0/server_events` channel. Like a Mattermost channel, it
 has subscribers: each subscribed agent receives its own mailbox copy and keeps
 its own cursor. Subscribe once, then poll the agent's normal identity:
 
 ```powershell
-mailbox-client subscribe server_events --to symbolic-workbench-codex
+mailbox-client subscribe local/0/server_events --to symbolic-workbench-codex
 mailbox-client follow --to symbolic-workbench-codex --format text --nobuffer
 ```
 
 Inspect or remove subscriptions with
 `mailbox-client subscriptions --to symbolic-workbench-codex` and
-`mailbox-client unsubscribe server_events --to symbolic-workbench-codex`.
-Do not poll `--to server_events`: it is a publish/subscribe channel name, not a
+`mailbox-client unsubscribe local/0/server_events --to symbolic-workbench-codex`.
+Do not poll `--to local/0/server_events`: it is a publish/subscribe channel name, not a
 competing-consumer mailbox identity.
 
-The server saves subscription membership under `local_channels` in
+The server saves subscription membership under `subscriptions` in
 `config/relays.json` and reloads it after restart:
 
 ```json
 {
-  "local_channels": [
+  "subscriptions": [
     {
-      "id": "server_events",
+      "id": "local/0/server_events",
       "subscribers": ["symbolic-workbench-codex"]
     },
     {
@@ -126,7 +126,7 @@ subscriptions as part of the poll command:
 
 ```powershell
 mailbox-client poll --to symbolic-workbench-codex `
-  --subscribed server_events,mm/chat.snt/3423423434234,mm/chat.snt/2342444444444 `
+  --subscribed local/0/server_events,mm/chat.snt/3423423434234,mm/chat.snt/2342444444444 `
   --interval 30 --checks 11
 ```
 

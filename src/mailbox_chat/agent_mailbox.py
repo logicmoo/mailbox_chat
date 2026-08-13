@@ -657,20 +657,20 @@ def build_parser() -> argparse.ArgumentParser:
     ack_parser.add_argument("message_id", help="message ID through which the cursor advances")
     ack_parser.add_argument("--cursor", help="independent cursor name")
     subscribe_parser = commands.add_parser(
-        "subscribe", help="subscribe an identity to a relay-local channel",
-        description="Durably subscribe one mailbox identity to a relay-local publish/subscribe channel.",
-        epilog="Example: mailbox-client subscribe server_events --to symbolic-workbench-codex",
+        "subscribe", help="subscribe an identity to a qualified conversation address",
+        description="Durably subscribe one mailbox identity to a TYPE/INSTANCE/IDENTIFIER address.",
+        epilog="Example: mailbox-client subscribe local/0/server_events --to symbolic-workbench-codex",
     )
-    subscribe_parser.add_argument("channel", help="relay-local channel name")
+    subscribe_parser.add_argument("channel", help="TYPE/INSTANCE/IDENTIFIER conversation address")
     unsubscribe_parser = commands.add_parser(
-        "unsubscribe", help="remove an identity from a relay-local channel",
-        description="Remove one mailbox identity's durable local-channel subscription.",
-        epilog="Example: mailbox-client unsubscribe server_events --to symbolic-workbench-codex",
+        "unsubscribe", help="remove an identity from a conversation address",
+        description="Remove one mailbox identity's durable conversation subscription.",
+        epilog="Example: mailbox-client unsubscribe local/0/server_events --to symbolic-workbench-codex",
     )
-    unsubscribe_parser.add_argument("channel", help="relay-local channel name")
+    unsubscribe_parser.add_argument("channel", help="TYPE/INSTANCE/IDENTIFIER conversation address")
     commands.add_parser(
-        "subscriptions", help="list an identity's relay-local channel subscriptions",
-        description="List every relay-local channel subscribed by one mailbox identity.",
+        "subscriptions", help="list an identity's conversation subscriptions",
+        description="List every qualified conversation address subscribed by one mailbox identity.",
         epilog="Example: mailbox-client subscriptions --to symbolic-workbench-codex",
     )
     commands.add_parser(
@@ -692,6 +692,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("registry", help="manage UUID and identifier-to-text mappings",
                         add_help=False)
     commands.add_parser("discover", help="list visible resources from configured platforms",
+                        add_help=False)
+    commands.add_parser("channels", help="create channels on supported platforms",
                         add_help=False)
     return parser
 
@@ -846,7 +848,7 @@ def _enable_unbuffered_output() -> None:
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
-    if supplied and supplied[0] in {"token", "route", "contacts", "registry", "discover"}:
+    if supplied and supplied[0] in {"token", "route", "contacts", "registry", "discover", "channels"}:
         family, nested = supplied[0], supplied[1:]
         if family == "token":
             from .token_admin import main as administration_main
@@ -856,8 +858,10 @@ def main(argv: list[str] | None = None) -> int:
             from .contact_admin import main as administration_main
         elif family == "registry":
             from .registry_admin import main as administration_main
-        else:
+        elif family == "discover":
             from .discovery_admin import main as administration_main
+        else:
+            from .channel_admin import main as administration_main
         return administration_main(nested)
     try:
         supplied = _expand_run_document(supplied)
@@ -937,7 +941,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.subscribed:
         if not subscription_identity:
             build_parser().error("--subscribed requires --to or --as IDENTITY")
-        from .local_channels import set_subscription
+        from .subscriptions import set_subscription
         declared_subscriptions.extend(
             item.strip() for item in args.subscribed.split(",") if item.strip()
         )
@@ -950,7 +954,7 @@ def main(argv: list[str] | None = None) -> int:
                 "channel": channel, "identity": subscription_identity, "subscribed": True,
             }, base_url=rest_url)
         else:
-            from .local_channels import set_subscription
+            from .subscriptions import set_subscription
             set_subscription(channel, subscription_identity, enabled=True)
     if args.curl:
         if not use_rest:
@@ -961,7 +965,7 @@ def main(argv: list[str] | None = None) -> int:
         target = rest_url if use_rest else str(mailbox_root or mailbox_dir())
         print(f"agent_mailbox transport={'REST' if use_rest else 'JSONL'} target={target}", file=sys.stderr)
     if args.command in {"subscribe", "unsubscribe", "subscriptions"}:
-        from .local_channels import set_subscription, subscriptions
+        from .subscriptions import set_subscription, subscriptions
         if args.command == "subscriptions":
             result = (_rest_request(
                 "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.global_recipient}),
@@ -989,7 +993,8 @@ def main(argv: list[str] | None = None) -> int:
                     source_id=args.source_id,
                     thread_id=args.thread_id,
                     root_id=args.root_id,
-                    extra_fields={"endpoint_address": destination_endpoint.canonical}
+                    extra_fields={"endpoint_address": destination_endpoint.canonical,
+                                  "endpoint": destination_endpoint.describe()}
                     if destination_endpoint else None,
                     **({"base_url": rest_url} if use_rest else {"root": mailbox_root}),
                 )

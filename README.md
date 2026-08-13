@@ -127,12 +127,12 @@ the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
 Presence IDs are globally unique. A listener cannot claim a presence belonging
 to a different agent. Existing configurations without `agents` remain valid.
 
-Relay-local publish/subscribe channels fan events out to those identities. For
+Fully qualified qualified channels fan events out to those identities. For
 example, subscribe an agent to server diagnostics and continue polling the
 agent's own mailbox:
 
 ```powershell
-mailbox-client subscribe server_events --to symbolic-workbench-codex
+mailbox-client subscribe local/0/server_events --to symbolic-workbench-codex
 mailbox-client poll --to symbolic-workbench-codex
 ```
 
@@ -140,11 +140,11 @@ An agent can ensure all required subscriptions when it starts:
 
 ```powershell
 mailbox-client poll --to symbolic-workbench-codex `
-  --subscribed server_events,mm/chat.snt/MATTERMOST_CHANNEL_ID
+  --subscribed local/0/server_events,mm/chat.snt/MATTERMOST_CHANNEL_ID
 ```
 
 These memberships are saved by the server in `config/relays.json` under
-`local_channels[].subscribers` and survive relay restarts.
+`subscriptions[].subscribers` and survive relay restarts.
 
 External Mattermost addresses use `mm/SERVER/ID`; `--as` is the local agent,
 `--from` subscribes to an external source, and `--to` sends externally:
@@ -184,6 +184,32 @@ uses IRC `NAMES`, retains status prefixes such as operator (`@`) and voice (`+`)
 and saves each nickname in the registry with its channel context. Some IRC
 networks restrict or throttle full channel lists; use
 `--timeout SECONDS` when the network needs longer.
+
+IRC exposes a read-only server/status conversation at `irc/0/status`. Subscribe
+or open `/console irc/0/status` to receive server notices, errors, and numeric
+status replies without confusing that window with a real `#status` channel.
+
+Create a qualified local channel, or a channel on a configured platform whose
+credentials have creation permission:
+
+```powershell
+mailbox-client channels create local/0/debug-console --title "Debug console"
+mailbox-client channels create irc/0/testing
+mailbox-client channels create slack/0/agent-testing --topic "Agent testing"
+mailbox-client channels create discord/0/agent-testing --container GUILD_ID
+mailbox-client channels create mm/0/agent-testing --container TEAM_ID
+mailbox-client channels create matrix/0/agent-testing
+```
+
+The same family works as `/channels create ...` in the console. Telegram and
+WhatsApp Business bot APIs do not expose arbitrary group creation, so those
+adapters report the operation as unsupported.
+
+Every `TYPE/INSTANCE/ID` resolves to a structured endpoint with common
+`platform`, `instance`, `id`, `type`, and `properties` fields. Resource types
+include `user`, `channel`, `group`, `thread`, `dm`, and `status`; discovery or
+registry metadata supplies platform-specific properties such as topic,
+visibility, membership counts, and status prefixes.
 
 All adapters use the same `TYPE/INSTANCE/SOURCE_OR_DESTINATION` form. Canonical
 types are `wa`, `wab`, `viber`, `mm`, `discord`, `discourse`, `irc`, `slack`,

@@ -21,7 +21,7 @@ from .discourse_adapter import DiscourseAdapter
 from .whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 from .listener_registry import listeners_for
-from .local_channels import SERVER_EVENTS_CHANNEL, subscribers
+from .subscriptions import SERVER_EVENTS_CHANNEL, subscribers
 from .endpoint_address import endpoint_instance, parse_endpoint
 
 

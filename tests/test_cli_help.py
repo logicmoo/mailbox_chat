@@ -56,11 +56,11 @@ def test_agent_help_lists_every_global_option() -> None:
 def test_every_agent_command_has_comprehensive_help() -> None:
     expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
                 "subscribe", "unsubscribe", "subscriptions", "token", "route", "contacts",
-                "registry", "discover"}
+                "registry", "discover", "channels"}
     commands = _agent_commands()
     assert set(commands) == expected
     for name, command_parser in commands.items():
-        if name in {"token", "route", "contacts", "registry", "discover"}:
+        if name in {"token", "route", "contacts", "registry", "discover", "channels"}:
             continue
         help_text = command_parser.format_help()
         assert command_parser.description
