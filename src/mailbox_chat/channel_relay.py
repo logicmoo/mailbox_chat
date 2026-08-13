@@ -7,18 +7,18 @@ import os
 import time
 from typing import Any
 
-from .mattermost_adapter import MattermostRelay, RELAY_PORT
-from .irc_adapter import IrcAdapter
-from .discord_adapter import DiscordAdapter
-from .matrix_adapter import MatrixAdapter
-from .slack_adapter import SlackAdapter
-from .telegram_adapter import TelegramAdapter
-from .facebook_messenger_adapter import FacebookMessengerAdapter
-from .whatsapp_adapter import WhatsAppAdapter
-from .viber_adapter import ViberAdapter
-from .line_adapter import LineAdapter
-from .discourse_adapter import DiscourseAdapter
-from .whatsapp_personal_adapter import WhatsAppPersonalAdapter
+from .adapters.mattermost_adapter import MattermostRelay, RELAY_PORT
+from .adapters.irc_adapter import IrcAdapter
+from .adapters.discord_adapter import DiscordAdapter
+from .adapters.matrix_adapter import MatrixAdapter
+from .adapters.slack_adapter import SlackAdapter
+from .adapters.telegram_adapter import TelegramAdapter
+from .adapters.facebook_messenger_adapter import FacebookMessengerAdapter
+from .adapters.whatsapp_adapter import WhatsAppAdapter
+from .adapters.viber_adapter import ViberAdapter
+from .adapters.line_adapter import LineAdapter
+from .adapters.discourse_adapter import DiscourseAdapter
+from .adapters.whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 from .listener_registry import listeners_for
 from .subscriptions import SERVER_EVENTS_CHANNEL, subscribers

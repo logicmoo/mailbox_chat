@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_channels.slack_adapter import SlackAdapter
+from mailbox_channels.adapters.slack_adapter import SlackAdapter
 
 
 class Response:
@@ -35,7 +35,7 @@ def test_slack_history_and_send(monkeypatch, tmp_path: Path) -> None:
     listener = {"id": "slack-one", "direction": "bidirectional", "token_env": "SLACK_TOKEN",
                 "channel_ids": ["C1"], "bridge_agent": "slack-agent", "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("SLACK_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.slack_adapter.listeners_for", lambda adapter: [listener])
+    monkeypatch.setattr("mailbox_channels.adapters.slack_adapter.listeners_for", lambda adapter: [listener])
     monkeypatch.setattr("mailbox_channels.channel_routes.load_routes", lambda: [])
     session, mailbox = Session(), Mailbox(tmp_path)
     adapter = SlackAdapter(session=session)

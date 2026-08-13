@@ -205,6 +205,29 @@ The same family works as `/channels create ...` in the console. Telegram and
 WhatsApp Business bot APIs do not expose arbitrary group creation, so those
 adapters report the operation as unsupported.
 
+Standard IRC commands are grouped under `mailbox-client irc` and are all shown
+by `mailbox-client irc --help`: `ping`, `list`, `names`, `join`, `part`, `topic`,
+`nick`, `whois`, `mode`, `invite`, `kick`, `message`, `notice`, and `raw`.
+Stateful commands run through the relay's active IRC connection. The same forms
+work interactively, for example `/irc join #testing` and `/irc whois alice`.
+
+Mattermost exposes the same familiar command vocabulary under
+`mailbox-client mm --help`. The relay maps it to channel listing, membership,
+headers, bot nickname, user lookup, visibility, posts, notices, and constrained
+authenticated `/api/v4/` requests. For example:
+
+```powershell
+mailbox-client mm names mm/0/CHANNEL_ID
+mailbox-client mm ping
+mailbox-client mm invite USER_ID mm/0/CHANNEL_ID
+mailbox-client mm message mm/0/CHANNEL_ID --input message.txt --format text
+mailbox-client mm raw POST /api/v4/posts --input post.json --input-format json
+```
+
+`--input FILE` chooses the content source, `--input-format text|json` controls
+how the file is interpreted, and `--format jsonl|json|text` controls output.
+These switches may appear before or after the IRC or Mattermost subcommand.
+
 Every `TYPE/INSTANCE/ID` resolves to a structured endpoint with common
 `platform`, `instance`, `id`, `type`, and `properties` fields. Resource types
 include `user`, `channel`, `group`, `thread`, `dm`, and `status`; discovery or

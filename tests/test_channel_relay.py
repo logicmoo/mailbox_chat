@@ -91,7 +91,7 @@ def test_agent_channel_post_fans_out_to_other_subscribers_once(tmp_path: Path, m
         ],
     }
     monkeypatch.setattr(
-        "mailbox_channels.mattermost_adapter.listeners_for",
+        "mailbox_channels.adapters.mattermost_adapter.listeners_for",
         lambda adapter, **_kwargs: [listener] if adapter == "mattermost" else [],
     )
     monkeypatch.setattr(

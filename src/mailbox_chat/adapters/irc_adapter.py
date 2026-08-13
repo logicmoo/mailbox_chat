@@ -9,11 +9,11 @@ import time
 import uuid
 from typing import Any, Callable
 
-from .listener_registry import listeners_for
-from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from .endpoint_address import subscription_recipients
-from .attachment_gateway import attachment_url
-from .channel_routes import dispatch_routes
+from ..listener_registry import listeners_for
+from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from ..endpoint_address import subscription_recipients
+from ..attachment_gateway import attachment_url
+from ..channel_routes import dispatch_routes
 
 
 SocketFactory = Callable[[tuple[str, int], float], socket.socket]

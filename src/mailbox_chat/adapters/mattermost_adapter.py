@@ -12,12 +12,12 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
-from .attachment_storage import write_bytes
-from .listener_registry import config_dir, listeners_for
-from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from .channel_routes import dispatch_routes
-from .subscriptions import subscribers
-from .endpoint_address import EndpointAddress
+from ..attachment_storage import write_bytes
+from ..listener_registry import config_dir, listeners_for
+from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from ..channel_routes import dispatch_routes
+from ..subscriptions import subscribers
+from ..endpoint_address import EndpointAddress
 from urllib.parse import urlsplit
 
 
@@ -28,7 +28,7 @@ RELAY_PORT = 46667
 
 
 def _mailbox_module():
-    from . import agent_mailbox
+    from .. import agent_mailbox
 
     return agent_mailbox
 

@@ -13,13 +13,13 @@ from typing import Any
 
 import requests
 
-from .attachment_gateway import attachment_url
-from .attachment_storage import write_bytes
-from .channel_routes import dispatch_routes
-from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from .endpoint_address import subscription_recipients
-from .identifier_directory import IdentifierDirectory
-from .listener_registry import listeners_for
+from ..attachment_gateway import attachment_url
+from ..attachment_storage import write_bytes
+from ..channel_routes import dispatch_routes
+from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from ..endpoint_address import subscription_recipients
+from ..identifier_directory import IdentifierDirectory
+from ..listener_registry import listeners_for
 
 
 LINE_API = "https://api.line.me/v2/bot"

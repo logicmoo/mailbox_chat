@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from mailbox_channels import agent_mailbox, irc_adapter
-from mailbox_channels.irc_adapter import IrcAdapter
+from mailbox_channels import agent_mailbox
+from mailbox_channels.adapters import irc_adapter
+from mailbox_channels.adapters.irc_adapter import IrcAdapter
 
 
 class FakeSocket:

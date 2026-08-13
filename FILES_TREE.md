@@ -46,6 +46,10 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 - [`src/mailbox_channels/listener_registry.py`](src/mailbox_channels/listener_registry.py) - Loading, expansion, validation, and safe publication of listener/route configuration.
 - [`src/mailbox_channels/subscriptions.py`](src/mailbox_channels/subscriptions.py) - Durable qualified-address subscriptions and atomic subscriber updates.
 - [`src/mailbox_channels/channel_admin.py`](src/mailbox_channels/channel_admin.py) - Unified local and external platform channel creation.
+- [`src/mailbox_channels/irc_admin.py`](src/mailbox_channels/irc_admin.py) - Standard IRC command family executed through the active relay connection.
+- [`src/mailbox_channels/mattermost_admin.py`](src/mailbox_channels/mattermost_admin.py) - Familiar channel, membership, profile, message, and API commands mapped to Mattermost.
+- [`src/mailbox_channels/admin_io.py`](src/mailbox_channels/admin_io.py) - Shared `--input`, `--input-format`, and output formatting for platform commands.
+- [`src/mailbox_channels/adapters/`](src/mailbox_channels/adapters/) - External chat-platform transport implementations.
 - [`src/mailbox_channels/endpoint_address.py`](src/mailbox_channels/endpoint_address.py) - Parsing and canonicalization of `TYPE/INSTANCE/SOURCE_OR_DESTINATION` addresses.
 - [`src/mailbox_channels/delivery_ledger.py`](src/mailbox_channels/delivery_ledger.py) - SQLite origin/endpoint traversal ledger for durable loop and duplicate suppression.
 - [`src/mailbox_channels/identifier_directory.py`](src/mailbox_channels/identifier_directory.py) - Persistent system-scoped UUID, contact, name, and resolution-request directory.
@@ -64,18 +68,18 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 
 ### Platform adapters
 
-- [`src/mailbox_channels/mattermost_adapter.py`](src/mailbox_channels/mattermost_adapter.py) - Mattermost channel/DM polling, posts, files, threads, subscriber fan-out, and echo suppression.
-- [`src/mailbox_channels/discord_adapter.py`](src/mailbox_channels/discord_adapter.py) - Discord channel polling and outbound message/file delivery.
-- [`src/mailbox_channels/slack_adapter.py`](src/mailbox_channels/slack_adapter.py) - Slack Web API polling, threaded messages, files, and multiple listener presences.
-- [`src/mailbox_channels/matrix_adapter.py`](src/mailbox_channels/matrix_adapter.py) - Matrix Client-Server sync, room messages, threads, and media transfer.
-- [`src/mailbox_channels/irc_adapter.py`](src/mailbox_channels/irc_adapter.py) - IRC/TLS connection, joins, channel/private messages, and attachment-link delivery.
-- [`src/mailbox_channels/telegram_adapter.py`](src/mailbox_channels/telegram_adapter.py) - Telegram Bot API polling, topics, chat-name resolution, text, and documents.
-- [`src/mailbox_channels/whatsapp_adapter.py`](src/mailbox_channels/whatsapp_adapter.py) - WhatsApp Business Cloud API webhooks, direct/group delivery, and media handling.
-- [`src/mailbox_channels/whatsapp_personal_adapter.py`](src/mailbox_channels/whatsapp_personal_adapter.py) - Signed integration with the local personal-WhatsApp companion.
-- [`src/mailbox_channels/facebook_messenger_adapter.py`](src/mailbox_channels/facebook_messenger_adapter.py) - Facebook Page Messenger webhooks, PSID resolution, text, and attachments.
-- [`src/mailbox_channels/viber_adapter.py`](src/mailbox_channels/viber_adapter.py) - Viber Bot API signed callbacks, user resolution, messages, and public file links.
-- [`src/mailbox_channels/line_adapter.py`](src/mailbox_channels/line_adapter.py) - LINE signed webhooks, user/group/room conversations, media downloads, and pushes.
-- [`src/mailbox_channels/discourse_adapter.py`](src/mailbox_channels/discourse_adapter.py) - Discourse signed post webhooks, topic creation, and replies.
+- [`src/mailbox_channels/adapters/mattermost_adapter.py`](src/mailbox_channels/adapters/mattermost_adapter.py) - Mattermost channel/DM polling, posts, files, threads, subscriber fan-out, and echo suppression.
+- [`src/mailbox_channels/adapters/discord_adapter.py`](src/mailbox_channels/adapters/discord_adapter.py) - Discord channel polling and outbound message/file delivery.
+- [`src/mailbox_channels/adapters/slack_adapter.py`](src/mailbox_channels/adapters/slack_adapter.py) - Slack Web API polling, threaded messages, files, and multiple listener presences.
+- [`src/mailbox_channels/adapters/matrix_adapter.py`](src/mailbox_channels/adapters/matrix_adapter.py) - Matrix Client-Server sync, room messages, threads, and media transfer.
+- [`src/mailbox_channels/adapters/irc_adapter.py`](src/mailbox_channels/adapters/irc_adapter.py) - IRC/TLS connection, joins, channel/private messages, and attachment-link delivery.
+- [`src/mailbox_channels/adapters/telegram_adapter.py`](src/mailbox_channels/adapters/telegram_adapter.py) - Telegram Bot API polling, topics, chat-name resolution, text, and documents.
+- [`src/mailbox_channels/adapters/whatsapp_adapter.py`](src/mailbox_channels/adapters/whatsapp_adapter.py) - WhatsApp Business Cloud API webhooks, direct/group delivery, and media handling.
+- [`src/mailbox_channels/adapters/whatsapp_personal_adapter.py`](src/mailbox_channels/adapters/whatsapp_personal_adapter.py) - Signed integration with the local personal-WhatsApp companion.
+- [`src/mailbox_channels/adapters/facebook_messenger_adapter.py`](src/mailbox_channels/adapters/facebook_messenger_adapter.py) - Facebook Page Messenger webhooks, PSID resolution, text, and attachments.
+- [`src/mailbox_channels/adapters/viber_adapter.py`](src/mailbox_channels/adapters/viber_adapter.py) - Viber Bot API signed callbacks, user resolution, messages, and public file links.
+- [`src/mailbox_channels/adapters/line_adapter.py`](src/mailbox_channels/adapters/line_adapter.py) - LINE signed webhooks, user/group/room conversations, media downloads, and pushes.
+- [`src/mailbox_channels/adapters/discourse_adapter.py`](src/mailbox_channels/adapters/discourse_adapter.py) - Discourse signed post webhooks, topic creation, and replies.
 
 ### Served resources
 

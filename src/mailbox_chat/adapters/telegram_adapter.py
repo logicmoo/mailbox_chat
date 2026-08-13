@@ -10,11 +10,11 @@ from typing import Any
 
 import requests
 
-from .channel_routes import dispatch_routes
-from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from .endpoint_address import subscription_recipients
-from .listener_registry import listeners_for
-from .identifier_directory import IdentifierDirectory
+from ..channel_routes import dispatch_routes
+from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from ..endpoint_address import subscription_recipients
+from ..listener_registry import listeners_for
+from ..identifier_directory import IdentifierDirectory
 
 
 TELEGRAM_API = "https://api.telegram.org"

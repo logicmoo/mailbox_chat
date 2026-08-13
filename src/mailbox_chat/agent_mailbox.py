@@ -695,6 +695,10 @@ def build_parser() -> argparse.ArgumentParser:
                         add_help=False)
     commands.add_parser("channels", help="create channels on supported platforms",
                         add_help=False)
+    commands.add_parser("irc", help="run PING, LIST, NAMES, JOIN, PART, TOPIC, NICK, WHOIS, MODE, and other IRC commands",
+                        add_help=False)
+    commands.add_parser("mm", help="run channel, membership, profile, and messaging commands on Mattermost",
+                        add_help=False)
     return parser
 
 
@@ -848,7 +852,7 @@ def _enable_unbuffered_output() -> None:
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
-    if supplied and supplied[0] in {"token", "route", "contacts", "registry", "discover", "channels"}:
+    if supplied and supplied[0] in {"token", "route", "contacts", "registry", "discover", "channels", "irc", "mm"}:
         family, nested = supplied[0], supplied[1:]
         if family == "token":
             from .token_admin import main as administration_main
@@ -860,8 +864,12 @@ def main(argv: list[str] | None = None) -> int:
             from .registry_admin import main as administration_main
         elif family == "discover":
             from .discovery_admin import main as administration_main
-        else:
+        elif family == "channels":
             from .channel_admin import main as administration_main
+        elif family == "irc":
+            from .irc_admin import main as administration_main
+        else:
+            from .mattermost_admin import main as administration_main
         return administration_main(nested)
     try:
         supplied = _expand_run_document(supplied)

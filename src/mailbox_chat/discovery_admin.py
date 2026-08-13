@@ -12,8 +12,9 @@ from typing import Any
 from . import agent_mailbox
 from .endpoint_address import endpoint_instance
 from .identifier_directory import IdentifierDirectory
-from .irc_adapter import IrcAdapter
+from .adapters.irc_adapter import IrcAdapter
 from .listener_registry import listeners_for
+from .admin_io import render
 
 
 def discover_irc_channels(*, timeout: float = 30.0) -> list[dict[str, Any]]:
@@ -84,6 +85,8 @@ def parser() -> argparse.ArgumentParser:
         description="Discover channels and other resources visible to configured platform accounts",
     )
     result.add_argument("--url", help="ask a running relay server to perform discovery")
+    result.add_argument("--format", choices=("jsonl", "json", "text"), default="json",
+                        help="output format (default: json)")
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("platforms", help="list platforms with implemented discovery")
     channels = commands.add_parser("channels", help="list visible platform channels")
@@ -108,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
             result = (_remote(args.url, "users", args.platform, args.timeout, args.channel) if args.url else
                       {"platform": args.platform, "channel": args.channel,
                        "users": discover_irc_users(args.channel, timeout=args.timeout)})
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(render(result, args.format))
     return 0
 
 

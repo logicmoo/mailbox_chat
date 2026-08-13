@@ -89,7 +89,7 @@ def create_channel(address_text: str, *, title: str = "", topic: str = "",
         response.raise_for_status()
         record = {"id": response.json()["room_id"], "name": title or name}
     elif address.adapter == "irc":
-        from .irc_adapter import IrcAdapter
+        from .adapters.irc_adapter import IrcAdapter
         adapter = IrcAdapter()
         adapter.listener = listener
         adapter.status["enabled"] = True

@@ -11,11 +11,11 @@ from typing import Any
 
 import requests
 
-from .attachment_storage import write_bytes
-from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from .endpoint_address import subscription_recipients
-from .listener_registry import listeners_for
-from .channel_routes import dispatch_routes
+from ..attachment_storage import write_bytes
+from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from ..endpoint_address import subscription_recipients
+from ..listener_registry import listeners_for
+from ..channel_routes import dispatch_routes
 
 
 SLACK_API = "https://slack.com/api"

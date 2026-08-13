@@ -485,12 +485,36 @@ def main(argv: list[str] | None = None) -> int:
                 return
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/identifiers",
                                      "/v1/identifier-resolution-requests", "/v1/routes",
-                                     "/v1/subscriptions", "/v1/channels"}:
+                                     "/v1/subscriptions", "/v1/channels", "/v1/irc/command",
+                                     "/v1/mm/command"}:
                 self._json(404, {"error": "not found"})
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if request_path == "/v1/mm/command":
+                    from .mattermost_admin import execute
+                    if not relay.status.get("enabled"):
+                        raise ValueError("Mattermost adapter is not enabled")
+                    if not relay.status.get("connected"):
+                        relay._connect()
+                    result = execute(str(payload.get("command") or ""),
+                                     dict(payload.get("arguments") or {}),
+                                     session=relay.session,
+                                     base_url=__import__("os").environ["MM_URL"])
+                    self._json(200, {"result": result})
+                    return
+                if request_path == "/v1/irc/command":
+                    line = str(payload.get("line") or "").replace("\r", " ").replace("\n", " ").strip()
+                    if not line:
+                        raise ValueError("IRC command line is required")
+                    if not relay.irc.status.get("enabled"):
+                        raise ValueError("IRC adapter is not enabled")
+                    if not relay.irc.connection:
+                        relay.irc.connect()
+                    relay.irc._write(line)
+                    self._json(202, {"accepted": True, "line": line.split(" ", 1)[0].upper()})
+                    return
                 if request_path == "/v1/channels":
                     from .channel_admin import create_channel
                     channel = create_channel(

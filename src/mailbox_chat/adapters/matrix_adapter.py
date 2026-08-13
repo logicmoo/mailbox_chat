@@ -13,10 +13,10 @@ from urllib.parse import quote
 
 import requests
 
-from .delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from .endpoint_address import subscription_recipients
-from .listener_registry import listeners_for
-from .channel_routes import dispatch_routes
+from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
+from ..endpoint_address import subscription_recipients
+from ..listener_registry import listeners_for
+from ..channel_routes import dispatch_routes
 
 
 class MatrixAdapter:

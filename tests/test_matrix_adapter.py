@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_channels.matrix_adapter import MatrixAdapter
+from mailbox_channels.adapters.matrix_adapter import MatrixAdapter
 
 
 class Response:
@@ -34,7 +34,7 @@ def test_matrix_sync_and_send(monkeypatch, tmp_path: Path) -> None:
                 "channel_ids": ["!room:example.org"], "bridge_agent": "matrix-agent",
                 "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("MATRIX_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.matrix_adapter.listeners_for", lambda adapter: [listener])
+    monkeypatch.setattr("mailbox_channels.adapters.matrix_adapter.listeners_for", lambda adapter: [listener])
     monkeypatch.setattr("mailbox_channels.channel_routes.load_routes", lambda: [])
     session, mailbox = Session(), Mailbox(tmp_path)
     adapter = MatrixAdapter(session=session)
