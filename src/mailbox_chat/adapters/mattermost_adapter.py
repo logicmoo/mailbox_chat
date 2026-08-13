@@ -25,7 +25,7 @@ from ..endpoint_address import EndpointAddress, endpoint_instance, parse_endpoin
 from ..admin_io import load_input, normalize_options, render
 from ..identifier_directory import IdentifierDirectory
 from ..agent_mailbox import MATTERMOST_COMMANDS
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 
 LOGGER = logging.getLogger(__name__)
@@ -444,6 +444,21 @@ def _instance(base_url: str) -> str:
 
 def _id(value: str, *, directory: IdentifierDirectory | None = None,
         base_url: str = "", kind: str = "") -> str:
+    parsed_url = urlsplit(value)
+    if parsed_url.scheme in {"http", "https"} and parsed_url.hostname:
+        parts = [unquote(item) for item in parsed_url.path.split("/") if item]
+        try:
+            channel_index = parts.index("channels")
+            value = parts[channel_index + 1]
+        except (ValueError, IndexError) as error:
+            raise ValueError(
+                "Mattermost URLs must contain /channels/CHANNEL_NAME"
+            ) from error
+        active_host = _instance(base_url)
+        if active_host != "mattermost" and parsed_url.hostname.lower() != active_host:
+            raise ValueError(
+                f"Mattermost URL server {parsed_url.hostname} does not match {active_host}"
+            )
     endpoint = parse_endpoint(value)
     if endpoint:
         if endpoint.adapter != "mattermost":

@@ -136,6 +136,21 @@ def test_mm_discovery_persists_teams_channels_and_readable_addresses(tmp_path) -
     assert directory.find(system="mm/0") == []
 
 
+def test_mattermost_channel_web_url_resolves_through_registry(tmp_path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    directory.remember(
+        "c" * 26, "image-perception-to-recognizable-memory-and-arc3",
+        system="mm/chat.singularitynet.io", kind="channel",
+    )
+    from mailbox_channels.adapters.mattermost_adapter import _id
+
+    assert _id(
+        "https://chat.singularitynet.io/chat/channels/"
+        "image-perception-to-recognizable-memory-and-arc3",
+        directory=directory, base_url="https://chat.singularitynet.io", kind="channel",
+    ) == "c" * 26
+
+
 def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
     record = {"post": {"id": "p" * 26, "message": "x" * 700}}
     directory = IdentifierDirectory(tmp_path)
