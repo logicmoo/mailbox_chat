@@ -175,10 +175,14 @@ protocol and save their names, topics, and visible-user counts in the registry:
 
 ```powershell
 mailbox-client discover channels --platform irc
+mailbox-client discover users --platform irc --channel irc/0/testing
 ```
 
 From a console connected to the server, use `/discover channels --platform
-irc`. Some IRC networks restrict or throttle full channel lists; use
+irc` or `/discover users --platform irc --channel irc/0/testing`. User discovery
+uses IRC `NAMES`, retains status prefixes such as operator (`@`) and voice (`+`),
+and saves each nickname in the registry with its channel context. Some IRC
+networks restrict or throttle full channel lists; use
 `--timeout SECONDS` when the network needs longer.
 
 All adapters use the same `TYPE/INSTANCE/SOURCE_OR_DESTINATION` form. Canonical

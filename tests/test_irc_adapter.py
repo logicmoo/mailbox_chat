@@ -97,3 +97,19 @@ def test_irc_list_channels_collects_names_counts_and_topics(monkeypatch) -> None
          "metadata": {"visible_users": 3}},
     ]
     assert "LIST\r\n" in "".join(connection.sent)
+
+
+def test_irc_names_lists_channel_users_and_status(monkeypatch) -> None:
+    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    connection = FakeSocket()
+    connection.chunks.append(
+        b":server 001 relay :welcome\r\n"
+        b":server 353 relay = #testing :@alice +bob carol\r\n"
+        b":server 366 relay #testing :End of NAMES\r\n"
+    )
+    adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
+    assert adapter.configure()
+    users = adapter.list_channel_users("testing", timeout=1)
+    assert [item["identifier"] for item in users] == ["alice", "bob", "carol"]
+    assert users[0]["metadata"] == {"channel": "#testing", "status_prefix": "@"}
+    assert "NAMES #testing\r\n" in "".join(connection.sent)

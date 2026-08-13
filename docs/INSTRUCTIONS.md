@@ -981,6 +981,11 @@ surfaces that the CLI does not currently wrap.
 The equivalent client and console command family is `mailbox-client registry`
 or `/registry`. It supports `remember`, `find`, `request`, and `requests` while
 preserving the source system for every UUID or opaque identifier.
+
+For IRC, `mailbox-client discover users --platform irc --channel irc/0/testing`
+uses `NAMES` replies to list visible channel members and stores their nicknames,
+channel context, and status prefixes in the registry. The same operation is
+available as `/discover users ...` inside `mailbox-console`.
 | WebSocket chat | No | Yes | Connect to `/v1/chat/ws`. |
 | Platform webhook ingestion | No | Yes | Platform adapters expose their webhook routes on the server. |
 | Attachment download | No dedicated command | Yes | Public attachments are served through the attachment endpoint. |

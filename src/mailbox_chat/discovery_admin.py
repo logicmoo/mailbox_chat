@@ -37,14 +37,43 @@ def discover_irc_channels(*, timeout: float = 30.0) -> list[dict[str, Any]]:
     return results
 
 
-def _remote(base: str, platform: str, timeout: float) -> dict[str, Any]:
-    query = urllib.parse.urlencode({"platform": platform, "timeout": timeout})
+def discover_irc_users(channel: str, *, timeout: float = 15.0) -> list[dict[str, Any]]:
+    adapter = IrcAdapter()
+    if not adapter.configure():
+        raise ValueError("no enabled IRC listener is configured")
+    listener = adapter.listener or {}
+    instance = endpoint_instance("irc", listener)
+    if "/" in channel:
+        from .endpoint_address import parse_endpoint
+        address = parse_endpoint(channel)
+        if address is None or address.adapter != "irc":
+            raise ValueError("--channel must be an IRC address or channel name")
+        if address.instance not in {"0", instance}:
+            raise ValueError(f"IRC address instance does not match configured instance {instance}")
+        channel = address.identifier
+    if not channel.startswith(("#", "&", "+", "!")):
+        channel = f"#{channel}"
+    try:
+        entries = adapter.list_channel_users(channel, timeout=timeout)
+    finally:
+        adapter.close()
+    directory = IdentifierDirectory(agent_mailbox.mailbox_dir())
+    return [{
+        **directory.remember(entry["identifier"], entry["text"], system=f"irc/{instance}",
+                             kind="user", metadata=entry["metadata"]),
+        "address": f"irc/{instance}/{entry['identifier']}",
+    } for entry in entries]
+
+
+def _remote(base: str, resource: str, platform: str, timeout: float,
+            channel: str = "") -> dict[str, Any]:
+    query = urllib.parse.urlencode({"platform": platform, "timeout": timeout, "channel": channel})
     headers = {"Accept": "application/json"}
     token = os.environ.get(agent_mailbox.MAILBOX_TOKEN_ENV, "")
     if token:
         headers["Authorization"] = f"Bearer {token}"
     with urllib.request.urlopen(urllib.request.Request(
-        f"{base.rstrip('/')}/v1/discovery/channels?{query}", headers=headers,
+        f"{base.rstrip('/')}/v1/discovery/{resource}?{query}", headers=headers,
     ), timeout=timeout + 5) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -60,16 +89,25 @@ def parser() -> argparse.ArgumentParser:
     channels = commands.add_parser("channels", help="list visible platform channels")
     channels.add_argument("--platform", required=True, choices=("irc",), help="platform adapter")
     channels.add_argument("--timeout", type=float, default=30.0, help="discovery timeout in seconds")
+    users = commands.add_parser("users", help="list users visible in one platform channel")
+    users.add_argument("--platform", required=True, choices=("irc",), help="platform adapter")
+    users.add_argument("--channel", required=True, help="channel address or platform channel ID")
+    users.add_argument("--timeout", type=float, default=15.0, help="discovery timeout in seconds")
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.command == "platforms":
-        result: Any = {"platforms": [{"id": "irc", "resources": ["channels"]}]}
+        result: Any = {"platforms": [{"id": "irc", "resources": ["channels", "users"]}]}
     else:
-        result = (_remote(args.url, args.platform, args.timeout) if args.url else
-                  {"platform": args.platform, "channels": discover_irc_channels(timeout=args.timeout)})
+        if args.command == "channels":
+            result = (_remote(args.url, "channels", args.platform, args.timeout) if args.url else
+                      {"platform": args.platform, "channels": discover_irc_channels(timeout=args.timeout)})
+        else:
+            result = (_remote(args.url, "users", args.platform, args.timeout, args.channel) if args.url else
+                      {"platform": args.platform, "channel": args.channel,
+                       "users": discover_irc_users(args.channel, timeout=args.timeout)})
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

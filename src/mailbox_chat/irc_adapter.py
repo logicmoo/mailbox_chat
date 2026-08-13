@@ -210,3 +210,45 @@ class IrcAdapter:
                 if " 323 " in line:
                     return channels
         raise TimeoutError("IRC LIST did not complete before the timeout")
+
+    def list_channel_users(self, channel: str, *, timeout: float = 15.0) -> list[dict[str, Any]]:
+        """Use IRC NAMES (353/366) to discover nicknames visible in one channel."""
+        if not self.status["enabled"]:
+            raise RuntimeError("IRC adapter is not enabled")
+        if not channel.startswith(("#", "&", "+", "!")):
+            channel = f"#{channel}"
+        if not self.connection:
+            self.connect()
+        deadline = time.monotonic() + timeout
+        requested = False
+        users: dict[str, dict[str, Any]] = {}
+        buffer = ""
+        while time.monotonic() < deadline:
+            try:
+                chunk = self.connection.recv(65536) if self.connection else b""
+            except (BlockingIOError, ssl.SSLWantReadError):
+                time.sleep(0.01)
+                continue
+            if not chunk:
+                raise ConnectionError("IRC server closed the connection during NAMES")
+            buffer += chunk.decode("utf-8", errors="replace")
+            while "\r\n" in buffer:
+                line, buffer = buffer.split("\r\n", 1)
+                if line.startswith("PING "):
+                    self._write("PONG " + line[5:])
+                if " 001 " in line and not requested:
+                    self._write(f"NAMES {channel}")
+                    requested = True
+                if " 353 " in line:
+                    names = line.partition(" :")[2].split()
+                    for decorated in names:
+                        nickname = decorated.lstrip("~&@%+")
+                        if nickname:
+                            users[nickname.casefold()] = {
+                                "identifier": nickname, "text": nickname, "kind": "user",
+                                "metadata": {"channel": channel,
+                                             "status_prefix": decorated[:-len(nickname)]},
+                            }
+                if " 366 " in line:
+                    return list(users.values())
+        raise TimeoutError("IRC NAMES did not complete before the timeout")

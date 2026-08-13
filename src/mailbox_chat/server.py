@@ -321,6 +321,22 @@ def main(argv: list[str] | None = None) -> int:
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
+            if parsed.path == "/v1/discovery/users":
+                query = parse_qs(parsed.query)
+                platform = query.get("platform", [""])[0].strip().lower()
+                channel = query.get("channel", [""])[0].strip()
+                try:
+                    timeout = float(query.get("timeout", ["15"])[0])
+                    if platform != "irc":
+                        raise ValueError("user discovery currently supports platform=irc")
+                    if not channel:
+                        raise ValueError("channel is required")
+                    from .discovery_admin import discover_irc_users
+                    self._json(200, {"platform": platform, "channel": channel,
+                                     "users": discover_irc_users(channel, timeout=timeout)})
+                except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+                    self._json(400, {"error": str(error)})
+                return
             if parsed.path == "/v1/listeners":
                 try:
                     self._json(200, public_registry())
