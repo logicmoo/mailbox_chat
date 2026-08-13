@@ -123,6 +123,9 @@ class IdentifierDirectory:
              limit: int = 100) -> list[dict[str, Any]]:
         clauses: list[str] = []
         values: list[Any] = []
+        if system:
+            clauses.append("system = ?")
+            values.append(self._system(system))
         if identifier:
             clauses.append("identifier = ?")
             values.append(self.normalize(identifier))
@@ -230,6 +233,3 @@ class IdentifierDirectory:
             if matches:
                 enriched.setdefault(f"{field}_text", matches[0]["text"])
         return enriched
-        if system:
-            clauses.append("system = ?")
-            values.append(self._system(system))

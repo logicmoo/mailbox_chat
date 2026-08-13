@@ -27,6 +27,14 @@ def test_directory_keeps_multiple_readable_aliases(tmp_path: Path) -> None:
     }
 
 
+def test_directory_system_filter_prevents_cross_platform_matches(tmp_path: Path) -> None:
+    directory = IdentifierDirectory(tmp_path)
+    directory.remember("discord-id", "general", system="discord", kind="channel")
+    directory.remember("mattermost-id", "general", system="mm/0", kind="channel")
+
+    assert directory.find(system="mm/0", text="general", kind="channel")[0]["identifier"] == "mattermost-id"
+
+
 def test_directory_enriches_known_ids_without_replacing_them(tmp_path: Path) -> None:
     directory = IdentifierDirectory(tmp_path)
     identifier = "12345678-1234-5678-9abc-1234567890ab"

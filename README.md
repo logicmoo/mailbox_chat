@@ -218,6 +218,9 @@ authenticated `/api/v4/` requests. For example:
 
 ```powershell
 mailbox-client mm names mm/0/CHANNEL_ID
+mailbox-client mm teams
+mailbox-client mm list --team engineering
+mailbox-client mm threads engineering
 mailbox-client mm ping
 mailbox-client mm invite USER_ID mm/0/CHANNEL_ID
 mailbox-client mm message mm/0/CHANNEL_ID --input message.txt --format text
@@ -227,6 +230,10 @@ mailbox-client mm raw POST /api/v4/posts --input post.json --input-format json
 `--input FILE` chooses the content source, `--input-format text|json` controls
 how the file is interpreted, and `--format jsonl|json|text` controls output.
 These switches may appear before or after the IRC or Mattermost subcommand.
+Mattermost discovery saves teams, channels, direct/group-message channels,
+threads, and users in the durable identifier registry. After discovery, a
+unique readable alias can replace an opaque ID, including
+`/console mm/0/Town-Square`; subscriptions are saved using the resolved ID.
 
 Every `TYPE/INSTANCE/ID` resolves to a structured endpoint with common
 `platform`, `instance`, `id`, `type`, and `properties` fields. Resource types

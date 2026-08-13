@@ -47,7 +47,7 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 - [`src/mailbox_channels/subscriptions.py`](src/mailbox_channels/subscriptions.py) - Durable qualified-address subscriptions and atomic subscriber updates.
 - [`src/mailbox_channels/channel_admin.py`](src/mailbox_channels/channel_admin.py) - Unified local and external platform channel creation.
 - [`src/mailbox_channels/irc_admin.py`](src/mailbox_channels/irc_admin.py) - Standard IRC command family executed through the active relay connection.
-- [`src/mailbox_channels/mattermost_admin.py`](src/mailbox_channels/mattermost_admin.py) - Familiar channel, membership, profile, message, and API commands mapped to Mattermost.
+- [`src/mailbox_channels/mattermost_admin.py`](src/mailbox_channels/mattermost_admin.py) - Mattermost discovery, durable readable-name resolution, membership, profile, message, and API commands.
 - [`src/mailbox_channels/admin_io.py`](src/mailbox_channels/admin_io.py) - Shared `--input`, `--input-format`, and output formatting for platform commands.
 - [`src/mailbox_channels/adapters/`](src/mailbox_channels/adapters/) - External chat-platform transport implementations.
 - [`src/mailbox_channels/endpoint_address.py`](src/mailbox_channels/endpoint_address.py) - Parsing and canonicalization of `TYPE/INSTANCE/SOURCE_OR_DESTINATION` addresses.

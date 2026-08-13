@@ -1,6 +1,7 @@
 import argparse
 
-from mailbox_channels.mattermost_admin import COMMANDS, _payload, execute, parser
+from mailbox_channels.identifier_directory import IdentifierDirectory
+from mailbox_channels.mattermost_admin import COMMANDS, _payload, execute, parser, resolve_address
 
 
 class Response:
@@ -23,6 +24,19 @@ class Session:
         self.calls.append((method, url, json, timeout))
         if url.endswith("/api/v4/users/me"):
             return Response({"id": "a" * 26})
+        return Response({"ok": True})
+
+
+class DiscoverySession(Session):
+    def request(self, method, url, json=None, timeout=0):
+        self.calls.append((method, url, json, timeout))
+        if url.endswith("/api/v4/users/me"):
+            return Response({"id": "a" * 26, "username": "relay-bot"})
+        if url.endswith(f"/api/v4/users/{'a' * 26}/teams"):
+            return Response([{"id": "t" * 26, "name": "engineering", "display_name": "Engineering"}])
+        if url.endswith(f"/api/v4/users/{'a' * 26}/channels"):
+            return Response([{"id": "c" * 26, "name": "town-square",
+                              "display_name": "Town Square", "type": "O"}])
         return Response({"ok": True})
 
 
@@ -78,3 +92,30 @@ def test_mm_raw_accepts_json_file_input(tmp_path) -> None:
         "raw", "POST", "/api/v4/posts",
     ])
     assert _payload(args)["arguments"]["body"] == {"message": "hello"}
+
+
+def test_mm_discovery_persists_teams_channels_and_readable_addresses(tmp_path) -> None:
+    session = DiscoverySession()
+    directory = IdentifierDirectory(tmp_path)
+    teams = execute("teams", {}, session=session, base_url="https://chat.example",
+                    directory=directory)
+    channels = execute("list", {}, session=session, base_url="https://chat.example",
+                       directory=directory)
+
+    assert teams[0]["address"] == f"mm/chat.example/{'t' * 26}"
+    assert channels[0]["address"] == f"mm/chat.example/{'c' * 26}"
+    assert resolve_address("mm/0/Town Square", directory,
+                           base_url="https://chat.example") == f"mm/0/{'c' * 26}"
+    assert resolve_address("mm/0/town-square", directory,
+                           base_url="https://chat.example") == f"mm/0/{'c' * 26}"
+    assert directory.find(system="mm/0", text="Engineering", kind="team")
+
+
+def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
+    record = {"post": {"id": "p" * 26, "message": "x" * 700}}
+    directory = IdentifierDirectory(tmp_path)
+    from mailbox_channels.mattermost_admin import _remember
+
+    saved = _remember(directory, "https://chat.example", record, kind="thread")
+    assert saved["address"] == f"mm/chat.example/{'p' * 26}"
+    assert len(directory.find(system="mm/0", kind="thread")[0]["text"]) == 512

@@ -962,6 +962,13 @@ def main(argv: list[str] | None = None) -> int:
                 "channel": channel, "identity": subscription_identity, "subscribed": True,
             }, base_url=rest_url)
         else:
+            if channel.lower().startswith(("mm/", "mattermost/")):
+                from .identifier_directory import IdentifierDirectory
+                from .mattermost_admin import resolve_address
+                channel = resolve_address(
+                    channel, IdentifierDirectory(mailbox_root or mailbox_dir()),
+                    base_url=os.environ.get("MM_URL", ""),
+                )
             from .subscriptions import set_subscription
             set_subscription(channel, subscription_identity, enabled=True)
     if args.curl:
@@ -982,11 +989,19 @@ def main(argv: list[str] | None = None) -> int:
                                 "channels": subscriptions(args.global_recipient)})
         else:
             enabled = args.command == "subscribe"
+            channel = args.channel
+            if not use_rest and channel.lower().startswith(("mm/", "mattermost/")):
+                from .identifier_directory import IdentifierDirectory
+                from .mattermost_admin import resolve_address
+                channel = resolve_address(
+                    channel, IdentifierDirectory(mailbox_root or mailbox_dir()),
+                    base_url=os.environ.get("MM_URL", ""),
+                )
             result = (_rest_request(
                 "POST", "/v1/subscriptions",
-                {"channel": args.channel, "identity": args.global_recipient, "subscribed": enabled},
+                {"channel": channel, "identity": args.global_recipient, "subscribed": enabled},
                 base_url=rest_url,
-            ) if use_rest else set_subscription(args.channel, args.global_recipient, enabled=enabled))
+            ) if use_rest else set_subscription(channel, args.global_recipient, enabled=enabled))
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
     elif args.command == "send":
         record = (

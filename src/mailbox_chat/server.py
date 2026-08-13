@@ -501,7 +501,8 @@ def main(argv: list[str] | None = None) -> int:
                     result = execute(str(payload.get("command") or ""),
                                      dict(payload.get("arguments") or {}),
                                      session=relay.session,
-                                     base_url=__import__("os").environ["MM_URL"])
+                                     base_url=__import__("os").environ["MM_URL"],
+                                     directory=identifiers)
                     self._json(200, {"result": result})
                     return
                 if request_path == "/v1/irc/command":
@@ -542,8 +543,13 @@ def main(argv: list[str] | None = None) -> int:
                         return
                     raise ValueError("route action must be attach or detach")
                 if request_path == "/v1/subscriptions":
+                    channel = str(payload.get("channel") or "")
+                    if channel.lower().startswith(("mm/", "mattermost/")):
+                        from .mattermost_admin import resolve_address
+                        channel = resolve_address(channel, identifiers,
+                                                  base_url=__import__("os").environ.get("MM_URL", ""))
                     result = set_subscription(
-                        str(payload.get("channel") or ""), str(payload.get("identity") or ""),
+                        channel, str(payload.get("identity") or ""),
                         enabled=bool(payload.get("subscribed", True)),
                     )
                     self._json(200, result)
