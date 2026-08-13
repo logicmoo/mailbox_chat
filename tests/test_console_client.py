@@ -101,6 +101,22 @@ def test_console_on_command_changes_persistent_chat_instance(monkeypatch, tmp_pa
     assert "Chat platform is mm/chat.singularitynet.io" in output
 
 
+def test_console_on_qualified_address_changes_conversation(monkeypatch, tmp_path, capsys) -> None:
+    class ThreadWithoutReceiver:
+        def __init__(self, **_kwargs): pass
+        def start(self): pass
+
+    entries = iter(["/on mm/chat.singularitynet.io/Town Hypercube", "hello", "/quit"])
+    monkeypatch.setattr(console_client.threading, "Thread", ThreadWithoutReceiver)
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(entries))
+    monkeypatch.setattr(console_client, "run_client_command",
+                        lambda command, **kwargs: calls.append((command, kwargs)) or 0)
+    calls = []
+    assert run("agent", "unused", "unused", directory=tmp_path) == 0
+    assert calls[0][1]["destination"] == "mm/chat.singularitynet.io/Town%20Hypercube"
+    assert "Chat conversation changed to mm/chat.singularitynet.io/Town%20Hypercube" in capsys.readouterr().out
+
+
 def test_console_client_reports_unavailable_service(monkeypatch, capsys) -> None:
     monkeypatch.setattr("mailbox_channels.console_client.websocket.create_connection", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
     assert run("console-one", "agent-two", "ws://127.0.0.1:1/v1/chat/ws") == 2

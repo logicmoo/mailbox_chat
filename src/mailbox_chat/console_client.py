@@ -42,7 +42,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--to", dest="destination", default="local-agent",
                         help="initial destination mailbox identity (default: local-agent)")
     result.add_argument("--on", dest="chat_instance", default="",
-                        help="default chat platform instance, such as mm/chat.singularitynet.io")
+                        help="default TYPE/INSTANCE or TYPE/INSTANCE/ID chat context")
     transport = result.add_mutually_exclusive_group()
     transport.add_argument("--url", default="http://127.0.0.1:46667",
                            help="relay HTTP(S) base URL or full WebSocket endpoint "
@@ -274,7 +274,7 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
             if line == "/help":
                 print("/as AGENT_ID changes agent; /from SOURCE changes presence/source; "
                       "/to DESTINATION changes destination; "
-                      "/on TYPE/INSTANCE changes the default chat platform; "
+                      "/on TYPE/INSTANCE[/ID] changes the default chat platform or conversation; "
                       "/join or /console ADDRESS subscribes and enters a conversation; /leave exits it; "
                       "/url, /ws, /wss, and /dir replace the active transport; "
                       "any other /COMMAND runs the matching mailbox-client command; "
@@ -307,13 +307,23 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
             elif line == "/on":
                 print(f"Chat platform is {chat_instance or '(IRC default)'}")
             elif line.startswith("/on "):
-                requested_instance = line[4:].strip().rstrip("/")
-                parts = requested_instance.split("/", 1)
-                if len(parts) != 2 or not all(parts):
-                    print("[error] /on requires TYPE/INSTANCE, such as mm/chat.singularitynet.io")
+                requested_context = line[4:].strip().rstrip("/")
+                parts = requested_context.split("/", 2)
+                if len(parts) not in {2, 3} or not all(parts):
+                    print("[error] /on requires TYPE/INSTANCE or TYPE/INSTANCE/ID")
                 else:
-                    chat_instance = requested_instance
-                    print(f"Chat platform changed to {chat_instance}")
+                    chat_instance = "/".join(parts[:2])
+                    if len(parts) == 3:
+                        from .endpoint_address import parse_endpoint
+                        address = parse_endpoint(requested_context)
+                        if address is None:
+                            print("[error] /on conversation must use TYPE/INSTANCE/ID")
+                            continue
+                        source = destination = address.canonical
+                        print(f"Chat conversation changed to {address.canonical}; "
+                              f"platform is {chat_instance}")
+                    else:
+                        print(f"Chat platform changed to {chat_instance}")
             elif line in {"/join", "/console"}:
                 print(f"Console conversation is {source or '(none)'}")
             elif line.startswith("/join ") or line.startswith("/console "):
@@ -428,9 +438,20 @@ def main() -> int:
     identity = arguments.agent_id or arguments.identity
     if not identity:
         parser().error("an agent ID is required; use --as AGENT_ID")
-    return run(identity, arguments.destination, arguments.url,
-               source=arguments.source or "", directory=arguments.dir, interval=arguments.interval,
-               chat_instance=arguments.chat_instance)
+    destination = arguments.destination
+    source = arguments.source or ""
+    chat_instance = arguments.chat_instance.rstrip("/")
+    if chat_instance.count("/") >= 2:
+        from .endpoint_address import parse_endpoint
+        context = parse_endpoint(chat_instance)
+        if context is None:
+            parser().error("--on conversation must use TYPE/INSTANCE/ID")
+        destination = context.canonical
+        source = source or context.canonical
+        chat_instance = "/".join(chat_instance.split("/", 2)[:2])
+    return run(identity, destination, arguments.url,
+               source=source, directory=arguments.dir, interval=arguments.interval,
+               chat_instance=chat_instance)
 
 
 if __name__ == "__main__":
