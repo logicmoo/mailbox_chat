@@ -3,7 +3,7 @@ Wall time: 1.1 seconds
 Output:
 # Mailbox Channel Relay Bridging Proxy
 
-Python package/repository name: `mailbox_channel_relay_bridging_proxy`.
+Python package/repository name: `mailbox_channels`.
 
 Mailbox Channel Relay Bridging Proxy is a standalone, transport-neutral daemon for
 relaying messages between mailboxes and chat channels. It can serve automated
@@ -31,7 +31,7 @@ Copy-Item config\.env.example config\.env
 Start directly on Windows (the `.env` file is optional for mailbox-only use):
 
 ```powershell
-mailbox-relay-server.cmd
+mailbox-server.cmd
 ```
 
 Add `--verbose` for adapter startup, connection, failure, and retry messages,
@@ -52,7 +52,7 @@ and message, failed operation, enabled state, and automatic-retry flags. A
 `service_context` object supplies safe listener IDs, channel IDs, directions,
 connection state, and retry policy.
 
-`agent-mailbox receive`, `peek`, `poll`, and `follow` retain these objects in
+`mailbox-client receive`, `peek`, `poll`, and `follow` retain these objects in
 their default JSONL output. With `--format text`, the client prints a compact
 diagnostic summary including the service, state, listener/channel IDs, failed
 operation, error type/message, and whether another attempt will occur.
@@ -97,9 +97,77 @@ Invoke-RestMethod 'http://127.0.0.1:46667/v1/messages?recipient=worker-1'
 Receiving advances that recipient's durable cursor. Each concurrent consumer
 must therefore use a unique, stable identity.
 
+That mailbox identity is the stable **agent ID**, not a particular connection.
+One agent may have several simultaneous presences (commonly three or four),
+such as a Codex task, console client, mailbox poller, and Mattermost bot. Define
+them once in `config/relays.json`; listeners bind a platform connection to one
+of those presences. All inbound traffic for the bound presence is delivered to
+the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
+
+```json
+{
+  "agents": [{
+    "agent_id": "symbolic-workbench-codex",
+    "presences": [
+      {"presence_id": "symbolic-codex-app", "kind": "codex"},
+      {"presence_id": "symbolic-console", "kind": "console"},
+      {"presence_id": "symbolic-mailbox", "kind": "mailbox"},
+      {"presence_id": "symbolic-mm", "kind": "platform"}
+    ]
+  }],
+  "listeners": [{
+    "id": "mattermost-primary",
+    "adapter": "mattermost",
+    "agent_id": "symbolic-workbench-codex",
+    "presence_id": "symbolic-mm"
+  }]
+}
+```
+
+Presence IDs are globally unique. A listener cannot claim a presence belonging
+to a different agent. Existing configurations without `agents` remain valid.
+
+Relay-local publish/subscribe channels fan events out to those identities. For
+example, subscribe an agent to server diagnostics and continue polling the
+agent's own mailbox:
+
+```powershell
+mailbox-client subscribe server_events --to symbolic-workbench-codex
+mailbox-client poll --to symbolic-workbench-codex
+```
+
+An agent can ensure all required subscriptions when it starts:
+
+```powershell
+mailbox-client poll --to symbolic-workbench-codex `
+  --subscribed server_events,mm/chat.snt/MATTERMOST_CHANNEL_ID
+```
+
+These memberships are saved by the server in `config/relays.json` under
+`local_channels[].subscribers` and survive relay restarts.
+
+External Mattermost addresses use `mm/SERVER/ID`; `--as` is the local agent,
+`--from` subscribes to an external source, and `--to` sends externally:
+
+```powershell
+mailbox-client poll --as symbolic-workbench-codex --from mm/chat.snt/CHANNEL_ID
+mailbox-client send --as symbolic-workbench-codex --to mm/chat.snt/PERSON_ID "Hello"
+```
+
+Use instance `0` to select the configured/default platform instance without
+knowing its server name, for example `mm/0/CHANNEL_ID`. This works for every
+platform address type; an explicit instance still selects a particular server
+when several are configured.
+
+All adapters use the same `TYPE/INSTANCE/SOURCE_OR_DESTINATION` form. Canonical
+types are `wa`, `wab`, `viber`, `mm`, `discord`, `discourse`, `irc`, `slack`,
+`matrix`, `telegram`, `facebook`, and `line`. `wa` means personal WhatsApp;
+`wab` means WhatsApp Business. The full address table is in
+`docs/INSTRUCTIONS.md`.
+
 ## Client commands
 
-Client installation, repository-local launchers, `agent-mailbox`, named
+Client installation, repository-local launchers, `mailbox-client`, named
 mailboxes, command documents, cursor behavior, Trusted Speaker, REST, JSONL,
 WebSocket, and platform setup are consolidated in
 [`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md).
@@ -110,7 +178,7 @@ Set the externally reachable relay origin when IRC or another text-only
 adapter must publish mailbox attachments as links:
 
 ```powershell
-python server.py --host 0.0.0.0 --port 46667 `
+mailbox-server.cmd --host 0.0.0.0 --port 46667 `
   --public-address https://relay.example.com
 ```
 
@@ -125,7 +193,7 @@ Attachment storage is bounded by default to 1 GiB per file and 25 GiB total.
 Set different limits when starting the server:
 
 ```powershell
-mailbox-relay-server --max-attachment-mb 1024 --max-attachment-storage-mb 25600
+mailbox-server --max-attachment-mb 1024 --max-attachment-storage-mb 25600
 ```
 
 The byte-based environment equivalents are
@@ -144,7 +212,7 @@ environment variables.
 Register a strong token locally in `config/.env`:
 
 ```powershell
-mailbox-relay-token register
+mailbox-client token register
 ```
 
 The command generates a strong token, stores it atomically as
@@ -152,14 +220,13 @@ The command generates a strong token, stores it atomically as
 clients. Check registration without revealing the token:
 
 ```powershell
-mailbox-relay-token status
+mailbox-client token status
 ```
 
-From an uninstalled checkout, use:
+From an uninstalled checkout on Windows, use the repository launcher:
 
 ```powershell
-$env:PYTHONPATH="$PWD\src"
-python -m mailbox_channel_relay_bridging_proxy.token_admin register
+.\mailbox-client token.cmd register
 ```
 
 Restart the relay after registering or rotating the token. On each authorized
@@ -167,19 +234,19 @@ client, set the displayed value without committing it:
 
 ```powershell
 $env:AGENT_MAILBOX_TOKEN='<the displayed token>'
-agent-mailbox --url https://relay.example.com --from worker-1 `
-  send agent-beta 'Finished the task'
+mailbox-client --url https://relay.example.com send `
+  --as symbolic-workbench-codex --to omegaclaw-core-codex 'Finished the task'
 ```
 
 For automated deployment, an existing secret of at least 32 characters can be
-registered with `mailbox-relay-token register --token VALUE`, though passing a
+registered with `mailbox-client token register --token VALUE`, though passing a
 secret on the command line may expose it in shell history. Supplying
 `MAILBOX_RELAY_TOKEN` through a service secret manager is preferable.
 
 Then expose the authenticated relay behind TLS:
 
 ```powershell
-mailbox-relay-server --host 0.0.0.0 --port 46667 `
+mailbox-server --host 0.0.0.0 --port 46667 `
   --public-url https://relay.example.com
 ```
 
@@ -234,8 +301,8 @@ Import WhatsApp contacts from JSON, CSV, or vCard into the durable identifier
 directory. Phone numbers are normalized to digits for WhatsApp addressing:
 
 ```bash
-mailbox-relay-contacts --url http://127.0.0.1:46667 import contacts.vcf --system whatsapp
-mailbox-relay-contacts --url http://127.0.0.1:46667 list --system whatsapp
+mailbox-client contacts --url http://127.0.0.1:46667 import contacts.vcf --system whatsapp
+mailbox-client contacts --url http://127.0.0.1:46667 list --system whatsapp
 ```
 
 To deliver every message from one IRC channel to a WhatsApp conversation, omit
@@ -262,10 +329,10 @@ does not claim to join an ordinary personal WhatsApp group.
 The same route can be created safely from the server command line:
 
 ```powershell
-mailbox-relay-route attach irc-primary "#agents" `
+mailbox-client route attach irc-primary "#agents" `
   whatsapp-personal-primary "123456789@g.us" --id irc-to-family
-mailbox-relay-route list
-mailbox-relay-route detach irc-to-family
+mailbox-client route list
+mailbox-client route detach irc-to-family
 ```
 
 Manage the configuration of a running local or remote relay with `--url`; add
@@ -273,7 +340,7 @@ Manage the configuration of a running local or remote relay with `--url`; add
 anywhere before or after the subcommand:
 
 ```powershell
-mailbox-relay-route attach irc-primary "#agents" `
+mailbox-client route attach irc-primary "#agents" `
   whatsapp-personal-primary "123456789@g.us" `
   --url http://127.0.0.1:46667 --token $env:AGENT_MAILBOX_TOKEN
 ```

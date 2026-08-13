@@ -27,7 +27,7 @@
   - [Discourse](#discourse--implemented-adapter)
 - [Client setup](#client-setup)
 - Mailbox interfaces
-  - [CLI versus REST capabilities](#agent-mailbox-cli-versus-direct-rest)
+  - [CLI versus REST capabilities](#mailbox-client-cli-versus-direct-rest)
   - [REST](#rest-mailbox--implemented)
   - [WebSocket chat](#websocket-chat--implemented)
   - [JSONL](#jsonl-mailbox--implemented)
@@ -48,23 +48,116 @@ and authorization headers are never intentionally included in these events.
 The accompanying `service_context` includes safe listener IDs, channel IDs,
 directions, current enabled/connected state, and the bounded retry policy.
 
+The relay also publishes every adapter lifecycle transition and safe diagnostic
+to the built-in local `server_events` channel. Like a Mattermost channel, it
+has subscribers: each subscribed agent receives its own mailbox copy and keeps
+its own cursor. Subscribe once, then poll the agent's normal identity:
+
+```powershell
+mailbox-client subscribe server_events --to symbolic-workbench-codex
+mailbox-client follow --to symbolic-workbench-codex --format text --nobuffer
+```
+
+Inspect or remove subscriptions with
+`mailbox-client subscriptions --to symbolic-workbench-codex` and
+`mailbox-client unsubscribe server_events --to symbolic-workbench-codex`.
+Do not poll `--to server_events`: it is a publish/subscribe channel name, not a
+competing-consumer mailbox identity.
+
+The server saves subscription membership under `local_channels` in
+`config/relays.json` and reloads it after restart:
+
+```json
+{
+  "local_channels": [
+    {
+      "id": "server_events",
+      "subscribers": ["symbolic-workbench-codex"]
+    },
+    {
+      "id": "mm/chat.snt/3423423434234",
+      "subscribers": ["symbolic-workbench-codex", "omegaclaw-min"]
+    }
+  ]
+}
+```
+
+### Stable agents and multiple presences
+
+Use `agent_id` for the durable logical agent. Do not create a new mailbox
+identity merely because the same agent is connected through another UI or chat
+service. An agent can own any number of presences; three or four simultaneous
+presences are normal:
+
+```json
+{
+  "agents": [{
+    "agent_id": "symbolic-workbench-codex",
+    "presences": [
+      {"presence_id": "symbolic-codex-app", "kind": "codex"},
+      {"presence_id": "symbolic-console", "kind": "console"},
+      {"presence_id": "symbolic-mailbox", "kind": "mailbox"},
+      {"presence_id": "symbolic-mm", "kind": "platform"}
+    ]
+  }]
+}
+```
+
+A platform listener associates one live connection with that agent:
+
+```json
+{
+  "id": "mattermost-primary",
+  "adapter": "mattermost",
+  "agent_id": "symbolic-workbench-codex",
+  "presence_id": "symbolic-mm"
+}
+```
+
+The listener automatically includes its `agent_id` among inbound mailbox
+recipients. `presence_id` records which concrete connection observed or sent a
+message; polling, acknowledgements, cursors, and subscriptions continue to use
+the stable agent ID. Presence IDs must be globally unique, and a listener's
+presence must belong to its declared agent. Older listener-only configuration
+continues to work.
+
+Long-running agents can declaratively and idempotently ensure their saved
+subscriptions as part of the poll command:
+
+```powershell
+mailbox-client poll --to symbolic-workbench-codex `
+  --subscribed server_events,mm/chat.snt/3423423434234,mm/chat.snt/2342444444444 `
+  --interval 30 --checks 11
+```
+
+This means “ensure `symbolic-workbench-codex` is subscribed to these channels,
+then retrieve messages addressed to it.” Repeating the command does not create
+duplicate subscriptions or deliveries. Ordinary configured
+`mailbox_recipients` and saved endpoint subscribers are combined. The older
+`mm_CHANNEL_ID` subscription key remains readable for compatibility, but new
+configuration and help use `mm/SERVER/ID`.
+
+Routine successful poll cycles are not persisted there; state changes and
+actionable diagnostics are. Platform tokens, signing secrets, passwords, and
+authorization headers are redacted.
+
 The port is configurable. Precedence is `--port`, then `MAILBOX_RELAY_PORT`,
 then default `46667`. The host follows `--host`, `MAILBOX_RELAY_HOST`, then
 safe default `127.0.0.1`:
 
 ```powershell
-.\mailbox-relay-server.cmd --port 47667
-python server.py --host 127.0.0.1 --port 47667
+.\mailbox-server.cmd --port 47667
+.\mailbox-server.cmd --host 127.0.0.1 --port 47667
 $env:MAILBOX_RELAY_PORT='47667'
-python server.py
+.\mailbox-server.cmd
 ```
 
 The configuration syntax recognizes an all-interface request:
 
 ```powershell
-python server.py --host 0.0.0.0 --port 46667
+.\mailbox-server.cmd --host 0.0.0.0 --port 46667
 $env:MAILBOX_RELAY_HOST='0.0.0.0'
-.\mailbox-relay-server.cmd
+.\mailbox-server.cmd
 ```
 
 `0.0.0.0` is only a server bind address. Local clients connect to
@@ -73,9 +166,11 @@ address.
 
 Clients must use the matching URL. Runtime PID/status files are separated by
 port under `mailbox/runtime/channel-relay-PORT/`, allowing intentional parallel
-instances. Authentication is not implemented yet. Console and browser clients
-show a service-unavailable message when connection or future authentication
-requirements are not satisfied; they do not fabricate a working session.
+instances. Configure optional REST Bearer authentication with
+`MAILBOX_RELAY_TOKEN`; clients supply the same secret through
+`AGENT_MAILBOX_TOKEN`. Console and browser clients show a service-unavailable
+or authentication error when requirements are not satisfied; they do not
+fabricate a working session.
 
 ### Separate mailbox and configuration directories
 
@@ -83,7 +178,7 @@ The non-overlapping defaults are `mailbox/` for mutable data and `config/` for
 configuration. Override either independently:
 
 ```powershell
-python server.py `
+.\mailbox-server.cmd `
   --mailbox-dir D:\relay-data\production `
   --config-dir D:\relay-config\production
 ```
@@ -117,7 +212,7 @@ Run token registration on the relay host, never through an unauthenticated
 remote endpoint:
 
 ```powershell
-mailbox-relay-token register
+mailbox-client token register
 ```
 
 This generates a strong random value and atomically writes it to
@@ -126,7 +221,7 @@ the authorized client's secret environment as `AGENT_MAILBOX_TOKEN`, then
 restart the relay. Confirm registration without revealing the secret:
 
 ```powershell
-mailbox-relay-token status
+mailbox-client token status
 ```
 
 For a non-default configuration directory, pass `--config-dir PATH` to both
@@ -662,24 +757,130 @@ Every command is available from the repository root and prefers the local
 
 | Purpose | Windows launcher | Linux, macOS, or WSL launcher |
 |---|---|---|
-| Relay server | `mailbox-relay-server.cmd` | `./mailbox-relay-server` |
-| Mailbox CLI | `agent-mailbox.cmd` | `./agent-mailbox` |
-| Interactive console | `trusted-speaker.cmd` | `./trusted-speaker` |
-| Token administration | `mailbox-relay-token.cmd` | `./mailbox-relay-token` |
-| Route administration | `mailbox-relay-route.cmd` | `./mailbox-relay-route` |
-| Console compatibility alias | `mailbox-chat.cmd` | `./mailbox-chat` |
+| Relay server | `mailbox-server.cmd` | `./mailbox-server` |
+| Mailbox client | `mailbox-client.cmd` | `./mailbox-client` |
+| Interactive console | `mailbox-console.cmd` | `./mailbox-console` |
+| Token administration | `mailbox-client.cmd token` | `./mailbox-client token` |
+| Route administration | `mailbox-client.cmd route` | `./mailbox-client route` |
+| Contact administration | `mailbox-client.cmd contacts` | `./mailbox-client contacts` |
 
 After package installation, use the command names directly. Every command has
 comprehensive `--help` output.
 
-### `agent-mailbox`
+### `mailbox-client`
+
+`mailbox-client` is the single command for mailbox operations and server
+administration.
+
+Identity and endpoint switches have distinct meanings:
+
+| Switch | Meaning |
+|---|---|
+| `--as IDENTITY` | Stable local mailbox identity performing the operation. |
+| `--from ENDPOINT` | External conversation source to subscribe `--as` to. |
+| `--to IDENTITY` | Direct mailbox destination or receiving identity. |
+| `--to ENDPOINT` | External channel/person destination for `send`. |
+
+Mattermost endpoints use `mm/SERVER/ID`. For example:
+
+```powershell
+mailbox-client poll --as symbolic-workbench-codex `
+  --from mm/chat.snt/3423423434234 --interval 30 --checks 11
+
+mailbox-client send --as symbolic-workbench-codex `
+  --to mm/chat.snt/3423423434234 "Hello channel or person"
+```
+
+Mattermost channel and user IDs have the same shape. If the final ID matches a
+configured channel, the relay posts there. Otherwise it asks Mattermost to
+create or find the bot's direct-message channel with that user and sends the
+message privately. The persistent identifier directory remembers platform ID
+kind and readable names learned from inbound traffic and resolution requests.
+
+For inbound traffic, `--from mm/chat.snt/ID` is an idempotent subscription. A
+matching configured channel delivers all its posts; a matching Mattermost user
+ID delivers that person's direct/channel posts observed by the listener. The
+client still polls the mailbox named by `--as`.
+
+### Endpoint address types
+
+Every chat address has the same `TYPE/INSTANCE/SOURCE_OR_DESTINATION` shape.
+Instance `0` always means the configured/default instance, so
+`mm/0/CHANNEL_ID` is valid without knowing the Mattermost hostname. The same
+shortcut works for every adapter type. Use an explicit instance when selecting
+among multiple configured servers or accounts.
+The final component is opaque and keeps the platform's native ID:
+
+| Platform | Type | Instance convention | Example source/destination |
+|---|---|---|---|
+| Mattermost | `mm` | Server DNS name | `mm/chat.snt/4o7...channel-or-user-id` |
+| Discord | `discord` | Listener/bot instance | `discord/community/C0123456789` |
+| Slack | `slack` | Workspace ID | `slack/T01234567/C01234567` |
+| Matrix / Element | `matrix` | Homeserver DNS name | `matrix/matrix.example/!room:example` |
+| IRC | `irc` | Network DNS name | `irc/irc.quakenet.org/nepthreal` or `irc/irc.quakenet.org/%23agents` |
+| Telegram | `telegram` | Bot/listener instance | `telegram/community-bot/-1001234567890` |
+| WhatsApp Business | `wab` | Phone-number ID | `wab/PHONE_NUMBER_ID/15551234567` |
+| Personal WhatsApp | `wa` | Companion instance | `wa/local/family@g.us` |
+| Facebook Messenger | `facebook` | Facebook Page ID | `facebook/PAGE_ID/PSID` |
+| Viber | `viber` | Bot/listener instance | `viber/support-bot/USER_ID` |
+| LINE | `line` | Official-account/listener instance | `line/support/GROUP_OR_USER_ID` |
+| Discourse | `discourse` | Forum DNS name | `discourse/forum.example/12345` |
+
+Quote addresses containing shell metacharacters. For IRC, percent-encode `#`
+as `%23`; the relay treats the decoded/native destination as the adapter's
+channel ID. An instance distinguishes accounts, workspaces, homeservers,
+networks, pages, bots, or forum servers when several listeners of one platform
+are configured. The server retains the complete canonical address in its
+subscription set.
+
+The final source/destination component varies by platform. Supply the opaque ID
+returned by that platform:
+
+| Platform | User | Group | Channel / room / topic | Thread or reply | Direct message |
+|---|---|---|---|---|---|
+| Mattermost | `mm/chat.snt/USER_ID` | `mm/chat.snt/GROUP_DM_CHANNEL_ID` | `mm/chat.snt/CHANNEL_ID` | Channel address plus `--thread-id ROOT_POST_ID` | A user address is resolved to the bot/user DM channel. |
+| Discord | User IDs are author metadata; creating a DM from one is not implemented | `discord/community/GROUP_DM_CHANNEL_ID` when accessible | `discord/community/CHANNEL_ID` | `discord/community/THREAD_CHANNEL_ID`; a Discord thread is a channel | `discord/community/DM_CHANNEL_ID` |
+| Slack | User ID is author metadata, not a send destination | `slack/T01234567/GROUP_DM_ID` (`G...`) | `slack/T01234567/CHANNEL_ID` (`C...`) | Conversation address plus `--thread-id PARENT_MESSAGE_TS` | `slack/T01234567/DM_ID` (`D...`) |
+| Matrix / Element | `@alice:example` is author/invite metadata | Group conversations are rooms | `matrix/matrix.example/!ROOM_ID:example` | Room address plus root event ID in `--thread-id` | DMs are rooms; use their `!ROOM_ID:example` |
+| IRC | `irc/irc.quakenet.org/nepthreal` | No distinct persistent group-DM object | `irc/irc.quakenet.org/%23agents` | Unsupported | A nickname address such as `irc/irc.quakenet.org/nepthreal` |
+| Telegram | `telegram/community-bot/USER_CHAT_ID` | `telegram/community-bot/-GROUP_CHAT_ID` | `telegram/community-bot/-100CHANNEL_ID` | Chat address plus `--thread-id MESSAGE_THREAD_ID` for forum topics | Private chat ID, normally the user's numeric ID |
+| WhatsApp Business | `wab/PHONE_NUMBER_ID/15551234567` | `wab/PHONE_NUMBER_ID/GROUP_ID` for approved Groups API accounts | No public channel concept | Unsupported by this adapter | Customer E.164 digits without `+` |
+| Personal WhatsApp | `wa/local/15551234567@c.us` | `wa/local/FAMILY_GROUP_ID@g.us` | No public channel concept | Reply metadata is preserved where supplied | A `PHONE@c.us` chat ID |
+| Facebook Messenger | `facebook/PAGE_ID/PSID` | Ordinary Facebook group chat is unavailable to this Page adapter | Page conversation identified by PSID | No separate thread address | Page-scoped user ID (`PSID`) |
+| Viber | `viber/support-bot/USER_ID` | Group/community addressing is not implemented | Bot conversation identified by Viber user ID | Unsupported | Viber bot subscriber user ID |
+| LINE | `line/support/USER_ID` | `line/support/GROUP_ID` | `line/support/ROOM_ID` for a multi-person room | No separate thread address | LINE user ID |
+| Discourse | Username is author/API metadata | Categories filter topics but are not chat groups | `discourse/forum.example/TOPIC_ID` | Topic address plus `--thread-id POST_NUMBER` | Private-message topics are not implemented |
+
+Examples:
+
+```powershell
+mailbox-client poll --as symbolic-workbench-codex `
+  --from mm/chat.snt/CHANNEL_ID
+
+mailbox-client send --as symbolic-workbench-codex `
+  --to mm/chat.snt/USER_ID "Private status update"
+
+mailbox-client send --as symbolic-workbench-codex `
+  --to slack/T01234567/C01234567 `
+  --thread-id 1712345678.123456 "Thread reply"
+
+mailbox-client poll --as symbolic-workbench-codex `
+  --from irc/irc.quakenet.org/%23agents
+```
+
+`--thread-id` and `--root-id` are envelope metadata, not extra path segments.
+This keeps an address stable while preserving the platform's native reply or
+thread identifier. Discord is the exception: its threads are channel objects,
+so their channel ID is the final address component. [Discord's channel model](https://docs.discord.com/developers/resources/channel)
+defines guild channels, DMs, group DMs, and thread channels; Slack replies use
+the conversation plus [`thread_ts`](https://api.slack.com/methods/chat.postMessage).
 
 The CLI works through the REST server or directly against a JSONL mailbox:
 
 ```powershell
-agent-mailbox --url http://127.0.0.1:46667 status
-agent-mailbox --url http://127.0.0.1:46667 send agent-beta "Hello"
-agent-mailbox --dir C:\relay\mailbox receive worker-1
+mailbox-client --url http://127.0.0.1:46667 status
+mailbox-client --url http://127.0.0.1:46667 send --as symbolic-workbench-codex --to omegaclaw-core-codex "Hello"
+mailbox-client --dir C:\relay\mailbox receive --to symbolic-workbench-codex
 ```
 
 Transport precedence is explicit `--dir`, `--url`, or `--mailbox`; then
@@ -688,8 +889,8 @@ default. `--dir` and `--url` are mutually exclusive. Named mailboxes come from
 `config/mailboxes.json` or `--config PATH`:
 
 ```powershell
-agent-mailbox --mailbox local status
-agent-mailbox --config C:\relay\groups.json --mailbox research follow worker-1
+mailbox-client --mailbox local status
+mailbox-client --config C:\relay\groups.json --mailbox research follow --to symbolic-workbench-codex
 ```
 
 The client supports:
@@ -722,7 +923,7 @@ Example command document:
 }
 ```
 
-Run it with `agent-mailbox --run command.json`. For exact argument control use
+Run it with `mailbox-client --run command.json`. For exact argument control use
 `{"args":["--dir","mailbox","status"]}`. Keep Bearer tokens in
 `AGENT_MAILBOX_TOKEN`, not command documents. Assign a stable cursor to each
 independent consumer; `peek` and `--no-advance` do not persist progress, while
@@ -736,30 +937,31 @@ Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox
 
 ### Trusted Speaker
 
-`trusted-speaker UNIQUE_IDENTITY --to DESTINATION` opens the interactive
+`mailbox-console UNIQUE_IDENTITY --to DESTINATION` opens the interactive
 WebSocket console. The identity is mandatory and must be unique per concurrent
 consumer. An HTTP(S) relay URL is converted to WebSocket automatically:
 
 ```powershell
-trusted-speaker speaker-one --url http://127.0.0.1:46667 --to agent-beta
+mailbox-console speaker-one --url http://127.0.0.1:46667 --to agent-beta
 ```
 
 It can also use a local mailbox without a server:
 
 ```powershell
-trusted-speaker speaker-one --dir .\mailbox --to agent-beta
+mailbox-console speaker-one --dir .\mailbox --to agent-beta
 ```
 
-`mailbox-chat` is a compatibility alias. Interactive commands are `/to ID`,
+Interactive commands are
+`/as AGENT_ID`, `/from PRESENCE_OR_ENDPOINT`, `/to DESTINATION`,
 `/ping`, `/help`, and `/quit`.
 
-## `agent-mailbox` CLI versus direct REST
+## `mailbox-client` CLI versus direct REST
 
-With `--url`, `agent-mailbox` provides the common mailbox workflow over REST.
+With `--url`, `mailbox-client` provides the common mailbox workflow over REST.
 Direct REST additionally exposes administrative, integration, and live-chat
 surfaces that the CLI does not currently wrap.
 
-| Capability | `agent-mailbox` | Direct REST | Notes and limitations |
+| Capability | `mailbox-client` | Direct REST | Notes and limitations |
 |---|---:|---:|---|
 | Send messages | Yes | Yes | CLI wraps `POST /v1/messages`. |
 | Receive or peek at messages | Yes | Yes | CLI wraps `GET /v1/messages` and controls cursor advancement. |
@@ -772,7 +974,7 @@ surfaces that the CLI does not currently wrap.
 | Bearer-token authentication | Yes | Yes | CLI accepts `--token` or `AGENT_MAILBOX_TOKEN`. |
 | Server and adapter status | Partial | Yes | CLI `status` wraps `/v1/status`; direct REST also exposes `/v1/adapters`. |
 | Listener inspection | No | Yes | Use `GET /v1/listeners`. |
-| Route inspection and mutation | Separate command | Yes | Use `mailbox-relay-route`, or `GET/POST /v1/routes`. |
+| Route inspection and mutation | Separate command | Yes | Use `mailbox-client route`, or `GET/POST /v1/routes`. |
 | Identifier/UUID directory | No | Yes | Use `GET/POST /v1/identifiers`. |
 | Identifier-resolution requests | No | Yes | Use `GET/POST /v1/identifier-resolution-requests`. |
 | WebSocket chat | No | Yes | Connect to `/v1/chat/ws`. |
@@ -834,18 +1036,26 @@ must be masked JSON text frames and are limited to 1 MiB. Only one active
 consumer should use a recipient identity, regardless of whether it connects by
 WebSocket, REST, or JSONL.
 
-### Trusted Speaker console client
+### Mailbox console client
 
 ```powershell
-trusted-speaker special-console-client --to local-agent
+mailbox-console special-console-client --to local-agent
 ```
 
-`mailbox-chat` remains a compatibility alias. From an uninstalled checkout, use
-`python -m mailbox_channel_relay_bridging_proxy.console_client special-console-client --to local-agent`.
-Trusted Speaker is the client role/name; `special-console-client` must still be
-a unique stable mailbox identity so concurrent clients do not consume the same
-cursor.
-Commands are `/to ID`, `/ping`, `/help`, and `/quit`.
+From an uninstalled Windows checkout, use
+`.\mailbox-console.cmd special-console-client --to local-agent`.
+`special-console-client` must be a unique stable mailbox identity so concurrent
+clients do not consume the same cursor.
+Commands are `/as AGENT_ID`, `/from PRESENCE_OR_ENDPOINT`, `/to DESTINATION`,
+`/url ADDRESS`, `/ws ADDRESS`, `/wss ADDRESS`, `/dir PATH`, `/ping`, `/help`,
+and `/quit`. The transport commands reconnect the live console without exiting;
+without an argument they display the current transport. Any other slash command invokes the corresponding
+`mailbox-client` command, including `/send`, `/poll`, `/subscribe`, `/status`,
+`/token`, `/route`, and `/contacts`. Each state command without a value displays its
+current setting. `/as` selects the stable sender agent, `/from` selects that
+agent's concrete presence or external endpoint, and `/to` selects the receiver.
+Changing `/as` does not move the console's receiving connection from the agent
+identity used when it connected.
 
 ### Browser demonstration
 
@@ -858,9 +1068,9 @@ a demonstration client; it does not bypass or replace the mailbox.
 Filesystem clients use the same envelope without a listener entry:
 
 ```powershell
-python agent_mailbox.py send local-agent "Please inspect this run" `
+.\mailbox-client.cmd send --to local-agent "Please inspect this run" `
   --sender workflow-runner
-python agent_mailbox.py receive workflow-runner
+.\mailbox-client.cmd receive --to workflow-runner
 ```
 
 Supply either a mailbox directory (`AGENT_MAILBOX_DIR`) or the REST daemon
@@ -874,10 +1084,10 @@ through the CLI or REST interface. Codex itself is installed separately using
 the [official OpenAI Codex CLI documentation](https://learn.chatgpt.com/docs/codex/cli).
 
 For recurring mailbox polling, customize
-[`AUTOMATION_PROMPT.md`](../src/mailbox_channel_relay_bridging_proxy/resources/AUTOMATION_PROMPT.md)
+[`AUTOMATION_PROMPT.md`](../src/mailbox_channels/resources/AUTOMATION_PROMPT.md)
 and create the recurring task in Codex Desktop. Copying the file does not create
 the automation. For workspace bootstrap, use
-[`INSTALL_WITH_CODEX.md`](../src/mailbox_channel_relay_bridging_proxy/resources/INSTALL_WITH_CODEX.md).
+[`INSTALL_WITH_CODEX.md`](../src/mailbox_channels/resources/INSTALL_WITH_CODEX.md).
 The running relay also serves both documents at `/AUTOMATION_PROMPT.md` and
 `/INSTALL_WITH_CODEX.md`.
 
@@ -886,19 +1096,19 @@ The running relay also serves both documents at `/AUTOMATION_PROMPT.md` and
 After installing and signing in to Codex, install this proxy in PowerShell:
 
 ```powershell
-cd C:\path\to\mailbox_channel_relay_bridging_proxy
+cd C:\path\to\mailbox_channels
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 Copy-Item config\.env.example config\.env
-.\mailbox-relay-server.cmd
+.\mailbox-server.cmd
 ```
 
 Give every concurrent Codex task a unique mailbox identity:
 
 ```powershell
 $env:AGENT_MAILBOX_URL='http://127.0.0.1:46667'
-python C:\path\to\mailbox_channel_relay_bridging_proxy\agent_mailbox.py `
-  poll my-codex-project --interval 30 --checks 10 --require-port 46667
+& C:\path\to\mailbox_channels\mailbox-client.cmd `
+  poll --to my-codex-project --interval 30 --checks 10 --require-port 46667
 ```
 
 Put the selected identity and polling command in the consuming project's
@@ -914,8 +1124,8 @@ document current Codex support through WSL2 and installing Codex inside Linux:
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
 codex
 
-git clone YOUR_PROXY_REPOSITORY_URL ~/code/mailbox_channel_relay_bridging_proxy
-cd ~/code/mailbox_channel_relay_bridging_proxy
+git clone YOUR_PROXY_REPOSITORY_URL ~/code/mailbox_channels
+cd ~/code/mailbox_channels
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 ```
@@ -924,18 +1134,67 @@ When the daemon also runs inside WSL:
 
 ```bash
 cp config/.env.example config/.env
-.venv/bin/python server.py
-export AGENT_MAILBOX_URL=http://127.0.0.1:46667
-.venv/bin/python agent_mailbox.py status
+./mailbox-server
 ```
 
-When the daemon runs on Windows, first try
-`curl http://127.0.0.1:46667/health` from WSL2. If local forwarding is not
-available, use the Windows host address visible to that WSL distribution and
-keep port 46667 protected. Prefer REST across the Windows/WSL boundary instead
-of concurrently writing JSONL through `/mnt/c`.
+Leave that terminal running. In a second WSL terminal:
+
+```bash
+cd ~/code/mailbox_channels
+export AGENT_MAILBOX_URL=http://127.0.0.1:46667
+./mailbox-client status
+```
+
+When the daemon runs on Windows, start it from PowerShell with
+`mailbox-server.cmd`. First try `curl http://127.0.0.1:46667/v1/status`
+from WSL2 because current WSL networking may forward Windows localhost. If it
+does not, restart the Windows daemon with `--host 0.0.0.0`, find the Windows
+host address from WSL with `ip route show default`, and use
+`http://<windows-host-address>:46667`. Restrict the Windows firewall rule to
+the local/WSL network; binding to `0.0.0.0` otherwise exposes the relay on
+every Windows interface. Prefer REST across the Windows/WSL boundary instead
+of writing relay JSONL files through `/mnt/c`.
 
 ## Compatible agent runtimes
+
+### Example identity map
+
+The examples use three stable identities from the working deployment. Identity
+names identify independent mailbox consumers, not merely software products:
+
+| Identity | Kind | Meaning |
+|---|---|---|
+| `symbolic-workbench-codex` | Codex consumer | Codex task operating in the Symbolic Learner Workbench workspace. |
+| `omegaclaw-core-codex` | Codex consumer | Separate Codex task operating in OmegaClaw-Core and coordinating routed work. |
+| `omegaclaw-min` | OmegaClaw consumer | OmegaClaw runtime/bridge consumer; this is not a third Codex task. |
+
+For example, the Workbench Codex can send to the OmegaClaw-Core Codex:
+
+```powershell
+mailbox-client send --as symbolic-workbench-codex `
+  --to omegaclaw-core-codex "Workbench validation completed"
+```
+
+Each consumer polls mail addressed to itself:
+
+```powershell
+mailbox-client poll --to symbolic-workbench-codex --interval 30 --checks 11
+mailbox-client poll --to omegaclaw-core-codex --interval 30 --checks 11
+mailbox-client poll --to omegaclaw-min --interval 30 --checks 11
+```
+
+After processing a known message, the receiving identity owns the cursor and
+therefore appears as `--as` on acknowledgement:
+
+```powershell
+mailbox-client ack --as symbolic-workbench-codex MESSAGE_ID
+```
+
+Names such as `mattermost-bridge-agent`, `irc-bridge-agent`, and
+`channel-relay` elsewhere in this document are infrastructure roles. They are
+not extra human-facing agent runtimes: bridge agents mediate a configured
+platform listener, while `channel-relay` is the deterministic outbound routing
+address.
 
 Applications with JSONL or HTTP clients can use stable, transport-neutral
 mailbox recipient names. OmegaClaw-compatible deployments commonly use
@@ -943,15 +1202,20 @@ identities such as `omegaclaw-core` and `omegaclaw-min`; MeTTaClaw-compatible
 deployments may use a deployment-specific `mettaclaw-*` identity. These are
 consumer conventions, not identities built into the relay.
 
-Poll through REST or point an existing JSONL adapter at `AGENT_MAILBOX_DIR`.
-To send to a chat channel, address the message to `channel-relay` and include
-`channel_type` plus `channel_id`. Forwarders should preserve
+Poll through REST with `mailbox-client --url URL ...`. Direct JSONL access is
+only appropriate when the consumer and relay intentionally share the same
+native filesystem and mailbox directory; do not use it across Windows/WSL
+mounts or network shares.
+The client translates an external `--to ADAPTER/SERVER/ID` endpoint into the
+internal `channel-relay` envelope with `channel_type` and `channel_id`.
+Low-level REST clients may construct that envelope directly. Forwarders should preserve
 `thread_id`/`root_id`, `source_id`, attachments, and workflow/run correlation
 fields. Python-and-HTTP clients do not require another application's repository
 or a shared filesystem mount.
 
-An external service manager may expose transport-neutral lifecycle endpoints
-for applications that need to discover or control the relay daemon:
+The relay itself does not expose start, stop, or restart endpoints. If an
+external service manager controls it, that manager may define endpoints such
+as:
 
 ```text
 GET  http://127.0.0.1:8000/api/system/services
@@ -960,14 +1224,15 @@ POST http://127.0.0.1:8000/api/system/services/channel-relay/stop
 POST http://127.0.0.1:8000/api/system/services/channel-relay/restart
 ```
 
-Port 8000 in this example belongs to that external service manager, not to the
-mailbox relay. The relay's default REST port is 46667.
+These are illustrative external-manager routes, not mailbox-relay API routes.
+Port 8000 belongs to that hypothetical manager; the relay's default REST port
+is 46667 and its live status endpoint is `GET /v1/status`.
 
-Example:
+REST client example from PowerShell:
 
 ```powershell
-agent-mailbox --url http://127.0.0.1:46667 `
-  send omegaclaw-core 'Please inspect this run' --sender worker-1
+mailbox-client --url http://127.0.0.1:46667 send `
+  --as symbolic-workbench-codex --to omegaclaw-core-codex 'Please inspect this run'
 ```
 
 ## Channel-to-channel bridges
