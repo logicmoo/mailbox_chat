@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from mailbox_channels import agent_mailbox
+from mailbox_channels.adapters.mattermost_adapter import MattermostRelay
 from mailbox_channels.channel_relay import ChannelRelay, RELAY_RECIPIENT
 from mailbox_channels.subscriptions import set_subscription
 
@@ -52,6 +53,64 @@ class Session:
             return Response({"id": "direct-channel"})
         self.posts.append(kwargs["json"])
         return Response({"id": "sent"})
+
+
+class NamedMattermostSession(Session):
+    def get(self, url, **kwargs):
+        if url.endswith("/channels/channel"):
+            return Response({
+                "id": "channel", "name": "test", "display_name": "Test", "team_id": "team-1",
+            })
+        if url.endswith("/teams/team-1"):
+            return Response({"id": "team-1", "name": "opencog", "display_name": "OpenCog"})
+        return super().get(url, **kwargs)
+
+
+def test_mattermost_channel_bus_uses_resolved_workspace_name(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.setenv("MM_URL", "https://chat.singularitynet.io")
+    monkeypatch.setenv("MM_BOT_TOKEN", "token")
+    monkeypatch.setenv("MM_CHANNEL_ID", "channel")
+    monkeypatch.setenv("MM_CHANNEL_IDS", "channel")
+    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "local-agent")
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for",
+                        lambda *_args, **_kwargs: [])
+    relay = MattermostRelay(session=NamedMattermostSession())
+    assert relay.configure() is True
+
+    recipients = relay._inbound_recipients("channel")
+
+    assert "chat-singularitynet-io-mm-opencog-test-bus" in recipients
+
+
+def test_mattermost_inbound_event_contains_workspace_identity(
+        tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.setenv("MM_URL", "https://chat.singularitynet.io")
+    monkeypatch.setenv("MM_BOT_TOKEN", "token")
+    monkeypatch.setenv("MM_CHANNEL_ID", "channel")
+    monkeypatch.setenv("MM_CHANNEL_IDS", "channel")
+    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "local-agent")
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for",
+                        lambda *_args, **_kwargs: [])
+    relay = MattermostRelay(session=NamedMattermostSession())
+    assert relay.configure() is True
+    relay._connect()
+    relay._latest_create_at["channel"] = 0
+    assert relay._mattermost_channel_identity("channel") == {
+        "channel_name": "test", "workspace_id": "team-1", "workspace_name": "opencog",
+    }
+
+    relay._poll_inbound(relay.base_url)
+
+    event = next(
+        item for item in agent_mailbox.receive("local-agent", root=tmp_path)
+        if item["type"] == "mattermost_message"
+    )
+    assert event["workspace_id"] == "team-1"
+    assert event["team_id"] == "team-1"
+    assert event["workspace_name"] == "opencog"
+    assert event["channel_name"] == "test"
 
 
 def test_mattermost_adapter_uses_shared_envelope(tmp_path: Path, monkeypatch) -> None:
@@ -154,6 +213,7 @@ def test_adapter_state_is_always_published_to_server_events(tmp_path: Path, monk
     assert event["type"] == "chat_server_status"
     assert event["connection_state"] == "connection_failed"
     assert event["diagnostic"]["error_message"] == "offline"
+    assert agent_mailbox.receive("mailbox-server-events-bus", root=tmp_path)[0]["id"] != event["id"]
     assert agent_mailbox.receive("local/0/server_events", root=tmp_path) == []
 
 

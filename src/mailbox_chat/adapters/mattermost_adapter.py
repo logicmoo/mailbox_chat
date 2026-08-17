@@ -20,7 +20,7 @@ from ..attachment_storage import write_bytes
 from ..listener_registry import config_dir, listeners_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..channel_routes import dispatch_routes
-from ..subscriptions import subscribers
+from ..subscriptions import channel_bus, ensure_channel, subscribers
 from ..endpoint_address import EndpointAddress, endpoint_instance, parse_endpoint
 from ..admin_io import load_input, normalize_options, render
 from ..identifier_directory import IdentifierDirectory
@@ -60,6 +60,7 @@ class MattermostRelay:
         self.base_url = ""
         self.token = ""
         self.default_channel = ""
+        self._channel_bus_metadata: dict[str, dict[str, str]] = {}
 
     def configure(self) -> bool:
         load_dotenv(config_dir() / ".env", override=False)
@@ -114,11 +115,69 @@ class MattermostRelay:
             configured = [item.strip() for item in fallback.split(",") if item.strip()]
         instance = endpoint_instance("mattermost", self.listener) if self.listener else (
             urlsplit(self.base_url).hostname or "mattermost").lower()
+        address = EndpointAddress("mattermost", instance, channel_id).canonical
+        identity = self._mattermost_channel_identity(channel_id)
+        bus = channel_bus(
+            address,
+            workspace=identity.get("workspace_name", ""),
+            channel_name=identity.get("channel_name", ""),
+        )
+        ensure_channel(address, metadata={
+            "bus": bus,
+            "listener": self.listener.get("id", ""),
+            "endpoint": instance,
+            **identity,
+        })
         return list(dict.fromkeys([
             *configured,
-            *subscribers(EndpointAddress("mattermost", instance, channel_id).canonical),
+            bus,
+            *subscribers(address),
             *subscribers(EndpointAddress("mattermost", "0", channel_id).canonical),
         ]))
+
+    def _mattermost_channel_identity(self, channel_id: str) -> dict[str, str]:
+        """Resolve a channel's readable team/workspace identity once per process."""
+        if channel_id in self._channel_bus_metadata:
+            return self._channel_bus_metadata[channel_id]
+        identity: dict[str, str] = {}
+        try:
+            response = self.session.get(f"{self.base_url}/api/v4/channels/{channel_id}", timeout=15)
+            response.raise_for_status()
+            channel = response.json()
+            if isinstance(channel, dict) and channel.get("id") == channel_id:
+                channel_name = str(channel.get("name") or channel.get("display_name") or "").strip()
+                team_id = str(channel.get("team_id") or "").strip()
+                if channel_name:
+                    identity["channel_name"] = channel_name
+                if team_id:
+                    identity["workspace_id"] = team_id
+                    team_response = self.session.get(
+                        f"{self.base_url}/api/v4/teams/{team_id}", timeout=15,
+                    )
+                    team_response.raise_for_status()
+                    team = team_response.json()
+                    if isinstance(team, dict):
+                        workspace_name = str(
+                            team.get("name") or team.get("display_name") or ""
+                        ).strip()
+                        if workspace_name:
+                            identity["workspace_name"] = workspace_name
+                directory = IdentifierDirectory(_mailbox_module().mailbox_dir())
+                system = f"mm/{endpoint_instance('mattermost', self.listener)}"
+                if channel_name:
+                    directory.remember(
+                        channel_id, channel_name, system=system, kind="channel", metadata=channel,
+                    )
+                if team_id and identity.get("workspace_name"):
+                    directory.remember(
+                        team_id, identity["workspace_name"], system=system,
+                        kind="team", metadata=team,
+                    )
+        except (requests.RequestException, KeyError, TypeError, ValueError):
+            LOGGER.debug("Could not resolve Mattermost channel identity for %s", channel_id,
+                         exc_info=True)
+        self._channel_bus_metadata[channel_id] = identity
+        return identity
 
     def _post_recipients(self, channel_id: str, author_id: str) -> list[str]:
         instance = endpoint_instance("mattermost", self.listener) if self.listener else (
@@ -204,8 +263,15 @@ class MattermostRelay:
                     item for item in listeners_for("mattermost", direction="inbound")
                     if channel_id in item["channel_ids"]
                 ), {})
+                channel_identity = self._mattermost_channel_identity(channel_id)
                 origin_fields = with_origin(
-                    {"author": str(post.get("user_id", "")), "attachments": attachments},
+                    {
+                        "author": str(post.get("user_id", "")),
+                        "attachments": attachments,
+                        **channel_identity,
+                        **({"team_id": channel_identity["workspace_id"]}
+                           if channel_identity.get("workspace_id") else {}),
+                    },
                     adapter="mattermost",
                     listener_id=str(matching.get("id") or "mattermost-default"),
                     source_id=source_id,

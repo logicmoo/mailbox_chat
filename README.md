@@ -67,10 +67,24 @@ GET  /health
 GET  /v1/status
 GET  /v1/adapters
 GET  /v1/listeners
+GET  /v1/poll-sources
+GET  /v1/cursors?cursor=AGENT_ID
 GET  /v1/messages?recipient=IDENTITY
+POST /v1/agents
+POST /v1/cursors
 POST /v1/messages
 GET  /page-demo
+GET  /cmd-client/?args=ARGUMENTS
 ```
+
+`/cmd-client/` is a persistent browser console for the bundled
+`mailbox-client`. It automatically targets the relay serving the page, retains
+the submitted argument string, and displays stdout, stderr, and the exit code.
+For example, open `/cmd-client/?args=-h` for help or enter `status` in its form.
+Commands use the same Python entrypoint as `mailbox-client.cmd`, without a
+shell or command whitelist. Long-running commands such as `poll` and `follow`
+stream output into the page and remain active until they finish or the page's
+Stop button terminates them.
 
 Example send:
 
@@ -96,6 +110,13 @@ Invoke-RestMethod 'http://127.0.0.1:46667/v1/messages?recipient=worker-1'
 
 Receiving advances that recipient's durable cursor. Each concurrent consumer
 must therefore use a unique, stable identity.
+
+List every agent mailbox that currently has one or more durable conversation
+subscriptions:
+
+```powershell
+mailbox-client --url http://127.0.0.1:46667 subscriptions --all
+```
 
 That mailbox identity is the stable **agent ID**, not a particular connection.
 One agent may have several simultaneous presences (commonly three or four),
@@ -127,6 +148,94 @@ the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
 Presence IDs are globally unique. A listener cannot claim a presence belonging
 to a different agent. Existing configurations without `agents` remain valid.
 
+Create an agent, or idempotently add one of its presences, through the registry
+API. A newly created agent emits `agent_registered`; a newly created presence
+emits `presence_registered`. Both lifecycle records are retained on
+`mailbox-server-events-bus`. Repeating the same registration does not emit a
+duplicate event.
+
+```powershell
+$registration = @{
+  agent_id = 'symbolic-workbench-codex'
+  presence_id = 'symbolic-codex-app'
+  kind = 'codex'
+} | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:46667/v1/agents `
+  -Method Post -ContentType application/json -Body $registration
+```
+
+The server exposes retained operational buses:
+
+- `mailbox-server-events-bus` contains server lifecycle and adapter events.
+- `mailbox-server-agent-to-agent-bus` contains copies of sends whose target is
+  a registered agent.
+- `mailbox-server-agent-to-channel-bus` contains a copy of every ordinary
+  send.
+- `mailbox-server-presence-to-AGENT_ID` is created for every registered agent
+  and aggregates every message routed toward that agent, whether the source is
+  another agent, one of its presences, or an external channel presence. For
+  example, `workspace-codex-agent` owns
+  `mailbox-server-presence-to-workspace-codex-agent`.
+
+Addressing a presence does not rewrite the original envelope. If `codex.star`
+is registered to `workspace-codex-agent`, the original record still says
+`to: "codex.star"`. Its per-agent bus copy adds
+`addressed_presence_id: "codex.star"` and
+`resolved_agent_id: "workspace-codex-agent"`, allowing the owning agent to
+recognize and consume the message without losing the precise address used by
+the sender.
+
+An original record and all of its audit copies share `dedupe_id`. Audit copies
+also contain `audit_of` (the original record ID) and `audit_recipient` (the
+original destination). The audit buses do not copy themselves, preventing
+recursive records.
+
+Agents can discover all retained sources, initialize each cursor exactly once
+at a caller-selected position, and poll every saved source in one command:
+
+```powershell
+mailbox-client --url http://127.0.0.1:46667 poll-sources
+mailbox-client --url http://127.0.0.1:46667 agents
+mailbox-client --url http://127.0.0.1:46667 agent-add review-agent `
+  --presence review-agent-codex --kind codex
+mailbox-client --url http://127.0.0.1:46667 agent-add review-agent --dry-run
+mailbox-client --url http://127.0.0.1:46667 agent-del review-agent `
+  --presence review-agent-codex
+mailbox-client --url http://127.0.0.1:46667 agent-del review-agent `
+  --purge --dry-run
+mailbox-client --url http://127.0.0.1:46667 cursors --cursor symbolic-workbench-codex
+mailbox-client --url http://127.0.0.1:46667 cursor-init `
+  mailbox-server-events-bus mailbox-server-agent-to-agent-bus `
+  mailbox-server-agent-to-channel-bus --cursor symbolic-workbench-codex --start now
+mailbox-client --url http://127.0.0.1:46667 --as symbolic-workbench-codex `
+  poll --subscriptions --interval 30 --checks 11
+```
+
+`poll-sources` is a global catalog: it includes monitored channel buses,
+server/audit buses, and every registered agent's presence bus. `agents` lists
+all registered messageable agents, including their presences. Each entry also
+includes its private `presence_bus` and a flat
+`subscriptions` list. Every subscription is the saved cursor state for one bus
+(`bus`, `cursor`, and byte `offset`); there is no second polling-subscription
+layer. Listing agents never advances a subscription. `agent-add`
+creates a stable agent and can add one presence; valid presence kinds are
+`mailbox`, `console`, `codex`, and `platform`. Repeating the same registration
+is safe and reports that nothing new was created. Registration also exposes
+the agent's initial private presence bus in `poll-sources`. `agent-del` removes one
+presence when `--presence` is supplied, or the entire agent otherwise. It
+retains private bus history and cursor files unless `--purge` is supplied.
+Use `--purge --dry-run` to see exactly which buses, records, and cursor files
+would be deleted without changing anything. It refuses removals that would
+leave a listener pointing at a missing identity. `cursors`
+reports which of those buses have already been initialized for one cursor and
+the current byte offset of each. The listing does not hide other agents'
+pollable sources.
+
+There is no server-defined age cutoff. Initial cursor positions may be
+`beginning`, `now`, an exact timestamp, or a caller-selected relative duration
+such as `7d`. Retained history can be queried independently of live cursors
+with `mailbox-client history BUS... --since 7d`.
+
 Fully qualified qualified channels fan events out to those identities. For
 example, subscribe an agent to server diagnostics and continue polling the
 agent's own mailbox:
@@ -145,6 +254,22 @@ mailbox-client poll --to symbolic-workbench-codex `
 
 These memberships are saved by the server in `config/relays.json` under
 `subscriptions[].subscribers` and survive relay restarts.
+
+Mattermost channel buses are named automatically. The relay resolves the
+configured endpoint, the Mattermost team (workspace), and the channel name,
+then persists the resulting slug. The `chat.singularitynet.io` endpoint
+becomes the literal normalized prefix
+`chat-singularitynet-io-mm`, producing a complete name such as
+`chat-singularitynet-io-mm-opencog-agent-test-bus`. Other endpoints use the
+same normalized-hostname rule. Until readable Mattermost
+metadata is available, the channel ID is used as a deterministic fallback;
+once resolved, the selected bus name is retained in the subscription metadata
+and returned by `poll-sources`.
+
+Every inbound Mattermost JSONL event also carries `workspace_id` (the original
+Mattermost `team_id`), `team_id`, `workspace_name`, and `channel_name`. The
+event is therefore self-describing even when it is read without access to the
+subscription or identifier registries.
 
 External Mattermost addresses use `mm/SERVER/ID`; `--as` is the local agent,
 `--from` subscribes to an external source, and `--to` sends externally:

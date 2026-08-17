@@ -4,10 +4,49 @@
     {
       "agent_id": "local-agent",
       "presences": [
-        {"presence_id": "local-agent-codex", "kind": "codex"},
-        {"presence_id": "local-agent-console", "kind": "console"},
-        {"presence_id": "local-agent-mailbox", "kind": "mailbox"},
-        {"presence_id": "local-agent-mattermost", "kind": "platform"}
+        {
+          "presence_id": "local-agent-codex",
+          "kind": "codex"
+        },
+        {
+          "presence_id": "local-agent-console",
+          "kind": "console"
+        },
+        {
+          "presence_id": "local-agent-mailbox",
+          "kind": "mailbox"
+        },
+        {
+          "presence_id": "local-agent-mattermost",
+          "kind": "platform"
+        }
+      ]
+    },
+    {
+      "agent_id": "snet-mm-subscribers-bus",
+      "presences": [
+        {
+          "presence_id": "snet-mm-subscribers-bus-mailbox",
+          "kind": "mailbox"
+        }
+      ]
+    },
+    {
+      "agent_id": "workbench-codex-worker",
+      "presences": [
+        {
+          "presence_id": "workbench-codex-worker-codex",
+          "kind": "codex"
+        }
+      ]
+    },
+    {
+      "agent_id": "symbolic-workbench-codex",
+      "presences": [
+        {
+          "presence_id": "symbolic-workbench-codex-codex",
+          "kind": "codex"
+        }
       ]
     }
   ],
@@ -15,6 +54,39 @@
     {
       "id": "local/0/server_events",
       "subscribers": []
+    },
+    {
+      "id": "mm/chat.singularitynet.io/channel",
+      "subscribers": [],
+      "metadata": {
+        "bus": "chat-singularitynet-io-mm-channel-bus",
+        "listener": "mattermost-primary",
+        "endpoint": "chat.singularitynet.io",
+        "channel_name": "test",
+        "workspace_id": "team-1",
+        "workspace_name": "opencog"
+      }
+    },
+    {
+      "id": "mm/mattermost-main/channel",
+      "subscribers": [],
+      "metadata": {
+        "bus": "mattermost-main-mm-channel-bus",
+        "listener": "mattermost-main",
+        "endpoint": "mattermost-main"
+      }
+    },
+    {
+      "id": "mm/chat.singularitynet.io/jmoduftrb3yjdnozzwst5ore1c",
+      "subscribers": [],
+      "metadata": {
+        "bus": "chat-singularitynet-io-mm-chat-test-bus",
+        "listener": "mattermost-primary",
+        "endpoint": "chat.singularitynet.io",
+        "channel_name": "test",
+        "workspace_id": "smmrm413tfy8xfgzb33k91bpbr",
+        "workspace_name": "chat"
+      }
     }
   ],
   "listeners": [
@@ -26,11 +98,16 @@
       "token_env": "MM_BOT_TOKEN",
       "enabled": true,
       "direction": "bidirectional",
-      "channel_ids": ["$MM_CHANNEL_ID", "$MM_CHANNEL_IDS"],
+      "channel_ids": [
+        "$MM_CHANNEL_ID",
+        "$MM_CHANNEL_IDS"
+      ],
       "bridge_agent": "mattermost-bridge-agent",
       "agent_id": "local-agent",
       "presence_id": "local-agent-mattermost",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "include_direct_messages": true,
       "preserve_threads": true
@@ -44,9 +121,13 @@
       "port": 6697,
       "tls": true,
       "nickname": "mailbox-relay",
-      "channel_ids": ["$IRC_CHANNELS"],
+      "channel_ids": [
+        "$IRC_CHANNELS"
+      ],
       "bridge_agent": "irc-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "preserve_threads": false
     },
@@ -56,9 +137,13 @@
       "enabled": false,
       "direction": "bidirectional",
       "token_env": "DISCORD_BOT_TOKEN",
-      "channel_ids": ["$DISCORD_CHANNEL_IDS"],
+      "channel_ids": [
+        "$DISCORD_CHANNEL_IDS"
+      ],
       "bridge_agent": "discord-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "preserve_threads": true
     },
@@ -69,9 +154,13 @@
       "direction": "bidirectional",
       "homeserver": "$MATRIX_HOMESERVER",
       "token_env": "MATRIX_ACCESS_TOKEN",
-      "channel_ids": ["$MATRIX_ROOM_IDS"],
+      "channel_ids": [
+        "$MATRIX_ROOM_IDS"
+      ],
       "bridge_agent": "matrix-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "preserve_threads": true
     },
@@ -81,9 +170,13 @@
       "enabled": false,
       "direction": "bidirectional",
       "token_env": "SLACK_BOT_TOKEN",
-      "channel_ids": ["$SLACK_CHANNEL_IDS"],
+      "channel_ids": [
+        "$SLACK_CHANNEL_IDS"
+      ],
       "bridge_agent": "slack-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "preserve_threads": true,
       "presence_id": "slack-primary-bot"
@@ -94,9 +187,13 @@
       "enabled": false,
       "direction": "bidirectional",
       "token_env": "TELEGRAM_BOT_TOKEN",
-      "channel_ids": ["$TELEGRAM_ALLOWED_CHAT_IDS"],
+      "channel_ids": [
+        "$TELEGRAM_ALLOWED_CHAT_IDS"
+      ],
       "bridge_agent": "telegram-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "include_direct_messages": false,
       "preserve_threads": true
@@ -108,9 +205,13 @@
       "direction": "bidirectional",
       "phone_number_id": "$WHATSAPP_PHONE_NUMBER_ID",
       "token_env": "WHATSAPP_ACCESS_TOKEN",
-      "channel_ids": ["$WHATSAPP_ALLOWED_CONVERSATIONS"],
+      "channel_ids": [
+        "$WHATSAPP_ALLOWED_CONVERSATIONS"
+      ],
       "bridge_agent": "whatsapp-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "groups_enabled": false,
       "preserve_threads": false
@@ -122,9 +223,13 @@
       "direction": "bidirectional",
       "page_id": "$FACEBOOK_PAGE_ID",
       "token_env": "FACEBOOK_PAGE_ACCESS_TOKEN",
-      "channel_ids": ["$FACEBOOK_ALLOWED_CONVERSATIONS"],
+      "channel_ids": [
+        "$FACEBOOK_ALLOWED_CONVERSATIONS"
+      ],
       "bridge_agent": "facebook-messenger-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "preserve_threads": false
     },
@@ -134,9 +239,13 @@
       "enabled": false,
       "direction": "bidirectional",
       "token_env": "VIBER_AUTH_TOKEN",
-      "channel_ids": ["$VIBER_ALLOWED_CONVERSATIONS"],
+      "channel_ids": [
+        "$VIBER_ALLOWED_CONVERSATIONS"
+      ],
       "bridge_agent": "viber-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "include_direct_messages": false,
       "preserve_threads": false,
@@ -149,9 +258,13 @@
       "direction": "bidirectional",
       "token_env": "LINE_CHANNEL_ACCESS_TOKEN",
       "secret_env": "LINE_CHANNEL_SECRET",
-      "channel_ids": ["$LINE_ALLOWED_SOURCE_IDS"],
+      "channel_ids": [
+        "$LINE_ALLOWED_SOURCE_IDS"
+      ],
       "bridge_agent": "line-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "include_direct_messages": false,
       "preserve_threads": true
@@ -165,10 +278,14 @@
       "api_key_env": "DISCOURSE_API_KEY",
       "webhook_secret_env": "DISCOURSE_WEBHOOK_SECRET",
       "api_username": "system",
-      "channel_ids": ["$DISCOURSE_TOPIC_IDS"],
+      "channel_ids": [
+        "$DISCOURSE_TOPIC_IDS"
+      ],
       "category_ids": [],
       "bridge_agent": "discourse-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "preserve_threads": true
     },
@@ -180,9 +297,13 @@
       "companion_url": "http://127.0.0.1:46668",
       "companion_token_env": "WHATSAPP_PERSONAL_COMPANION_TOKEN",
       "webhook_secret_env": "WHATSAPP_PERSONAL_WEBHOOK_SECRET",
-      "channel_ids": ["$WHATSAPP_PERSONAL_CHAT_IDS"],
+      "channel_ids": [
+        "$WHATSAPP_PERSONAL_CHAT_IDS"
+      ],
       "bridge_agent": "whatsapp-personal-bridge-agent",
-      "mailbox_recipients": ["local-agent"],
+      "mailbox_recipients": [
+        "local-agent"
+      ],
       "trusted_admins": [],
       "include_groups": true,
       "include_direct_messages": false,
@@ -193,20 +314,39 @@
     {
       "id": "mattermost-to-irc-via-presence",
       "enabled": false,
-      "source": {"listener_id": "mattermost-primary", "channel_id": "$MM_CHANNEL_ID"},
+      "source": {
+        "listener_id": "mattermost-primary",
+        "channel_id": "$MM_CHANNEL_ID"
+      },
       "destinations": [
-        {"adapter": "irc", "listener_id": "irc-primary", "channel_id": "#agents"}
+        {
+          "adapter": "irc",
+          "listener_id": "irc-primary",
+          "channel_id": "#agents"
+        }
       ],
-      "controller": {"type": "presence_controller", "presence_id": "relay-presence"}
+      "controller": {
+        "type": "presence_controller",
+        "presence_id": "relay-presence"
+      }
     },
     {
       "id": "discord-to-matrix-via-agent",
       "enabled": false,
-      "source": {"listener_id": "discord-primary"},
+      "source": {
+        "listener_id": "discord-primary"
+      },
       "destinations": [
-        {"adapter": "matrix", "listener_id": "matrix-primary", "channel_id": "!room:example.org"}
+        {
+          "adapter": "matrix",
+          "listener_id": "matrix-primary",
+          "channel_id": "!room:example.org"
+        }
       ],
-      "controller": {"type": "relay_agent", "mailbox_recipient": "cross-channel-router"}
+      "controller": {
+        "type": "relay_agent",
+        "mailbox_recipient": "cross-channel-router"
+      }
     }
   ]
 }

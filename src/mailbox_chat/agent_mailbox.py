@@ -18,7 +18,7 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,9 @@ REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
 MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
 DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
+SERVER_AGENT_TO_AGENT_BUS = "mailbox-server-agent-to-agent-bus"
+SERVER_AGENT_TO_CHANNEL_BUS = "mailbox-server-agent-to-channel-bus"
+SERVER_AUDIT_BUSES = {SERVER_AGENT_TO_AGENT_BUS, SERVER_AGENT_TO_CHANNEL_BUS}
 IRC_COMMANDS = ("ping", "list", "names", "join", "part", "topic", "nick", "whois",
                 "mode", "invite", "kick", "message", "notice", "raw")
 MATTERMOST_COMMANDS = ("ping", "teams", "list", "names", "threads", "join", "part",
@@ -91,12 +94,22 @@ COMMAND_POSITIONALS = {
     "receive": ("recipient",),
     "peek": ("recipient",),
     "poll": ("recipient",),
+    "poll-many": ("recipients",),
+    "history": ("recipients",),
+    "cursor-init": ("recipients",),
+    "poll-sources": (),
+    "cursors": (),
+    "agents": (),
+    "agent-add": ("agent_id",),
+    "agent-del": ("agent_id",),
     "follow": ("recipient",),
     "unread-count": ("recipient",),
     "ack": ("recipient", "message_id"),
     "status": (),
     "check": (),
 }
+
+RELATIVE_TIME = re.compile(r"^(?P<amount>\d+(?:\.\d+)?)(?P<unit>[smhdw])$")
 
 
 def default_mailbox_dir() -> Path:
@@ -125,6 +138,249 @@ def _write_cursor(path: Path, offset: int) -> None:
     temporary = path.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
     temporary.write_text(str(offset), encoding="ascii")
     os.replace(temporary, path)
+
+
+def cursor_subscriptions(cursor: str, *, root: Path | None = None) -> list[str]:
+    target = (root or mailbox_dir()) / "cursor_subscriptions.json"
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+    return list(dict.fromkeys(str(item) for item in document.get("cursors", {}).get(cursor, [])))
+
+
+def cursor_positions(cursor: str, *, root: Path | None = None) -> list[dict[str, Any]]:
+    """List every retained bus initialized for a cursor and its byte position."""
+    target = root or mailbox_dir()
+    return [
+        {
+            "recipient": recipient,
+            "cursor": cursor,
+            "offset": _read_cursor(_cursor_path(target, f"{recipient}:{cursor}")),
+        }
+        for recipient in cursor_subscriptions(cursor, root=target)
+    ]
+
+
+def _remember_cursor_subscription(root: Path, cursor: str, recipient: str) -> None:
+    target = root / "cursor_subscriptions.json"
+    try:
+        document = json.loads(target.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        document = {"version": 1, "cursors": {}}
+    members = document.setdefault("cursors", {}).setdefault(cursor, [])
+    if recipient not in members:
+        members.append(recipient)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, target)
+
+
+def purge_agent_data(
+    agent_id: str,
+    *,
+    presence_ids: set[str],
+    presence_bus: str,
+    remove_agent: bool,
+    dry_run: bool = False,
+    root: Path | None = None,
+) -> dict[str, Any]:
+    """Remove private agent records and cursor state while preserving global audits."""
+    target = root or mailbox_dir()
+    private_recipients = set(presence_ids)
+    if remove_agent:
+        private_recipients.update({agent_id, presence_bus})
+    messages_path = target / "messages.jsonl"
+    removed_records = 0
+    retained_bytes = 0
+
+    def should_remove(record: Any) -> bool:
+        return bool(
+            isinstance(record, dict)
+            and (
+                str(record.get("to") or "") in private_recipients
+                or (
+                    not remove_agent
+                    and str(record.get("to") or "") == presence_bus
+                    and str(record.get("audit_recipient") or "") in presence_ids
+                )
+            )
+        )
+
+    if dry_run:
+        if messages_path.exists():
+            with messages_path.open("rb") as source:
+                for line in source:
+                    try:
+                        record = json.loads(line.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    removed_records += int(should_remove(record))
+        cursor_candidates = {
+            _cursor_path(target, recipient) for recipient in private_recipients
+        }
+        try:
+            subscriptions = json.loads(
+                (target / "cursor_subscriptions.json").read_text(encoding="utf-8")
+            )
+        except (FileNotFoundError, json.JSONDecodeError):
+            subscriptions = {}
+        cursors = subscriptions.get("cursors") if isinstance(subscriptions, dict) else {}
+        if isinstance(cursors, dict):
+            for cursor, recipients in cursors.items():
+                if not isinstance(recipients, list):
+                    continue
+                for recipient in recipients:
+                    if str(recipient) in private_recipients or (remove_agent and cursor == agent_id):
+                        cursor_candidates.add(_cursor_path(target, f"{recipient}:{cursor}"))
+        return {
+            "purged": False,
+            "dry_run": True,
+            "would_purge_buses": sorted(private_recipients),
+            "would_purge_records": removed_records,
+            "would_purge_cursor_files": len([path for path in cursor_candidates if path.exists()]),
+        }
+
+    with _MESSAGE_WRITE_LOCK:
+        cursor_offsets: dict[Path, int] = {
+            path: _read_cursor(path) for path in (target / "cursors").glob("*.cursor")
+        } if (target / "cursors").is_dir() else {}
+        mapped_offsets: dict[Path, int] = {}
+        if messages_path.exists():
+            temporary = messages_path.with_name(
+                f".{messages_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+            )
+            old_position = 0
+            with messages_path.open("rb") as source, temporary.open("wb") as destination:
+                for line in source:
+                    line_start = old_position
+                    line_end = line_start + len(line)
+                    try:
+                        record = json.loads(line.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        record = None
+                    remove = should_remove(record)
+                    for path, offset in cursor_offsets.items():
+                        if path in mapped_offsets or offset > line_end:
+                            continue
+                        if offset <= line_start or remove:
+                            mapped_offsets[path] = retained_bytes
+                        else:
+                            mapped_offsets[path] = retained_bytes + offset - line_start
+                    if remove:
+                        removed_records += 1
+                    else:
+                        destination.write(line)
+                        retained_bytes += len(line)
+                    old_position = line_end
+            os.replace(temporary, messages_path)
+            for path, offset in cursor_offsets.items():
+                _write_cursor(path, mapped_offsets.get(path, retained_bytes))
+
+        subscriptions_path = target / "cursor_subscriptions.json"
+        try:
+            subscriptions = json.loads(subscriptions_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            subscriptions = None
+        removed_cursor_files: set[Path] = set()
+        if isinstance(subscriptions, dict):
+            cursors = subscriptions.get("cursors")
+            if isinstance(cursors, dict):
+                for cursor, recipients in list(cursors.items()):
+                    if not isinstance(recipients, list):
+                        continue
+                    if remove_agent and cursor == agent_id:
+                        for recipient in recipients:
+                            removed_cursor_files.add(_cursor_path(target, f"{recipient}:{cursor}"))
+                        del cursors[cursor]
+                        continue
+                    retained = [item for item in recipients if str(item) not in private_recipients]
+                    for recipient in set(map(str, recipients)) - set(map(str, retained)):
+                        removed_cursor_files.add(_cursor_path(target, f"{recipient}:{cursor}"))
+                    cursors[cursor] = retained
+                subscriptions_path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = subscriptions_path.with_suffix(
+                    f".{os.getpid()}.{uuid.uuid4().hex}.tmp"
+                )
+                temporary.write_text(
+                    json.dumps(subscriptions, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                os.replace(temporary, subscriptions_path)
+        for recipient in private_recipients:
+            removed_cursor_files.add(_cursor_path(target, recipient))
+        existing_cursor_files = {path for path in removed_cursor_files if path.exists()}
+        for path in existing_cursor_files:
+            path.unlink(missing_ok=True)
+
+    return {
+        "purged": True,
+        "purged_buses": sorted(private_recipients),
+        "purged_records": removed_records,
+        "purged_cursor_files": len(existing_cursor_files),
+    }
+
+
+def _time_boundary(value: str, *, now: datetime | None = None) -> str:
+    """Resolve a caller-provided timestamp or relative duration to UTC ISO text."""
+    match = RELATIVE_TIME.fullmatch(value.strip().lower())
+    if not match:
+        return value
+    seconds_per_unit = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    seconds = float(match.group("amount")) * seconds_per_unit[match.group("unit")]
+    boundary = (now or datetime.now(timezone.utc)) - timedelta(seconds=seconds)
+    return boundary.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def initialize_cursor(
+    recipient: str,
+    *,
+    cursor: str,
+    start: str = "now",
+    root: Path | None = None,
+) -> dict[str, Any]:
+    """Position one durable cursor without changing or deleting mailbox history."""
+    if not cursor.strip():
+        raise ValueError("cursor name is required")
+    target = root or mailbox_dir()
+    messages_path = target / "messages.jsonl"
+    cursor_path = _cursor_path(target, f"{recipient}:{cursor}")
+    if cursor_path.exists():
+        raise ValueError(f"cursor {cursor!r} is already initialized for {recipient!r}")
+    normalized = start.strip().lower()
+    if normalized in {"beginning", "start"}:
+        offset = 0
+    else:
+        try:
+            file_size = messages_path.stat().st_size
+        except FileNotFoundError:
+            file_size = 0
+        if normalized == "now":
+            offset = file_size
+        else:
+            boundary = _time_boundary(start)
+            offset = file_size
+            try:
+                with messages_path.open("rb") as stream:
+                    while True:
+                        line_start = stream.tell()
+                        line = stream.readline()
+                        if not line:
+                            break
+                        try:
+                            record = json.loads(line.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            continue
+                        if (isinstance(record, dict) and record.get("to") == recipient
+                                and str(record.get("timestamp", "")) >= boundary):
+                            offset = line_start
+                            break
+            except FileNotFoundError:
+                pass
+    _write_cursor(cursor_path, offset)
+    _remember_cursor_subscription(target, cursor, recipient)
+    return {"recipient": recipient, "cursor": cursor, "start": start, "offset": offset}
 
 
 def _safe_attachment_name(path: Path, used_names: set[str]) -> str:
@@ -198,6 +454,7 @@ def send(
     message_id = str(uuid.uuid4())
     record: dict[str, Any] = {
         "id": message_id,
+        "dedupe_id": message_id,
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "from": sender,
         "to": recipient,
@@ -219,7 +476,51 @@ def send(
     copied_attachments = _copy_attachments(target, message_id, attachments or [])
     if copied_attachments:
         record["attachments"] = copied_attachments
-    payload = (json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    records = [record]
+    if recipient not in SERVER_AUDIT_BUSES:
+        audit_recipients = [SERVER_AGENT_TO_CHANNEL_BUS]
+        resolved_agent_id = ""
+        addressed_presence_id = ""
+        try:
+            try:
+                from .listener_registry import agent_presence_bus, load_agents
+            except ImportError:
+                from mailbox_channels.listener_registry import agent_presence_bus, load_agents
+            agents = load_agents()
+            if recipient in {item["agent_id"] for item in agents}:
+                resolved_agent_id = recipient
+            else:
+                resolved_agent_id = next((
+                    str(item["agent_id"])
+                    for item in agents
+                    if any(presence["presence_id"] == recipient for presence in item["presences"])
+                ), "")
+                addressed_presence_id = recipient if resolved_agent_id else ""
+            if resolved_agent_id:
+                audit_recipients.extend([
+                    SERVER_AGENT_TO_AGENT_BUS,
+                    agent_presence_bus(resolved_agent_id),
+                ])
+        except (ImportError, OSError, ValueError, json.JSONDecodeError):
+            pass
+        for audit_recipient in audit_recipients:
+            audit_record = {
+                **record,
+                "id": str(uuid.uuid4()),
+                "to": audit_recipient,
+                "audit_of": record["id"],
+                "dedupe_id": record["dedupe_id"],
+                "audit_recipient": recipient,
+            }
+            if resolved_agent_id:
+                audit_record["resolved_agent_id"] = resolved_agent_id
+            if addressed_presence_id:
+                audit_record["addressed_presence_id"] = addressed_presence_id
+            records.append(audit_record)
+    payload = b"".join(
+        (json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+        for item in records
+    )
     messages_path = target / "messages.jsonl"
     maximum = int(os.environ.get(MAX_JSONL_ENV, DEFAULT_MAX_JSONL_BYTES))
     if maximum < 1:
@@ -414,6 +715,31 @@ def acknowledge_rest(recipient: str, message_id: str, *, base_url: str | None = 
     return bool(result.get("acknowledged"))
 
 
+def initialize_cursor_rest(recipient: str, *, cursor: str, start: str = "now",
+                           base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/cursors", {
+        "recipient": recipient, "cursor": cursor, "start": start,
+    }, base_url=base_url))
+
+
+def register_agent_rest(agent_id: str, *, presence_id: str = "", kind: str = "mailbox",
+                        dry_run: bool = False,
+                        base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/agents", {
+        "agent_id": agent_id, "presence_id": presence_id, "kind": kind,
+        "dry_run": dry_run,
+    }, base_url=base_url))
+
+
+def unregister_agent_rest(agent_id: str, *, presence_id: str = "", purge: bool = False,
+                          dry_run: bool = False,
+                          base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/agents", {
+        "action": "delete", "agent_id": agent_id, "presence_id": presence_id,
+        "purge": purge, "dry_run": dry_run,
+    }, base_url=base_url))
+
+
 def status_rest(*, base_url: str | None = None) -> dict[str, Any]:
     return dict(_rest_request("GET", "/v1/status", base_url=base_url))
 
@@ -454,8 +780,11 @@ def _where_filters(values: list[str]) -> dict[str, str]:
 
 
 def _select_records(records: list[dict[str, Any]], *, since: str | None = None,
-                    limit: int | None = None, where: list[str] | None = None) -> list[dict[str, Any]]:
+                    until: str | None = None, limit: int | None = None,
+                    where: list[str] | None = None) -> list[dict[str, Any]]:
     filters = _where_filters(where or [])
+    since = _time_boundary(since) if since else None
+    until = _time_boundary(until) if until else None
     selected: list[dict[str, Any]] = []
     after_id = since is None
     for record in records:
@@ -466,6 +795,8 @@ def _select_records(records: list[dict[str, Any]], *, since: str | None = None,
             if str(record.get("timestamp", "")) <= since:
                 continue
             after_id = True
+        if until and str(record.get("timestamp", "")) > until:
+            continue
         if all(str(record.get(key, "")) == expected for key, expected in filters.items()):
             selected.append(record)
             if limit is not None and len(selected) >= limit:
@@ -515,6 +846,7 @@ def _emit(text: str, *, output: Path | None, quiet: bool, append: bool = False) 
 def _add_read_options(parser: argparse.ArgumentParser, *, waiting: bool = True) -> None:
     parser.add_argument("--cursor", help="independent cursor name")
     parser.add_argument("--since", help="only return records after a timestamp or message ID")
+    parser.add_argument("--until", help="only return records through a timestamp or relative boundary")
     parser.add_argument("--limit", type=int, help="maximum records to return")
     parser.add_argument("--where", action="append", default=[], metavar="FIELD=VALUE",
                         help="filter by an envelope field; repeatable")
@@ -545,6 +877,20 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
         payload = {"recipient": args.recipient,
                    "message_id": args.message_id if args.command == "ack" else args.ack,
                    "cursor": args.cursor}
+    elif args.command == "agent-add":
+        url = f"{base}/v1/agents"
+        method = "POST"
+        payload = {
+            "agent_id": args.agent_id, "presence_id": args.presence_id, "kind": args.kind,
+            "dry_run": args.dry_run,
+        }
+    elif args.command == "agent-del":
+        url = f"{base}/v1/agents"
+        method = "POST"
+        payload = {
+            "action": "delete", "agent_id": args.agent_id, "presence_id": args.presence_id,
+            "purge": args.purge, "dry_run": args.dry_run,
+        }
     else:
         advance = args.command not in {"peek", "unread-count"} and not getattr(args, "no_advance", False)
         query = urllib.parse.urlencode({"recipient": args.recipient, "advance": str(advance).lower(),
@@ -661,7 +1007,99 @@ def build_parser() -> argparse.ArgumentParser:
                              help="maximum checks before exiting (default: 10)")
     poll_parser.add_argument("--require-port", action="append", default=[], type=int,
                              help="fail when this local TCP port stops listening; repeatable")
+    poll_parser.add_argument("--subscriptions", action="store_true", dest="poll_subscriptions",
+                             help="poll every bus initialized for this cursor/agent identity")
     _add_read_options(poll_parser, waiting=False)
+    poll_many_parser = commands.add_parser(
+        "poll-many", help="poll several mailbox buses in one command",
+        description="Poll multiple recipients using one independently saved cursor name.",
+        epilog=("Example: mailbox-client poll-many snet-mm-channel-a-bus "
+                "snet-mm-channel-b-bus --cursor workbench-codex"),
+    )
+    poll_many_parser.add_argument("recipients", nargs="+", help="mailbox bus identities to poll")
+    poll_many_parser.add_argument("--interval", type=float, default=30.0,
+                                  help="seconds between checks (default: 30)")
+    poll_many_parser.add_argument("--checks", type=int, default=10,
+                                  help="maximum checks before exiting (default: 10)")
+    poll_many_parser.add_argument("--require-port", action="append", default=[], type=int,
+                                  help="fail when this local TCP port stops listening; repeatable")
+    _add_read_options(poll_many_parser, waiting=False)
+    history_parser = commands.add_parser(
+        "history", help="search retained history across mailbox buses",
+        description="Read retained records independently of every live cursor.",
+        epilog=("Example: mailbox-client history snet-mm-channel-a-bus "
+                "snet-mm-channel-b-bus --since 7d"),
+    )
+    history_parser.add_argument("recipients", nargs="+", help="mailbox bus identities to search")
+    history_parser.add_argument("--since", help="records after a timestamp, message ID, or duration such as 7d")
+    history_parser.add_argument("--until", help="records through a timestamp or relative duration")
+    history_parser.add_argument("--limit", type=int, help="maximum merged records to return")
+    history_parser.add_argument("--where", action="append", default=[], metavar="FIELD=VALUE",
+                                help="filter by an envelope field; repeatable")
+    cursor_parser = commands.add_parser(
+        "cursor-init", help="set a new cursor's initial history position",
+        description="Create a cursor once at the beginning, now, a timestamp, or a relative time.",
+        epilog=("Example: mailbox-client cursor-init snet-mm-channel-a-bus "
+                "snet-mm-channel-b-bus --cursor workbench-codex --start now"),
+    )
+    cursor_parser.add_argument("recipients", nargs="+", help="mailbox bus identities sharing this cursor name")
+    cursor_parser.add_argument("--cursor", required=True, help="new independent cursor name")
+    cursor_parser.add_argument("--start", default="now",
+                               help="beginning, now, UTC timestamp, or relative duration such as 7d")
+    commands.add_parser(
+        "poll-sources", help="list conversations retained as pollable buses",
+        description=("List every cursor-capable retained bus, including channel, server, "
+                     "audit, and per-agent presence buses."),
+        epilog="Example: mailbox-client --url http://127.0.0.1:46667 poll-sources",
+    )
+    cursors_parser = commands.add_parser(
+        "cursors", help="list the buses and positions initialized for one cursor",
+        description="List every retained bus already initialized for one cursor or agent identity.",
+        epilog=("Example: mailbox-client --url http://127.0.0.1:46667 "
+                "cursors --cursor symbolic-workbench-codex"),
+    )
+    cursors_parser.add_argument("--cursor", required=True, help="cursor or agent identity to inspect")
+    commands.add_parser(
+        "agents", help="list registered messageable agents",
+        description="List registered agent identities and their available presences.",
+        epilog="Example: mailbox-client --url http://127.0.0.1:46667 agents",
+    )
+    agent_add_parser = commands.add_parser(
+        "agent-add", help="register an agent and optional presence",
+        description=("Create a stable messageable agent identity and optionally attach one "
+                     "globally unique presence."),
+        epilog=("Example: mailbox-client --url http://127.0.0.1:46667 agent-add "
+                "review-agent --presence review-agent-codex --kind codex"),
+    )
+    agent_add_parser.add_argument("agent_id", help="stable agent identity to create or extend")
+    agent_add_parser.add_argument("--presence", dest="presence_id",
+                                  help="globally unique presence identity to attach")
+    agent_add_parser.add_argument(
+        "--kind", choices=("mailbox", "console", "codex", "platform"), default="mailbox",
+        help="presence kind when --presence is supplied (default: mailbox)",
+    )
+    agent_add_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="show the agent, presence, and initial buses that would be added",
+    )
+    agent_del_parser = commands.add_parser(
+        "agent-del", help="remove an agent or one of its presences",
+        description=("Remove one presence, or remove the agent and all presences when "
+                     "--presence is omitted. Referenced identities are protected."),
+        epilog=("Example: mailbox-client --url http://127.0.0.1:46667 agent-del "
+                "review-agent --presence review-agent-codex"),
+    )
+    agent_del_parser.add_argument("agent_id", help="stable agent identity to remove or modify")
+    agent_del_parser.add_argument("--presence", dest="presence_id",
+                                  help="remove only this presence instead of the whole agent")
+    agent_del_parser.add_argument(
+        "--purge", action="store_true",
+        help="also erase private bus records and cursor state (history is retained by default)",
+    )
+    agent_del_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="preview --purge without deleting the agent, records, or cursor state",
+    )
     follow_parser = commands.add_parser(
         "follow", help="continuously stream incoming messages",
         description="Continuously read new messages, advancing the selected cursor as they arrive.",
@@ -702,10 +1140,15 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Example: mailbox-client unsubscribe local/0/server_events --to symbolic-workbench-codex",
     )
     unsubscribe_parser.add_argument("channel", help="TYPE/INSTANCE/IDENTIFIER conversation address")
-    commands.add_parser(
+    subscriptions_parser = commands.add_parser(
         "subscriptions", help="list an identity's conversation subscriptions",
-        description="List every qualified conversation address subscribed by one mailbox identity.",
-        epilog="Example: mailbox-client subscriptions --to symbolic-workbench-codex",
+        description="List one identity's subscriptions, or every subscribed mailbox with --all.",
+        epilog=("Example: mailbox-client subscriptions --to symbolic-workbench-codex; "
+                "mailbox-client --url http://127.0.0.1:46667 subscriptions --all"),
+    )
+    subscriptions_parser.add_argument(
+        "--all", action="store_true", dest="all_subscriptions",
+        help="list every mailbox identity having at least one subscription",
     )
     commands.add_parser(
         "status", help="show mailbox configuration",
@@ -771,7 +1214,8 @@ def _command_document_argv(document: Any) -> list[str]:
     command_options = {
         "sender", "type", "channel_id", "channel_type", "source_id", "thread_id", "root_id",
         "attach", "cursor", "ack", "interval", "checks", "require_port", "wait", "limit",
-        "contains", "message_type", "no_advance",
+        "contains", "message_type", "no_advance", "until", "start", "presence", "kind",
+        "purge", "dry_run",
     }
     unknown = command_fields - command_options
     if unknown:
@@ -993,7 +1437,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(_normalize_anywhere_flags(supplied))
     from .endpoint_address import parse_endpoint
     source_endpoint = parse_endpoint(args.global_sender) if args.global_sender else None
-    destination_endpoint = parse_endpoint(args.global_recipient) if args.global_recipient else None
+    destination_value = args.global_recipient or (
+        args.recipient if args.command == "send" else None
+    )
+    destination_endpoint = parse_endpoint(destination_value) if destination_value else None
     if source_endpoint and not args.local_identity:
         build_parser().error("remote --from ENDPOINT requires --as IDENTITY")
     if args.nobuffer:
@@ -1006,7 +1453,10 @@ def main(argv: list[str] | None = None) -> int:
         if destination_endpoint:
             args.channel_type = destination_endpoint.adapter
             args.channel_id = destination_endpoint.identifier
-            args.global_recipient = "channel-relay"
+            if args.global_recipient:
+                args.global_recipient = "channel-relay"
+            else:
+                args.recipient = "channel-relay"
         if args.global_recipient and args.recipient:
             if args.text is not None:
                 build_parser().error("send accepts either positional recipient or --to, not both")
@@ -1029,18 +1479,33 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ack" and args.global_sender and args.global_recipient:
             build_parser().error("ack accepts --from or the compatibility --to alias, not both")
         selected_identity = (args.local_identity or args.global_sender) if args.command == "ack" else (
-            args.local_identity if source_endpoint else args.global_recipient
+            args.local_identity if source_endpoint or (
+                args.command == "poll" and getattr(args, "poll_subscriptions", False)
+            ) else args.global_recipient
         )
         selected_identity = selected_identity or args.global_recipient
         if selected_identity and args.recipient:
             build_parser().error(f"{args.command} accepts either positional recipient or --to, not both")
         args.recipient = selected_identity or args.recipient
-        if not args.recipient:
+        if args.command == "poll" and getattr(args, "poll_subscriptions", False):
+            args.cursor = args.cursor or args.recipient
+            args.recipient = None
+            if not args.cursor:
+                build_parser().error("poll --subscriptions requires --as AGENT or --cursor NAME")
+        elif not args.recipient:
             option = "--as IDENTITY" if args.command == "ack" else "--to RECIPIENT"
             build_parser().error(f"{args.command} requires positional recipient or {option}")
+    elif args.command in {"poll-many", "history", "cursor-init"}:
+        if args.global_recipient or args.global_sender or args.local_identity:
+            build_parser().error(f"{args.command} takes its mailbox buses as positional arguments")
     elif args.command in {"subscribe", "unsubscribe", "subscriptions"}:
-        if args.global_sender or not args.global_recipient:
+        all_subscriptions = bool(
+            args.command == "subscriptions" and getattr(args, "all_subscriptions", False)
+        )
+        if args.global_sender or (not args.global_recipient and not all_subscriptions):
             build_parser().error(f"{args.command} requires --to IDENTITY")
+        if all_subscriptions and args.global_recipient:
+            build_parser().error("subscriptions accepts --all or --to IDENTITY, not both")
     elif args.global_recipient or args.global_sender:
         build_parser().error("--from and --to require a message or mailbox command")
     if args.timeout <= 0 or args.retry < 0 or args.retry_delay < 0:
@@ -1094,14 +1559,106 @@ def main(argv: list[str] | None = None) -> int:
     if args.verbose:
         target = rest_url if use_rest else str(mailbox_root or mailbox_dir())
         print(f"agent_mailbox transport={'REST' if use_rest else 'JSONL'} target={target}", file=sys.stderr)
-    if args.command in {"subscribe", "unsubscribe", "subscriptions"}:
+    if args.command in {"agents", "poll-sources"}:
+        registry = (_rest_request("GET", "/v1/listeners", base_url=rest_url)
+                    if use_rest else __import__(
+                        "mailbox_channels.listener_registry", fromlist=["public_registry"]
+                    ).public_registry())
+        if args.command == "agents":
+            enriched_agents = []
+            for agent in registry.get("agents", []):
+                agent_id = str(agent.get("agent_id") or "")
+                cursor_state = (_rest_request(
+                    "GET", "/v1/cursors?" + urllib.parse.urlencode({"cursor": agent_id}),
+                    base_url=rest_url,
+                ) if use_rest else {
+                    "cursor": agent_id,
+                    "recipients": cursor_subscriptions(agent_id, root=mailbox_root),
+                    "positions": cursor_positions(agent_id, root=mailbox_root),
+                })
+                subscriptions = [
+                    {
+                        "bus": item.get("recipient"),
+                        "cursor": item.get("cursor"),
+                        "offset": item.get("offset", 0),
+                    }
+                    for item in cursor_state.get("positions", [])
+                ]
+                enriched_agents.append({
+                    **agent,
+                    "subscriptions": subscriptions,
+                })
+            result = {"agents": enriched_agents}
+        else:
+            result = (_rest_request("GET", "/v1/poll-sources", base_url=rest_url) if use_rest else {
+                      "sources": __import__(
+                          "mailbox_channels.subscriptions", fromlist=["available_buses"]
+                      ).available_buses()
+                  })
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "cursors":
+        result = (_rest_request(
+            "GET", "/v1/cursors?" + urllib.parse.urlencode({"cursor": args.cursor}),
+            base_url=rest_url,
+        ) if use_rest else {
+            "cursor": args.cursor,
+            "recipients": cursor_subscriptions(args.cursor, root=mailbox_root),
+            "positions": cursor_positions(args.cursor, root=mailbox_root),
+        })
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "agent-add":
+        if use_rest:
+            result = register_agent_rest(
+                args.agent_id, presence_id=args.presence_id or "", kind=args.kind,
+                dry_run=args.dry_run, base_url=rest_url,
+            )
+        else:
+            from .listener_registry import register_agent
+            result = register_agent(
+                args.agent_id, presence_id=args.presence_id or "", kind=args.kind,
+                dry_run=args.dry_run, mailbox_root=mailbox_root,
+            )
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "agent-del":
+        if args.dry_run and not args.purge:
+            build_parser().error("agent-del --dry-run requires --purge")
+        if use_rest:
+            result = unregister_agent_rest(
+                args.agent_id, presence_id=args.presence_id or "", purge=args.purge,
+                dry_run=args.dry_run, base_url=rest_url,
+            )
+        else:
+            from .listener_registry import unregister_agent
+            result = unregister_agent(
+                args.agent_id, presence_id=args.presence_id or "", purge=args.purge,
+                dry_run=args.dry_run, mailbox_root=mailbox_root,
+            )
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command in {"subscribe", "unsubscribe", "subscriptions"}:
         from .subscriptions import set_subscription, subscriptions
         if args.command == "subscriptions":
-            result = (_rest_request(
-                "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.global_recipient}),
-                base_url=rest_url,
-            ) if use_rest else {"identity": args.global_recipient,
-                                "channels": subscriptions(args.global_recipient)})
+            if args.all_subscriptions:
+                if use_rest:
+                    configured = _rest_request("GET", "/v1/listeners", base_url=rest_url).get(
+                        "subscriptions", []
+                    )
+                else:
+                    from .subscriptions import channels
+                    configured = channels()
+                by_identity: dict[str, list[str]] = {}
+                for subscription in configured:
+                    for identity in subscription.get("subscribers") or []:
+                        by_identity.setdefault(str(identity), []).append(str(subscription["id"]))
+                result = {"mailboxes": [
+                    {"identity": identity, "channels": channel_ids}
+                    for identity, channel_ids in sorted(by_identity.items())
+                ]}
+            else:
+                result = (_rest_request(
+                    "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.global_recipient}),
+                    base_url=rest_url,
+                ) if use_rest else {"identity": args.global_recipient,
+                                    "channels": subscriptions(args.global_recipient)})
         else:
             enabled = args.command == "subscribe"
             channel = args.channel
@@ -1154,31 +1711,102 @@ def main(argv: list[str] | None = None) -> int:
             if records or time.monotonic() >= deadline:
                 break
             time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
-        records = _select_records(records, since=args.since, limit=args.limit, where=args.where)
+        records = _select_records(records, since=args.since, until=args.until,
+                                  limit=args.limit, where=args.where)
         _emit(_render_records(records, args.format), output=args.output, quiet=args.quiet)
     elif args.command == "poll":
-        if use_rest:
+        if args.poll_subscriptions:
+            recipients = (list(_rest_request(
+                "GET", "/v1/cursors?" + urllib.parse.urlencode({"cursor": args.cursor}),
+                base_url=rest_url,
+            ).get("recipients", [])) if use_rest else cursor_subscriptions(args.cursor, root=mailbox_root))
+            if not recipients:
+                build_parser().error(f"cursor {args.cursor!r} has no polling subscriptions")
+        else:
+            recipients = [args.recipient]
+        if not use_rest and len(recipients) == 1:
+            records, missing_ports = poll(recipients[0], interval_seconds=args.interval,
+                                          max_checks=args.checks, required_ports=tuple(args.require_port),
+                                          root=mailbox_root, advance=not args.no_advance,
+                                          cursor=args.cursor)
+        else:
             records, missing_ports = [], []
             for check in range(args.checks):
                 if check:
                     time.sleep(args.interval)
-                records = receive_rest(args.recipient, base_url=rest_url,
-                                       advance=not args.no_advance, cursor=args.cursor)
+                records = []
+                for recipient in recipients:
+                    records.extend(
+                        receive_rest(recipient, base_url=rest_url,
+                                     advance=not args.no_advance, cursor=args.cursor)
+                        if use_rest else receive(recipient, root=mailbox_root,
+                                                advance=not args.no_advance, cursor=args.cursor)
+                    )
+                records.sort(key=lambda record: (
+                    str(record.get("timestamp", "")), str(record.get("id", "")),
+                ))
                 if records:
                     break
                 missing_ports = [port for port in args.require_port if not _port_is_listening(port)]
                 if missing_ports:
                     break
-        else:
-            records, missing_ports = poll(args.recipient, interval_seconds=args.interval,
-                                          max_checks=args.checks, required_ports=tuple(args.require_port),
-                                          root=mailbox_root, advance=not args.no_advance,
-                                          cursor=args.cursor)
-        records = _select_records(records, since=args.since, limit=args.limit, where=args.where)
+        records = _select_records(records, since=args.since, until=args.until,
+                                  limit=args.limit, where=args.where)
         _emit(_render_records(records, args.format), output=args.output, quiet=args.quiet)
         if missing_ports:
             print(json.dumps({"error": "monitored_process_failure", "missing_ports": missing_ports}), file=sys.stderr)
             return 2
+    elif args.command == "poll-many":
+        if args.interval < 0 or args.checks < 1:
+            build_parser().error("poll-many requires a non-negative --interval and positive --checks")
+        records, missing_ports = [], []
+        for check in range(args.checks):
+            if check:
+                time.sleep(args.interval)
+            batch: list[dict[str, Any]] = []
+            for recipient in args.recipients:
+                batch.extend(
+                    receive_rest(recipient, base_url=rest_url,
+                                 advance=not args.no_advance, cursor=args.cursor)
+                    if use_rest else
+                    receive(recipient, root=mailbox_root,
+                            advance=not args.no_advance, cursor=args.cursor)
+                )
+            batch.sort(key=lambda record: (str(record.get("timestamp", "")), str(record.get("id", ""))))
+            records = _select_records(batch, since=args.since, until=args.until,
+                                      limit=args.limit, where=args.where)
+            if records:
+                break
+            missing_ports = [port for port in args.require_port if not _port_is_listening(port)]
+            if missing_ports:
+                break
+        _emit(_render_records(records, args.format), output=args.output, quiet=args.quiet)
+        if missing_ports:
+            print(json.dumps({"error": "monitored_process_failure", "missing_ports": missing_ports}),
+                  file=sys.stderr)
+            return 2
+    elif args.command == "history":
+        records = []
+        history_cursor = f"history-{uuid.uuid4().hex}"
+        for recipient in args.recipients:
+            records.extend(
+                peek_rest(recipient, base_url=rest_url, cursor=history_cursor)
+                if use_rest else peek(recipient, root=mailbox_root, cursor=history_cursor)
+            )
+        records.sort(key=lambda record: (str(record.get("timestamp", "")), str(record.get("id", ""))))
+        records = _select_records(records, since=args.since, until=args.until,
+                                  limit=args.limit, where=args.where)
+        _emit(_render_records(records, args.format), output=args.output, quiet=args.quiet)
+    elif args.command == "cursor-init":
+        initialized = [
+            initialize_cursor_rest(recipient, cursor=args.cursor, start=args.start, base_url=rest_url)
+            if use_rest else initialize_cursor(
+                recipient, cursor=args.cursor, start=args.start, root=mailbox_root,
+            )
+            for recipient in args.recipients
+        ]
+        _emit(json.dumps({"cursors": initialized}, ensure_ascii=False, indent=2),
+              output=args.output, quiet=args.quiet)
     elif args.command == "follow":
         if args.interval < 0:
             raise ValueError("interval must be non-negative")
@@ -1189,7 +1817,8 @@ def main(argv: list[str] | None = None) -> int:
                                         advance=not args.no_advance, cursor=args.cursor) if use_rest
                            else receive(args.recipient, root=mailbox_root,
                                         advance=not args.no_advance, cursor=args.cursor))
-                records = _select_records(records, since=args.since, limit=args.limit, where=args.where)
+                records = _select_records(records, since=args.since, until=args.until,
+                                          limit=args.limit, where=args.where)
                 if args.no_advance:
                     records = [record for record in records if str(record.get("id")) not in seen_without_advance]
                     seen_without_advance.update(str(record.get("id")) for record in records)

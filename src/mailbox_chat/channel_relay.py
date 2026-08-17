@@ -21,7 +21,7 @@ from .adapters.discourse_adapter import DiscourseAdapter
 from .adapters.whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 from .listener_registry import listeners_for
-from .subscriptions import SERVER_EVENTS_CHANNEL, subscribers
+from .subscriptions import SERVER_EVENTS_CHANNEL, channel_bus, subscribers
 from .endpoint_address import endpoint_instance, parse_endpoint
 
 
@@ -159,6 +159,7 @@ class ChannelRelay(MattermostRelay):
         self._adapter_event_states[name] = state
         mailbox = self._mailbox()
         recipients = list(dict.fromkeys([
+            channel_bus(SERVER_EVENTS_CHANNEL),
             *subscribers(SERVER_EVENTS_CHANNEL), *self._adapter_recipients(name, adapter),
         ]))
         for recipient in recipients:

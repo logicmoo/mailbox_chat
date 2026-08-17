@@ -4,8 +4,10 @@ from pathlib import Path
 import pytest
 
 from mailbox_channels.listener_registry import (
-    agent_for_presence, config_dir, listeners_file, load_agents, load_listeners, relays_file,
+    agent_for_presence, config_dir, listeners_file, load_agents, load_listeners, register_agent,
+    relays_file, unregister_agent,
 )
+from mailbox_channels.agent_mailbox import peek
 
 
 def test_listener_registry_expands_environment_channel_lists(tmp_path: Path, monkeypatch) -> None:
@@ -89,3 +91,77 @@ def test_listener_rejects_presence_owned_by_another_agent(tmp_path: Path) -> Non
     }), encoding="utf-8")
     with pytest.raises(ValueError, match="different agent"):
         load_listeners(path)
+
+
+def test_new_agent_and_presence_are_announced_on_server_events_bus(tmp_path: Path) -> None:
+    path = tmp_path / "config" / "relays.json"
+    mailbox = tmp_path / "mailbox"
+
+    result = register_agent(
+        "worker-one", presence_id="worker-one-codex", kind="codex",
+        path=path, mailbox_root=mailbox,
+    )
+
+    assert result["agent_created"] is True
+    assert result["presence_created"] is True
+    assert result["agent"]["presence_bus"] == "mailbox-server-presence-to-worker-one"
+    messages = peek("mailbox-server-events-bus", root=mailbox)
+    assert [(item["type"], item["agent_id"]) for item in messages] == [
+        ("agent_registered", "worker-one"),
+        ("presence_registered", "worker-one"),
+    ]
+    assert messages[1]["presence_id"] == "worker-one-codex"
+    assert messages[1]["presence_kind"] == "codex"
+
+
+def test_reregistering_agent_and_presence_is_idempotent_and_silent(tmp_path: Path) -> None:
+    path = tmp_path / "config" / "relays.json"
+    mailbox = tmp_path / "mailbox"
+    register_agent("worker-one", presence_id="worker-one-console", kind="console",
+                   path=path, mailbox_root=mailbox)
+
+    result = register_agent("worker-one", presence_id="worker-one-console", kind="console",
+                            path=path, mailbox_root=mailbox)
+
+    assert result["agent_created"] is False
+    assert result["presence_created"] is False
+    assert len(peek("mailbox-server-events-bus", root=mailbox)) == 2
+
+
+def test_new_presence_for_existing_agent_gets_its_own_event(tmp_path: Path) -> None:
+    path = tmp_path / "config" / "relays.json"
+    mailbox = tmp_path / "mailbox"
+    register_agent("worker-one", path=path, mailbox_root=mailbox)
+
+    result = register_agent(
+        "worker-one", presence_id="worker-one-mm", kind="platform",
+        path=path, mailbox_root=mailbox,
+    )
+
+    assert result["agent_created"] is False
+    assert result["presence_created"] is True
+    messages = peek("mailbox-server-events-bus", root=mailbox)
+    assert [item["type"] for item in messages] == ["agent_registered", "presence_registered"]
+
+
+def test_unregister_refuses_agent_or_presence_referenced_by_listener(tmp_path: Path) -> None:
+    path = tmp_path / "config" / "relays.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "version": 1,
+        "agents": [{
+            "agent_id": "worker-one",
+            "presences": [{"presence_id": "worker-one-mm", "kind": "platform"}],
+        }],
+        "listeners": [{
+            "id": "mm", "adapter": "mattermost", "agent_id": "worker-one",
+            "presence_id": "worker-one-mm",
+        }],
+        "routes": [],
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="referenced by listener.*mm"):
+        unregister_agent("worker-one", presence_id="worker-one-mm", path=path)
+    with pytest.raises(ValueError, match="referenced by listener.*mm"):
+        unregister_agent("worker-one", path=path)
+    assert load_agents(path)[0]["agent_id"] == "worker-one"

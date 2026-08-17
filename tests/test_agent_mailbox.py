@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -64,7 +65,79 @@ def test_unknown_envelope_fields_are_preserved(tmp_path: Path) -> None:
         extra_fields={"workflow_run_id": "run-1", "correlation_id": "corr-1"},
     )
     assert sent["workflow_run_id"] == "run-1"
-    assert json.loads((tmp_path / "messages.jsonl").read_text(encoding="utf-8"))["correlation_id"] == "corr-1"
+    first_line = (tmp_path / "messages.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    assert json.loads(first_line)["correlation_id"] == "corr-1"
+
+
+def test_every_send_is_copied_to_agent_to_channel_bus(tmp_path: Path) -> None:
+    sent = agent_mailbox.send("some-channel", "hello", sender="worker", root=tmp_path)
+
+    copies = agent_mailbox.peek("mailbox-server-agent-to-channel-bus", root=tmp_path)
+    assert len(copies) == 1
+    assert copies[0]["audit_of"] == sent["id"]
+    assert copies[0]["dedupe_id"] == sent["dedupe_id"] == sent["id"]
+    assert copies[0]["audit_recipient"] == "some-channel"
+    assert copies[0]["text"] == "hello"
+
+
+def test_direct_registered_agent_send_is_also_copied_to_agent_bus(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "relays.json").write_text(json.dumps({
+        "version": 1,
+        "agents": [{"agent_id": "worker-two", "presences": []}],
+        "listeners": [],
+    }), encoding="utf-8")
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+
+    sent = agent_mailbox.send("worker-two", "direct", sender="worker-one", root=tmp_path / "mailbox")
+
+    direct = agent_mailbox.peek("mailbox-server-agent-to-agent-bus", root=tmp_path / "mailbox")
+    all_sends = agent_mailbox.peek("mailbox-server-agent-to-channel-bus", root=tmp_path / "mailbox")
+    presence_ingress = agent_mailbox.peek(
+        "mailbox-server-presence-to-worker-two", root=tmp_path / "mailbox",
+    )
+    assert direct[0]["audit_of"] == sent["id"]
+    assert all_sends[0]["audit_of"] == sent["id"]
+    assert direct[0]["dedupe_id"] == all_sends[0]["dedupe_id"] == sent["id"]
+    assert presence_ingress[0]["dedupe_id"] == sent["id"]
+
+
+def test_audit_bus_writes_do_not_recursively_audit_themselves(tmp_path: Path) -> None:
+    agent_mailbox.send("mailbox-server-agent-to-channel-bus", "audit", root=tmp_path)
+    assert len((tmp_path / "messages.jsonl").read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_presence_address_stays_intact_while_owner_agent_receives_bus_copy(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "relays.json").write_text(json.dumps({
+        "version": 1,
+        "agents": [{
+            "agent_id": "workspace-codex-agent",
+            "presences": [{"presence_id": "codex.star", "kind": "codex"}],
+        }],
+        "listeners": [],
+    }), encoding="utf-8")
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+
+    sent = agent_mailbox.send(
+        "codex.star", "for the workflow agent", sender="another-agent",
+        root=tmp_path / "mailbox",
+    )
+
+    assert sent["to"] == "codex.star"
+    copy = agent_mailbox.peek(
+        "mailbox-server-presence-to-workspace-codex-agent", root=tmp_path / "mailbox",
+    )[0]
+    assert copy["audit_of"] == sent["id"]
+    assert copy["audit_recipient"] == "codex.star"
+    assert copy["addressed_presence_id"] == "codex.star"
+    assert copy["resolved_agent_id"] == "workspace-codex-agent"
 
 
 def test_url_flag_selects_rest_transport(monkeypatch) -> None:
@@ -105,6 +178,213 @@ def test_acknowledge_advances_selected_cursor(tmp_path: Path) -> None:
     second = agent_mailbox.send("agent-b", "two", root=tmp_path)
     assert agent_mailbox.acknowledge("agent-b", first["id"], root=tmp_path, cursor="worker")
     assert agent_mailbox.receive("agent-b", root=tmp_path, cursor="worker") == [second]
+
+
+def test_cursor_initialization_is_create_once_and_remembers_polling_bus(tmp_path: Path) -> None:
+    agent_mailbox.send("bus-a", "before login", root=tmp_path)
+    result = agent_mailbox.initialize_cursor("bus-a", cursor="agent-1", start="now", root=tmp_path)
+    assert result["offset"] > 0
+    assert agent_mailbox.cursor_subscriptions("agent-1", root=tmp_path) == ["bus-a"]
+    assert agent_mailbox.receive("bus-a", root=tmp_path, cursor="agent-1") == []
+    with pytest.raises(ValueError, match="already initialized"):
+        agent_mailbox.initialize_cursor("bus-a", cursor="agent-1", start="beginning", root=tmp_path)
+
+
+def test_cursor_listing_reports_every_initialized_bus_and_position(tmp_path: Path, capsys) -> None:
+    agent_mailbox.send("private-agent-bus", "before login", root=tmp_path)
+    initialized = agent_mailbox.initialize_cursor(
+        "private-agent-bus", cursor="agent-1", start="now", root=tmp_path,
+    )
+
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "cursors", "--cursor", "agent-1",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["recipients"] == ["private-agent-bus"]
+    assert result["positions"] == [{
+        "recipient": "private-agent-bus", "cursor": "agent-1", "offset": initialized["offset"],
+    }]
+
+
+def test_agent_add_and_del_commands_manage_agent_and_presence(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    config = tmp_path / "config"
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path / "mailbox"), "agent-add", "review-agent",
+        "--presence", "review-agent-codex", "--kind", "codex",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["agent_created"] is True
+    assert result["presence_created"] is True
+    assert result["agent"]["agent_id"] == "review-agent"
+    assert result["agent"]["presences"] == [{
+        "presence_id": "review-agent-codex", "kind": "codex",
+    }]
+    assert result["initial_buses"] == ["mailbox-server-presence-to-review-agent"]
+
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path / "mailbox"), "agent-del", "review-agent",
+        "--presence", "review-agent-codex",
+    ]) == 0
+    removed_presence = json.loads(capsys.readouterr().out)
+    assert removed_presence["presence_removed"] is True
+    assert removed_presence["agent_removed"] is False
+
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path / "mailbox"), "agent-del", "review-agent",
+    ]) == 0
+    removed_agent = json.loads(capsys.readouterr().out)
+    assert removed_agent["agent_removed"] is True
+
+
+def test_agent_add_dry_run_previews_without_writing(tmp_path: Path, monkeypatch, capsys) -> None:
+    config = tmp_path / "config"
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path / "mailbox"), "agent-add", "review-agent",
+        "--presence", "review-agent-codex", "--kind", "codex", "--dry-run",
+    ]) == 0
+
+    preview = json.loads(capsys.readouterr().out)
+    assert preview == {
+        "dry_run": True,
+        "agent_id": "review-agent",
+        "presence_id": "review-agent-codex",
+        "presence_kind": "codex",
+        "would_create_agent": True,
+        "would_create_presence": True,
+        "would_add_buses": ["mailbox-server-presence-to-review-agent"],
+        "initial_buses": ["mailbox-server-presence-to-review-agent"],
+    }
+    assert not (config / "relays.json").exists()
+    assert not (tmp_path / "mailbox" / "messages.jsonl").exists()
+
+
+def test_agents_listing_includes_read_only_cursor_metadata(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    config = tmp_path / "config"
+    mailbox = tmp_path / "mailbox"
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    agent_mailbox.main(["--dir", str(mailbox), "agent-add", "review-agent"])
+    capsys.readouterr()
+    agent_mailbox.initialize_cursor(
+        "mailbox-server-presence-to-review-agent", cursor="review-agent",
+        start="now", root=mailbox,
+    )
+
+    assert agent_mailbox.main(["--dir", str(mailbox), "agents"]) == 0
+
+    agent = json.loads(capsys.readouterr().out)["agents"][0]
+    assert agent["presence_bus"] == "mailbox-server-presence-to-review-agent"
+    assert agent["subscriptions"] == [{
+            "bus": "mailbox-server-presence-to-review-agent",
+            "cursor": "review-agent",
+            "offset": agent["subscriptions"][0]["offset"],
+    }]
+
+
+def test_agent_del_purge_dry_run_reports_without_deleting(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    config = tmp_path / "config"
+    mailbox = tmp_path / "mailbox"
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    agent_mailbox.main([
+        "--dir", str(mailbox), "agent-add", "review-agent",
+        "--presence", "review-agent-codex", "--kind", "codex",
+    ])
+    capsys.readouterr()
+    agent_mailbox.send("review-agent", "private direct message", root=mailbox)
+    agent_mailbox.initialize_cursor(
+        "mailbox-server-presence-to-review-agent", cursor="review-agent",
+        start="beginning", root=mailbox,
+    )
+    before_registry = (config / "relays.json").read_bytes()
+    before_messages = (mailbox / "messages.jsonl").read_bytes()
+
+    assert agent_mailbox.main([
+        "--dir", str(mailbox), "agent-del", "review-agent", "--purge", "--dry-run",
+    ]) == 0
+
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["dry_run"] is True
+    assert preview["would_remove_agent"] is True
+    assert preview["would_purge_buses"] == [
+        "mailbox-server-presence-to-review-agent", "review-agent", "review-agent-codex",
+    ]
+    assert preview["would_purge_records"] == 2
+    assert preview["would_purge_cursor_files"] == 1
+    assert (config / "relays.json").read_bytes() == before_registry
+    assert (mailbox / "messages.jsonl").read_bytes() == before_messages
+    assert agent_mailbox.cursor_subscriptions("review-agent", root=mailbox) == [
+        "mailbox-server-presence-to-review-agent"
+    ]
+
+
+def test_agent_del_purge_removes_private_history_but_keeps_global_audit(
+        tmp_path: Path, monkeypatch, capsys) -> None:
+    config = tmp_path / "config"
+    mailbox = tmp_path / "mailbox"
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    agent_mailbox.main(["--dir", str(mailbox), "agent-add", "review-agent"])
+    capsys.readouterr()
+    agent_mailbox.send("review-agent", "private direct message", root=mailbox)
+
+    assert agent_mailbox.main([
+        "--dir", str(mailbox), "agent-del", "review-agent", "--purge",
+    ]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["agent_removed"] is True
+    assert result["purged"] is True
+    assert result["purged_records"] == 2
+    records = [
+        json.loads(line) for line in (mailbox / "messages.jsonl").read_text().splitlines()
+    ]
+    assert not any(item["to"] in result["purged_buses"] for item in records)
+    assert any(
+        item["to"] == "mailbox-server-agent-to-agent-bus"
+        and item.get("audit_recipient") == "review-agent"
+        for item in records
+    )
+
+
+def test_cursor_can_start_at_caller_chosen_relative_history_boundary(tmp_path: Path) -> None:
+    old = agent_mailbox.send("bus-a", "six days old", root=tmp_path)
+    recent = agent_mailbox.send("bus-a", "recent", root=tmp_path)
+    records = [json.loads(line) for line in (tmp_path / "messages.jsonl").read_text().splitlines()]
+    records[0]["timestamp"] = (
+        datetime.now(timezone.utc) - timedelta(days=6)
+    ).isoformat().replace("+00:00", "Z")
+    (tmp_path / "messages.jsonl").write_text(
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8",
+    )
+    agent_mailbox.initialize_cursor("bus-a", cursor="agent-1", start="7d", root=tmp_path)
+    assert [item["id"] for item in agent_mailbox.receive(
+        "bus-a", root=tmp_path, cursor="agent-1",
+    )] == [old["id"], recent["id"]]
+
+
+def test_global_poll_reads_every_bus_initialized_for_agent(tmp_path: Path, capsys) -> None:
+    for bus in ("bus-a", "bus-b"):
+        agent_mailbox.initialize_cursor(bus, cursor="agent-1", start="now", root=tmp_path)
+        agent_mailbox.send(bus, f"from {bus}", root=tmp_path)
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "--as", "agent-1", "poll", "--subscriptions", "--checks", "1",
+    ]) == 0
+    output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {item["to"] for item in output} == {"bus-a", "bus-b"}
+
+
+def test_history_search_does_not_move_live_cursor(tmp_path: Path, capsys) -> None:
+    sent = agent_mailbox.send("bus-a", "retained", root=tmp_path)
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "history", "bus-a", "--since", "7d",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["id"] == sent["id"]
+    assert agent_mailbox.receive("bus-a", root=tmp_path, cursor="live") == [sent]
 
 
 def test_named_mailbox_resolves_relative_directory(tmp_path: Path) -> None:
@@ -331,6 +611,38 @@ def test_to_supplies_send_recipient_from_any_option_position(tmp_path, capsys) -
     for arguments in placements:
         assert agent_mailbox.main(arguments) == 0
         assert json.loads(capsys.readouterr().out)["to"] == "agent-beta"
+
+
+def test_positional_external_endpoint_routes_through_channel_relay(tmp_path, capsys) -> None:
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "send",
+        "mm/chat.singularitynet.io/channel-1", "hello",
+    ]) == 0
+
+    record = json.loads(capsys.readouterr().out)
+    assert record["to"] == "channel-relay"
+    assert record["text"] == "hello"
+    assert record["channel_type"] == "mattermost"
+    assert record["channel_id"] == "channel-1"
+    assert record["endpoint_address"] == "mm/chat.singularitynet.io/channel-1"
+
+
+def test_positional_and_to_external_endpoints_have_matching_routing(tmp_path, capsys) -> None:
+    endpoint = "mm/chat.singularitynet.io/channel-1"
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "send", endpoint, "positional",
+    ]) == 0
+    positional = json.loads(capsys.readouterr().out)
+
+    assert agent_mailbox.main([
+        "--dir", str(tmp_path), "--to", endpoint, "send", "global-to",
+    ]) == 0
+    global_to = json.loads(capsys.readouterr().out)
+
+    routing_fields = ("to", "channel_type", "channel_id", "endpoint_address")
+    assert {field: positional[field] for field in routing_fields} == {
+        field: global_to[field] for field in routing_fields
+    }
 
 
 def test_to_and_positional_recipient_are_mutually_exclusive(tmp_path) -> None:

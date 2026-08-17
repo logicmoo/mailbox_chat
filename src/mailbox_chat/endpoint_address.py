@@ -86,6 +86,7 @@ def endpoint_instance(adapter: str, listener: dict[str, Any]) -> str:
         "discord": listener.get("id"),
         "slack": listener.get("workspace_id") or listener.get("id"),
         "matrix": listener.get("homeserver"),
+        "mattermost": listener.get("base_url"),
         "irc": listener.get("server"),
         "telegram": listener.get("id"),
         "whatsapp": listener.get("phone_number_id"),

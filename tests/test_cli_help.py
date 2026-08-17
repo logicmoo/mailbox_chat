@@ -63,7 +63,8 @@ def test_agent_help_lists_every_global_option() -> None:
 def test_every_agent_command_has_comprehensive_help() -> None:
     expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
                 "subscribe", "unsubscribe", "subscriptions", "token", "route", "contacts",
-                "registry", "discover", "channels", *CHAT_COMMANDS}
+                "registry", "discover", "channels", "poll-many", "history", "cursor-init",
+                "poll-sources", "cursors", "agents", "agent-add", "agent-del", *CHAT_COMMANDS}
     commands = _agent_commands()
     assert set(commands) == expected
     for name, command_parser in commands.items():

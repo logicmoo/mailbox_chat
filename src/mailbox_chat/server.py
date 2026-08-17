@@ -41,6 +41,9 @@ from .identifier_directory import IdentifierDirectory
 from .meta_webhooks import verify_challenge, verify_signature
 from .route_admin import attach as attach_route, detach as detach_route
 from .subscriptions import set_subscription, subscriptions
+from .cmd_client_page import (
+    command_status, render_cmd_client_page, start_mailbox_client, stop_mailbox_client,
+)
 
 
 def runtime_paths(port: int, mailbox_root: Path | None = None) -> tuple[Path, Path, Path]:
@@ -227,6 +230,13 @@ def main(argv: list[str] | None = None) -> int:
             self.end_headers()
             self.wfile.write(body)
 
+        def _html(self, status: int, body: bytes) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path in {"/v1/webhooks/whatsapp", "/v1/webhooks/facebook-messenger"}:
@@ -273,6 +283,26 @@ def main(argv: list[str] | None = None) -> int:
                 return
             if not self._authorized():
                 return
+            if parsed.path in {"/cmd-client", "/cmd-client/"}:
+                arguments = parse_qs(parsed.query, keep_blank_values=True).get("args", [""])[0]
+                session = None
+                error = ""
+                if arguments.strip():
+                    try:
+                        session = start_mailbox_client(
+                            arguments,
+                            relay_url=str(relay.status["publicUrl"]),
+                            token=os.environ.get(TOKEN_ENV, ""),
+                        )
+                    except (OSError, RuntimeError, ValueError) as caught:
+                        error = str(caught)
+                self._html(200, render_cmd_client_page(arguments, session, error))
+                return
+            if parsed.path == "/cmd-client/output":
+                session_id = parse_qs(parsed.query).get("session", [""])[0]
+                status = command_status(session_id)
+                self._json(200, status) if status else self._json(404, {"error": "session not found"})
+                return
             if parsed.path == "/v1/chat/ws":
                 recipient = parse_qs(parsed.query).get("recipient", [""])[0].strip()
                 key = self.headers.get("Sec-WebSocket-Key", "").strip()
@@ -296,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
                     "project": "Mailbox Channel Relay Bridging Proxy",
                     "mailbox": agent_mailbox.status(),
                     "outboundRecipient": RELAY_RECIPIENT,
+                    "cmdClient": "/cmd-client/",
                     "supportedChannelTypes": SUPPORTED_CHANNEL_TYPES,
                     "plannedChannelTypes": PLANNED_CHANNEL_TYPES,
                     **relay.status,
@@ -355,6 +386,21 @@ def main(argv: list[str] | None = None) -> int:
                     self._json(400, {"error": "identity is required"})
                     return
                 self._json(200, {"identity": identity, "channels": subscriptions(identity)})
+                return
+            if parsed.path == "/v1/poll-sources":
+                from .subscriptions import available_buses
+                self._json(200, {"sources": available_buses()})
+                return
+            if parsed.path == "/v1/cursors":
+                cursor = parse_qs(parsed.query).get("cursor", [""])[0].strip()
+                if not cursor:
+                    self._json(400, {"error": "cursor is required"})
+                    return
+                self._json(200, {
+                    "cursor": cursor,
+                    "recipients": agent_mailbox.cursor_subscriptions(cursor),
+                    "positions": agent_mailbox.cursor_positions(cursor),
+                })
                 return
             if parsed.path == "/v1/identifiers":
                 query = parse_qs(parsed.query)
@@ -483,7 +529,11 @@ def main(argv: list[str] | None = None) -> int:
                 return
             if not self._authorized():
                 return
-            if request_path not in {"/v1/messages", "/v1/ack", "/v1/identifiers",
+            if request_path == "/cmd-client/stop":
+                session_id = parse_qs(urlparse(self.path).query).get("session", [""])[0]
+                self._json(200, {"stopped": stop_mailbox_client(session_id)})
+                return
+            if request_path not in {"/v1/messages", "/v1/ack", "/v1/cursors", "/v1/agents", "/v1/identifiers",
                                      "/v1/identifier-resolution-requests", "/v1/routes",
                                      "/v1/subscriptions", "/v1/channels", "/v1/irc/command",
                                      "/v1/mm/command"}:
@@ -591,6 +641,37 @@ def main(argv: list[str] | None = None) -> int:
                     self._json(200, {"acknowledged": agent_mailbox.acknowledge(
                         recipient, message_id, cursor=str(payload.get("cursor") or "") or None,
                     )})
+                    return
+                if request_path == "/v1/cursors":
+                    recipient = str(payload.get("recipient") or "").strip()
+                    cursor = str(payload.get("cursor") or "").strip()
+                    if not recipient or not cursor:
+                        raise ValueError("recipient and cursor are required")
+                    self._json(201, agent_mailbox.initialize_cursor(
+                        recipient, cursor=cursor, start=str(payload.get("start") or "now"),
+                    ))
+                    return
+                if request_path == "/v1/agents":
+                    from .listener_registry import register_agent, unregister_agent
+                    if str(payload.get("action") or "").lower() == "delete":
+                        result = unregister_agent(
+                            str(payload.get("agent_id") or ""),
+                            presence_id=str(payload.get("presence_id") or ""),
+                            purge=bool(payload.get("purge", False)),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        )
+                        self._json(200, result)
+                    else:
+                        result = register_agent(
+                            str(payload.get("agent_id") or ""),
+                            presence_id=str(payload.get("presence_id") or ""),
+                            kind=str(payload.get("kind") or "mailbox"),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        )
+                        created = bool(
+                            result.get("agent_created") or result.get("presence_created")
+                        )
+                        self._json(201 if created else 200, result)
                     return
                 recipient = str(payload.get("to") or "").strip()
                 if not recipient:
