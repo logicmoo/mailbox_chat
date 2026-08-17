@@ -341,6 +341,9 @@ shown by `mailbox-client --help`: `ping`, `list`, `names`, `join`, `part`,
 `topic`, `nick`, `whois`, `mode`, `invite`, `kick`, `message`, `notice`, and
 `raw`. Stateful commands run through the relay's active IRC connection. For
 example, use `mailbox-client join #testing` or `mailbox-client whois alice`.
+For Mattermost, `join mm/INSTANCE/CHANNEL --subscribe-all` both joins the bot
+account and subscribes every registered mailbox agent to the resulting stable
+channel resource ID.
 
 With no `--on` selector, `mailbox-client list` visits every enabled configured
 provider and groups the channel results by provider. An unavailable provider is

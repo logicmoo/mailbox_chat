@@ -543,12 +543,47 @@ def main(argv: list[str] | None = None) -> int:
                                      session=relay.session,
                                      base_url=relay.base_url,
                                      directory=identifiers)
+                    subscription_result = None
+                    arguments = dict(payload.get("arguments") or {})
+                    if (str(payload.get("command") or "") == "join"
+                            and bool(arguments.get("subscribe_all"))):
+                        from .adapters.mattermost_adapter import resolve_address
+                        from .connector_registry import load_agents
+                        from .endpoint_address import channel_resource_id, endpoint_instance
+                        from .subscriptions import ensure_channel, set_subscription
+
+                        address = resolve_address(
+                            str(arguments.get("channel") or ""), identifiers,
+                            base_url=relay.base_url,
+                        )
+                        channel_id = address.rsplit("/", 1)[-1]
+                        identity = relay._mattermost_channel_identity(channel_id)
+                        instance = endpoint_instance("mattermost", relay.connector)
+                        resource_id = channel_resource_id(
+                            "mattermost", instance, channel_id,
+                            scope=identity.get("workspace_name", ""),
+                        )
+                        ensure_channel(resource_id, metadata={
+                            "connector": relay.connector.get("id", ""),
+                            "endpoint": instance,
+                            "external_address": f"mm/{instance}/{channel_id}",
+                            **identity,
+                        })
+                        agent_ids = [agent["agent_id"] for agent in load_agents()]
+                        for agent_id in agent_ids:
+                            set_subscription(resource_id, agent_id, enabled=True)
+                        subscription_result = {
+                            "channel": resource_id,
+                            "subscribed_agents": agent_ids,
+                            "count": len(agent_ids),
+                        }
                     remember_named_ids(identifiers, relay.base_url, result)
                     registry_count_after = identifiers.entry_count()
                     self._json(200, {"result": result, "registry": {
                         "new_entries": registry_count_after - registry_count_before,
                         "total_entries": registry_count_after,
-                    }})
+                    }, **({"subscriptions": subscription_result}
+                          if subscription_result is not None else {})})
                     return
                 if request_path == "/v1/irc/command":
                     line = str(payload.get("line") or "").replace("\r", " ").replace("\n", " ").strip()

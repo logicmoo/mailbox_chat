@@ -394,7 +394,10 @@ def arguments_from_namespace(args: argparse.Namespace, loaded: object | None) ->
     if command == "threads":
         return {"team": args.team}
     if command in {"join", "part"}:
-        return {"channel": args.channel}
+        return {
+            "channel": args.channel,
+            **({"subscribe_all": True} if command == "join" and args.subscribe_all else {}),
+        }
     if command == "topic":
         return {"channel": args.channel, "text": loaded}
     if command == "nick":

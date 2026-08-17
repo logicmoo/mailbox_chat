@@ -166,7 +166,7 @@ def register_agent(
 
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
         temporary.replace(target)
 
     if agent_created or presence_created:
@@ -298,7 +298,7 @@ def unregister_agent(
             agent_removed, presence_removed = True, False
 
         temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
         temporary.replace(target)
 
     from . import agent_mailbox
@@ -408,7 +408,8 @@ def connectors_for(adapter: str, *, direction: str | None = None) -> list[dict[s
 def _write_registry(target: Path, payload: dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                         encoding="utf-8", newline="\n")
     os.replace(temporary, target)
 
 

@@ -81,6 +81,10 @@ def parser() -> argparse.ArgumentParser:
     join = commands.add_parser("join", help="join or create a channel")
     join.add_argument("channel", help="qualified channel address or IRC channel name")
     join.add_argument("key", nargs="?", help="optional channel key")
+    join.add_argument(
+        "--subscribe-all", action="store_true",
+        help="subscribe every registered agent to the joined channel (Mattermost)",
+    )
     part = commands.add_parser("part", help="leave a channel")
     part.add_argument("channel", help="qualified channel address or IRC channel name")
     part.add_argument("message", nargs="?", help="optional part message")
@@ -213,7 +217,13 @@ def main(argv: list[str] | None = None) -> int:
     if platform == "mm":
         result = post_mattermost_command(args.url, token, args.command,
                                          mattermost_arguments(args, loaded))
-        print(render(result.get("result", result), args.format))
+        displayed = result.get("result", result)
+        if isinstance(result, dict) and result.get("subscriptions") is not None:
+            displayed = {
+                "result": displayed,
+                "subscriptions": result["subscriptions"],
+            }
+        print(render(displayed, args.format))
         registry = result.get("registry") if isinstance(result, dict) else None
         if isinstance(registry, dict):
             count = int(registry.get("new_entries") or 0)

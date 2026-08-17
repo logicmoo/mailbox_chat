@@ -181,7 +181,7 @@ def ensure_channel(channel_id: str, *, path: Path | None = None,
         target.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent, text=True)
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
                 json.dump(payload, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
             os.replace(temporary, target)
@@ -213,7 +213,7 @@ def delete_channel(channel_id: str, *, force: bool = False,
         target.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent, text=True)
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
                 json.dump(payload, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
             os.replace(temporary, target)
@@ -247,7 +247,7 @@ def set_subscription(channel_id: str, identity: str, *, enabled: bool,
         target.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent, text=True)
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
                 json.dump(payload, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
             os.replace(temporary, target)

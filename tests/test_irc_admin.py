@@ -83,6 +83,30 @@ def test_mattermost_command_reports_new_registry_entries(monkeypatch, capsys) ->
     assert "[registry] 3 new entries found" in captured.err
 
 
+def test_join_subscribe_all_is_sent_to_mattermost_server(monkeypatch, capsys) -> None:
+    captured = {}
+
+    def post(_url, _token, command, arguments):
+        captured.update({"command": command, "arguments": arguments})
+        return {
+            "result": {"ok": True},
+            "subscriptions": {
+                "channel": "mm-chat-example-team-channel-id",
+                "subscribed_agents": ["one", "two"],
+                "count": 2,
+            },
+        }
+
+    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command", post)
+
+    assert main(["join", "mm/0/channel-id", "--subscribe-all"]) == 0
+    assert captured == {
+        "command": "join",
+        "arguments": {"channel": "mm/0/channel-id", "subscribe_all": True},
+    }
+    assert '"count": 2' in capsys.readouterr().out
+
+
 def test_bare_list_loops_through_configured_providers(monkeypatch, capsys) -> None:
     monkeypatch.setattr("mailbox_channels.chat_admin.load_connectors", lambda: [
         {"enabled": True, "adapter": "mattermost"},

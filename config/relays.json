@@ -98,6 +98,29 @@
       ],
       "kind": "channel",
       "aliases": []
+    },
+    {
+      "kind": "channel",
+      "id": "mm-chat-singularitynet-io-chat-81u5jjbjttng8fejorr11xns9h",
+      "subscribers": [
+        "console-default-agent",
+        "symbolic-workbench-codex",
+        "workbench-ui-codex-agent",
+        "symbolic-workbench-resources-codex",
+        "omegaclaw-core-codex"
+      ],
+      "metadata": {
+        "connector": "mattermost-primary",
+        "endpoint": "chat.singularitynet.io",
+        "external_address": "mm/chat.singularitynet.io/81u5jjbjttng8fejorr11xns9h",
+        "channel_name": "min-botnick-test",
+        "workspace_id": "smmrm413tfy8xfgzb33k91bpbr",
+        "workspace_name": "chat"
+      },
+      "aliases": [
+        "mm/chat.singularitynet.io/81u5jjbjttng8fejorr11xns9h",
+        "min-botnick-test"
+      ]
     }
   ],
   "connectors": [

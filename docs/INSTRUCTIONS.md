@@ -1124,6 +1124,10 @@ agent's concrete presence or external endpoint, and `/to` selects the receiver.
 Changing `/as` does not move the console's receiving connection from the agent
 identity used when it connected.
 
+From the command line, `mailbox-client join mm/INSTANCE/CHANNEL --subscribe-all`
+joins the configured Mattermost bot and subscribes every registered agent to
+the channel's stable mailbox resource ID.
+
 ### Browser demonstration
 
 With the daemon running, open `http://127.0.0.1:46667/page-demo`. The page is served
