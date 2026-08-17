@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import shlex
 import shutil
 import socket
@@ -398,6 +399,100 @@ def ensure_cursor(
             "offset": _read_cursor(cursor_path),
         }
     return initialize_cursor(recipient, cursor=cursor, start=start, root=target)
+
+
+def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = None,
+                  channels: set[str] | None = None,
+                  root: Path | None = None) -> dict[str, Any]:
+    """Trim all or selected channels by age/size while remapping durable cursors."""
+    if cutoff is None and max_bytes is None:
+        raise ValueError("trim requires cutoff or max_bytes")
+    if cutoff is not None and cutoff.tzinfo is None:
+        raise ValueError("trim cutoff must include a timezone")
+    if max_bytes is not None and max_bytes < 0:
+        raise ValueError("max_bytes must be non-negative")
+    target = root or mailbox_dir()
+    messages_path = target / "messages.jsonl"
+    if not messages_path.exists():
+        return {"removed_records": 0, "retained_records": 0, "backup": ""}
+    cutoff_utc = cutoff.astimezone(timezone.utc) if cutoff else None
+    selected_channels = {item.strip() for item in channels or set() if item.strip()}
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = messages_path.with_name(f"{messages_path.name}.pre-trim-{stamp}.bak")
+    temporary = messages_path.with_name(f".{messages_path.name}.{os.getpid()}.trim.tmp")
+    with _MESSAGE_WRITE_LOCK:
+        shutil.copy2(messages_path, backup_path)
+        lines = messages_path.read_bytes().splitlines(keepends=True)
+        parsed: list[tuple[dict[str, Any] | None, datetime | None]] = []
+        removed_indexes: set[int] = set()
+        for index, line in enumerate(lines):
+            try:
+                record = json.loads(line.decode("utf-8"))
+                timestamp = datetime.fromisoformat(
+                    str(record.get("timestamp") or "").replace("Z", "+00:00")
+                ).astimezone(timezone.utc)
+            except (AttributeError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+                record, timestamp = None, None
+            parsed.append((record, timestamp))
+            selected = bool(record) and (
+                not selected_channels or str(record.get("to") or "") in selected_channels
+            )
+            if selected and cutoff_utc and timestamp and timestamp < cutoff_utc:
+                removed_indexes.add(index)
+        if max_bytes is not None:
+            candidates = [
+                index for index, (record, _timestamp) in enumerate(parsed)
+                if index not in removed_indexes and record and (
+                    not selected_channels or str(record.get("to") or "") in selected_channels
+                )
+            ]
+            selected_bytes = sum(len(lines[index]) for index in candidates)
+            candidates.sort(key=lambda index: (parsed[index][1] or datetime.max.replace(
+                tzinfo=timezone.utc), index))
+            for index in candidates:
+                if selected_bytes <= max_bytes:
+                    break
+                removed_indexes.add(index)
+                selected_bytes -= len(lines[index])
+        cursor_offsets = {
+            path: _read_cursor(path) for path in (target / "cursors").glob("*.cursor")
+        } if (target / "cursors").is_dir() else {}
+        mapped: dict[Path, int] = {}
+        old_position = retained_bytes = removed = retained = 0
+        with temporary.open("wb") as destination:
+            for index, line in enumerate(lines):
+                line_start, line_end = old_position, old_position + len(line)
+                keep = index not in removed_indexes
+                for path, offset in cursor_offsets.items():
+                    if path in mapped or offset > line_end:
+                        continue
+                    mapped[path] = retained_bytes + (
+                        max(0, offset - line_start) if keep and offset > line_start else 0
+                    )
+                if keep:
+                    destination.write(line)
+                    retained_bytes += len(line)
+                    retained += 1
+                else:
+                    removed += 1
+                old_position = line_end
+        os.replace(temporary, messages_path)
+        for path, offset in cursor_offsets.items():
+            _write_cursor(path, mapped.get(path, retained_bytes))
+    return {
+        "cutoff": cutoff_utc.isoformat().replace("+00:00", "Z") if cutoff_utc else None,
+        "max_bytes": max_bytes,
+        "channels": sorted(selected_channels) if selected_channels else "all",
+        "removed_records": removed,
+        "retained_records": retained,
+        "retained_bytes": retained_bytes,
+        "backup": str(backup_path),
+    }
+
+
+def trim_messages_before(cutoff: datetime, *, root: Path | None = None) -> dict[str, Any]:
+    """Compatibility wrapper for trimming all channels before one timestamp."""
+    return trim_messages(cutoff=cutoff, root=root)
 
 
 def _safe_attachment_name(path: Path, used_names: set[str]) -> str:

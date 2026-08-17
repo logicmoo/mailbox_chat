@@ -245,6 +245,48 @@ def test_ensure_cursor_repairs_subscription_without_overwriting_position(tmp_pat
     assert agent_mailbox.cursor_subscriptions("agent-1", root=tmp_path) == ["channel"]
 
 
+def test_trim_messages_before_keeps_recent_records_and_remaps_cursors(tmp_path: Path) -> None:
+    old = {"id": "old", "timestamp": "2026-08-01T00:00:00Z", "from": "a",
+           "to": "channel", "type": "message", "text": "old"}
+    recent = {"id": "recent", "timestamp": "2026-08-18T00:00:00Z", "from": "a",
+              "to": "channel", "type": "message", "text": "recent"}
+    messages = tmp_path / "messages.jsonl"
+    records = [old, recent]
+    messages.parent.mkdir(parents=True, exist_ok=True)
+    messages.write_text(
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8",
+    )
+    agent_mailbox.initialize_cursor("channel", cursor="agent", start="beginning", root=tmp_path)
+
+    result = agent_mailbox.trim_messages_before(
+        datetime.fromisoformat("2026-08-16T00:00:00+00:00"), root=tmp_path,
+    )
+
+    assert result["removed_records"] == 1
+    assert result["retained_records"] == 1
+    assert Path(result["backup"]).exists()
+    assert agent_mailbox.receive("channel", cursor="agent", root=tmp_path) == [recent]
+
+
+def test_trim_messages_to_size_can_target_selected_channels(tmp_path: Path) -> None:
+    records = [
+        {"id": "a1", "timestamp": "2026-08-01T00:00:00Z", "to": "a"},
+        {"id": "b1", "timestamp": "2026-08-02T00:00:00Z", "to": "b"},
+        {"id": "a2", "timestamp": "2026-08-03T00:00:00Z", "to": "a"},
+    ]
+    path = tmp_path / "messages.jsonl"
+    path.write_text("".join(json.dumps(item) + "\n" for item in records), encoding="utf-8")
+    newest_a_size = len(path.read_bytes().splitlines(keepends=True)[2])
+
+    result = agent_mailbox.trim_messages(
+        max_bytes=newest_a_size, channels={"a"}, root=tmp_path,
+    )
+
+    retained = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert [item["id"] for item in retained] == ["b1", "a2"]
+    assert result["channels"] == ["a"]
+
+
 def test_cursor_listing_reports_every_initialized_channel_and_position(tmp_path: Path, capsys) -> None:
     agent_mailbox.send("private-agent", "before login", root=tmp_path)
     initialized = agent_mailbox.initialize_cursor(

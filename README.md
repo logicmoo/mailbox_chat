@@ -350,6 +350,14 @@ every agent, and initializes their cursors at the current mailbox end. A later
 `poll --subscriptions --as AGENT` dynamically includes those subscriptions and
 returns as soon as an ingested channel message arrives.
 
+Mailbox JSONL maintenance is exposed through authenticated server endpoints.
+Pause first with `POST /v1/maintenance/pause`, then use
+`POST /v1/maintenance/trim-before` with `before` or `older_than_seconds`, or
+`POST /v1/maintenance/trim-to-size` with `max_bytes`. Omit `channels` to trim
+the full mailbox, or pass a channel-ID array to trim only those channels.
+Every trim creates a timestamped backup and remaps durable cursor offsets.
+Finish with `POST /v1/maintenance/resume`.
+
 With no `--on` selector, `mailbox-client list` visits every enabled configured
 provider and groups the channel results by provider. An unavailable provider is
 reported in its own result instead of hiding successful results from the other

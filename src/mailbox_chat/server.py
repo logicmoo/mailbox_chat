@@ -74,8 +74,12 @@ def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep, verbose: int 
             if not configured:
                 relay.configure()
                 configured = True
-            if relay.status.get("enabled"):
-                relay.cycle()
+            if relay.status.get("enabled") and not relay.status.get("maintenancePaused"):
+                relay.status["cycleActive"] = True
+                try:
+                    relay.cycle()
+                finally:
+                    relay.status["cycleActive"] = False
             retry_delay = 1.0
             relay.status["supervisorError"] = None
             _safe_write_status(relay)
@@ -200,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
         "maxJsonlBytes": arguments.max_jsonl_mb * 1024 * 1024,
         "maxSqliteBytes": arguments.max_sqlite_mb * 1024 * 1024,
         "verboseLevel": arguments.verbose,
+        "maintenancePaused": False,
+        "cycleActive": False,
     })
 
     class HealthHandler(BaseHTTPRequestHandler):
@@ -281,6 +287,10 @@ def main(argv: list[str] | None = None) -> int:
                 self._file(RESOURCE_ROOT / "special_websocket_client.html", "text/html; charset=utf-8")
                 return
             if not self._authorized():
+                return
+            if (relay.status.get("maintenancePaused")
+                    and parsed.path not in {"/", "/health", "/v1/status"}):
+                self._json(423, {"error": "mailbox server is paused for maintenance"})
                 return
             if parsed.path in {"/cmd-client", "/cmd-client/"}:
                 arguments = parse_qs(parsed.query, keep_blank_values=True).get("args", [""])[0]
@@ -517,6 +527,65 @@ def main(argv: list[str] | None = None) -> int:
                 self._json(200, {"accepted": True})
                 return
             if not self._authorized():
+                return
+            if request_path == "/v1/maintenance/pause":
+                relay.status["maintenancePaused"] = True
+                deadline = time.monotonic() + 40
+                while relay.status.get("cycleActive") and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                if relay.status.get("cycleActive"):
+                    self._json(503, {"error": "relay cycle did not quiesce before timeout"})
+                    return
+                _safe_write_status(relay)
+                self._json(200, {"paused": True, "cycleActive": False})
+                return
+            if request_path == "/v1/maintenance/resume":
+                relay.status["maintenancePaused"] = False
+                _safe_write_status(relay)
+                self._json(200, {"paused": False})
+                return
+            if request_path in {
+                "/v1/maintenance/trim", "/v1/maintenance/trim-before",
+                "/v1/maintenance/trim-to-size",
+            }:
+                if not relay.status.get("maintenancePaused") or relay.status.get("cycleActive"):
+                    self._json(409, {"error": "pause and quiesce the server before trimming"})
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                    from datetime import datetime, timedelta, timezone
+                    cutoff = None
+                    max_bytes = None
+                    if request_path != "/v1/maintenance/trim-to-size" and payload.get("before"):
+                        cutoff = datetime.fromisoformat(
+                            str(payload["before"]).replace("Z", "+00:00")
+                        )
+                    elif request_path != "/v1/maintenance/trim-to-size" and (
+                        request_path == "/v1/maintenance/trim-before"
+                        or payload.get("older_than_seconds") is not None
+                    ):
+                        cutoff = datetime.now(timezone.utc) - timedelta(
+                            seconds=float(payload.get("older_than_seconds", 172800))
+                        )
+                    elif request_path == "/v1/maintenance/trim" and payload.get("max_bytes") is None:
+                        cutoff = datetime.now(timezone.utc) - timedelta(seconds=172800)
+                    if request_path == "/v1/maintenance/trim-to-size" or payload.get("max_bytes") is not None:
+                        max_bytes = int(payload.get("max_bytes"))
+                    channels = payload.get("channels") or []
+                    if not isinstance(channels, list):
+                        raise ValueError("channels must be an array; omit it to trim all channels")
+                    result = agent_mailbox.trim_messages(
+                        cutoff=cutoff, max_bytes=max_bytes,
+                        channels={str(item) for item in channels},
+                    )
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    self._json(400, {"error": str(error)})
+                    return
+                self._json(200, result)
+                return
+            if relay.status.get("maintenancePaused"):
+                self._json(423, {"error": "mailbox server is paused for maintenance"})
                 return
             if request_path == "/cmd-client/stop":
                 session_id = parse_qs(urlparse(self.path).query).get("session", [""])[0]
