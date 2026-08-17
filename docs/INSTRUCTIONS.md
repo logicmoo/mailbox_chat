@@ -9,6 +9,11 @@ output addresses are fields on relays, not destination resources. Presence
 data is optional nested session/account metadata and does not introduce
 another managed kind.
 
+Channel subscriptions use stable resource IDs rather than transport paths. A
+Mattermost example is
+`mm-chat-singularitynet-io-chat-c83yjesfejgbmdptwtjqgqis9h`. The channel's
+`aliases` retain its slashed external address and readable platform name.
+
 ## Table of contents
 
 - [Configuration and storage](#configuration-boundaries)

@@ -54,38 +54,50 @@
     {
       "id": "server_events",
       "subscribers": [],
-      "kind": "channel"
+      "kind": "channel",
+      "aliases": []
     },
     {
-      "id": "mm/chat.singularitynet.io/jmoduftrb3yjdnozzwst5ore1c",
+      "id": "mm-chat-singularitynet-io-chat-jmoduftrb3yjdnozzwst5ore1c",
       "subscribers": [],
       "metadata": {
         "connector": "mattermost-primary",
         "endpoint": "chat.singularitynet.io",
         "channel_name": "test",
         "workspace_id": "smmrm413tfy8xfgzb33k91bpbr",
-        "workspace_name": "chat"
+        "workspace_name": "chat",
+        "external_address": "mm/chat.singularitynet.io/jmoduftrb3yjdnozzwst5ore1c"
       },
-      "kind": "channel"
+      "kind": "channel",
+      "aliases": [
+        "mm/chat.singularitynet.io/jmoduftrb3yjdnozzwst5ore1c",
+        "test"
+      ]
     },
     {
-      "id": "mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h",
+      "id": "mm-chat-singularitynet-io-chat-c83yjesfejgbmdptwtjqgqis9h",
       "subscribers": [],
       "metadata": {
         "connector": "mattermost-primary",
         "endpoint": "chat.singularitynet.io",
         "channel_name": "image-perception-to-recognizable-memory-and-arc3",
         "workspace_id": "smmrm413tfy8xfgzb33k91bpbr",
-        "workspace_name": "chat"
+        "workspace_name": "chat",
+        "external_address": "mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h"
       },
-      "kind": "channel"
+      "kind": "channel",
+      "aliases": [
+        "mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h",
+        "image-perception-to-recognizable-memory-and-arc3"
+      ]
     },
     {
       "id": "agent_to_agent",
       "subscribers": [
         "symbolic-workbench-codex"
       ],
-      "kind": "channel"
+      "kind": "channel",
+      "aliases": []
     }
   ],
   "connectors": [

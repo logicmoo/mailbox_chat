@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from urllib.parse import quote, unquote
 from urllib.parse import urlsplit
 from typing import Any
@@ -28,6 +29,17 @@ ADAPTER_ALIASES.update({
     "whatsapp-business": "whatsapp",
     "whatsapp-personal": "whatsapp_personal",
 })
+RESOURCE_ID_PART = re.compile(r"[^a-zA-Z0-9_-]+")
+
+
+def channel_resource_id(adapter: str, instance: str, identifier: str, *, scope: str = "") -> str:
+    """Build a stable non-address channel resource ID."""
+    adapter_name = CANONICAL_TYPES.get(ADAPTER_ALIASES.get(adapter, adapter), adapter)
+    parts = [adapter_name, instance, scope, identifier]
+    return "-".join(
+        RESOURCE_ID_PART.sub("-", str(part).strip()).strip("-").lower()
+        for part in parts if str(part).strip()
+    )
 
 
 @dataclass(frozen=True)
@@ -105,6 +117,6 @@ def endpoint_instance(adapter: str, connector: dict[str, Any]) -> str:
 def subscription_recipients(adapter: str, connector: dict[str, Any], identifier: str) -> list[str]:
     from .subscriptions import subscribers
 
-    specific = EndpointAddress(adapter, endpoint_instance(adapter, connector), str(identifier)).canonical
-    default = EndpointAddress(adapter, "0", str(identifier)).canonical
-    return list(dict.fromkeys([*subscribers(specific), *subscribers(default)]))
+    return subscribers(channel_resource_id(
+        adapter, endpoint_instance(adapter, connector), str(identifier),
+    ))

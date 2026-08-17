@@ -20,7 +20,7 @@ from ..attachment_storage import write_bytes
 from ..connector_registry import config_dir, connectors_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..subscriptions import ensure_channel, subscribers
-from ..endpoint_address import EndpointAddress, endpoint_instance, parse_endpoint
+from ..endpoint_address import EndpointAddress, channel_resource_id, endpoint_instance, parse_endpoint
 from ..admin_io import load_input, normalize_options, render
 from ..identifier_directory import IdentifierDirectory
 from ..agent_mailbox import MATTERMOST_COMMANDS
@@ -116,16 +116,19 @@ class MattermostRelay:
             urlsplit(self.base_url).hostname or "mattermost").lower()
         address = EndpointAddress("mattermost", instance, channel_id).canonical
         identity = self._mattermost_channel_identity(channel_id)
-        ensure_channel(address, metadata={
+        resource_id = channel_resource_id(
+            "mattermost", instance, channel_id, scope=identity.get("workspace_name", ""),
+        )
+        ensure_channel(resource_id, metadata={
             "connector": self.connector.get("id", ""),
             "endpoint": instance,
+            "external_address": address,
             **identity,
         })
         return list(dict.fromkeys([
             *configured,
-            address,
-            *subscribers(address),
-            *subscribers(EndpointAddress("mattermost", "0", channel_id).canonical),
+            resource_id,
+            *subscribers(resource_id),
         ]))
 
     def _mattermost_channel_identity(self, channel_id: str) -> dict[str, str]:
@@ -176,8 +179,7 @@ class MattermostRelay:
         instance = endpoint_instance("mattermost", self.connector) if self.connector else (
             urlsplit(self.base_url).hostname or "mattermost").lower()
         direct_subscribers = (list(dict.fromkeys([
-            *subscribers(EndpointAddress("mattermost", instance, author_id).canonical),
-            *subscribers(EndpointAddress("mattermost", "0", author_id).canonical),
+            *subscribers(author_id),
         ])) if channel_id not in self._channels() else [])
         return list(dict.fromkeys([*self._inbound_recipients(channel_id), *direct_subscribers]))
 

@@ -19,7 +19,7 @@ _SUBSCRIPTION_LOCK = threading.Lock()
 
 
 def canonical_channel(value: str) -> str:
-    from .endpoint_address import parse_endpoint
+    from .endpoint_address import channel_resource_id, parse_endpoint
 
     value = value.strip()
     if "/" not in value:
@@ -29,7 +29,7 @@ def canonical_channel(value: str) -> str:
     address = parse_endpoint(value)
     if address is None:
         raise ValueError("channel must use TYPE/INSTANCE/IDENTIFIER addressing")
-    return address.canonical
+    return channel_resource_id(address.adapter, address.instance, address.identifier)
 
 
 def channels(path: Path | None = None) -> list[dict[str, Any]]:
@@ -43,8 +43,16 @@ def channels(path: Path | None = None) -> list[dict[str, Any]]:
         if not channel_id or channel_id in seen:
             raise ValueError("subscription addresses must be non-empty and unique")
         seen.add(channel_id)
+        metadata = dict(raw.get("metadata") or {})
+        aliases = list(dict.fromkeys(
+            str(value).strip() for value in [
+                *(raw.get("aliases") or []),
+                metadata.get("external_address"), metadata.get("channel_name"),
+            ] if str(value or "").strip()
+        ))
         result.append({
             **raw, "kind": "channel", "id": channel_id,
+            "aliases": aliases,
             "subscribers": list(dict.fromkeys(
                 str(item).strip() for item in raw.get("subscribers") or [] if str(item).strip()
             )),
@@ -66,19 +74,26 @@ def subscriptions(identity: str, path: Path | None = None) -> list[str]:
 
 def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
     """List subscribable channels with stable IDs and explicit kinds."""
-    def source_kind(channel_id: str) -> str:
+    from .connector_registry import load_agents, load_connectors
+
+    configured_connectors = load_connectors(path)
+    connector_adapters = {item["id"]: item["adapter"] for item in configured_connectors}
+
+    def source_kind(item: dict[str, Any]) -> str:
+        channel_id = item["id"]
         if channel_id == SERVER_EVENTS_CHANNEL:
             return "system"
         if channel_id in {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}:
             return "audit"
-        address = channel_id.split("/", 1)[0] if "/" in channel_id else "local"
-        return "mattermost" if address == "mm" else address
+        connector_id = str((item.get("metadata") or {}).get("connector") or "")
+        return str(connector_adapters.get(connector_id) or "local")
 
     result = [
         {
             "id": item["id"],
             "kind": "channel",
-            "channel_type": source_kind(item["id"]),
+            "channel_type": source_kind(item),
+            "aliases": list(item.get("aliases") or []),
             "subscribers": list(item["subscribers"]),
             "metadata": dict(item.get("metadata") or {}),
         }
@@ -86,9 +101,11 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
     ]
     seen = {item["id"] for item in result}
     for audit in [
-        {"id": SERVER_AGENT_TO_AGENT_CHANNEL, "kind": "channel", "channel_type": "audit", "subscribers": [],
+        {"id": SERVER_AGENT_TO_AGENT_CHANNEL, "kind": "channel", "channel_type": "audit",
+         "aliases": [], "subscribers": [],
          "metadata": {"scope": "direct_agent"}},
-        {"id": SERVER_AGENT_TO_CHANNEL_CHANNEL, "kind": "channel", "channel_type": "audit", "subscribers": [],
+        {"id": SERVER_AGENT_TO_CHANNEL_CHANNEL, "kind": "channel", "channel_type": "audit",
+         "aliases": [], "subscribers": [],
          "metadata": {"scope": "all_sends"}},
     ]:
         existing = next((item for item in result if item["id"] == audit["id"]), None)
@@ -97,8 +114,6 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
             seen.add(audit["id"])
         else:
             existing["metadata"] = {**existing["metadata"], **audit["metadata"]}
-    from .endpoint_address import EndpointAddress, endpoint_instance
-    from .connector_registry import load_agents, load_connectors
     for agent in load_agents(path):
         channel = str(agent["mailbox"])
         if channel not in seen:
@@ -106,26 +121,30 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
                 "id": channel,
                 "kind": "channel",
                 "channel_type": "agent_direct",
+                "aliases": [],
                 "subscribers": [],
                 "metadata": {"agent_id": agent["agent_id"]},
             })
             seen.add(channel)
-    for connector in load_connectors(path):
+    for connector in configured_connectors:
         if not connector.get("enabled") or connector.get("direction") not in {"inbound", "bidirectional"}:
             continue
         for identifier in connector.get("channel_ids") or []:
             if not identifier:
                 continue
-            channel = EndpointAddress(
-                str(connector["adapter"]), endpoint_instance(str(connector["adapter"]), connector),
+            from .endpoint_address import channel_resource_id, endpoint_instance
+            channel = channel_resource_id(
+                str(connector["adapter"]),
+                endpoint_instance(str(connector["adapter"]), connector),
                 str(identifier),
-            ).canonical
+            )
             if channel not in seen:
                 result.append({
                     "id": channel,
                     "kind": "channel",
                     "channel_type": ("mattermost" if connector["adapter"] == "mattermost"
                                      else connector["adapter"]),
+                    "aliases": [str(identifier)],
                     "subscribers": [],
                     "metadata": {"connector": connector["id"]},
                 })
@@ -134,7 +153,8 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
 
 
 def ensure_channel(channel_id: str, *, path: Path | None = None,
-                   metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+                   metadata: dict[str, Any] | None = None,
+                   aliases: list[str] | None = None) -> dict[str, Any]:
     """Create a qualified subscription address without requiring a subscriber."""
     channel_id = canonical_channel(channel_id)
     target = path or relays_file()
@@ -147,6 +167,17 @@ def ensure_channel(channel_id: str, *, path: Path | None = None,
             records.append(record)
         if metadata:
             record["metadata"] = {**dict(record.get("metadata") or {}), **metadata}
+            record["aliases"] = list(dict.fromkeys(
+                str(value).strip() for value in [
+                    *(record.get("aliases") or []),
+                    metadata.get("external_address"), metadata.get("channel_name"),
+                ] if str(value or "").strip()
+            ))
+        if aliases:
+            record["aliases"] = list(dict.fromkeys([
+                *(record.get("aliases") or []),
+                *(str(value).strip() for value in aliases if str(value).strip()),
+            ]))
         target.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent, text=True)
         try:

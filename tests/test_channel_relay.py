@@ -79,7 +79,7 @@ class NamedMattermostSession(Session):
         return super().get(url, **kwargs)
 
 
-def test_mattermost_channel_uses_canonical_address(tmp_path: Path, monkeypatch) -> None:
+def test_mattermost_channel_uses_resource_id_and_keeps_address_alias(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
     monkeypatch.setenv("MM_URL", "https://chat.singularitynet.io")
     monkeypatch.setenv("MM_BOT_TOKEN", "token")
@@ -93,7 +93,7 @@ def test_mattermost_channel_uses_canonical_address(tmp_path: Path, monkeypatch) 
 
     recipients = relay._inbound_recipients("channel")
 
-    assert "mm/chat.singularitynet.io/channel" in recipients
+    assert "mm-chat-singularitynet-io-opencog-channel" in recipients
 
 
 def test_mattermost_inbound_event_contains_workspace_identity(

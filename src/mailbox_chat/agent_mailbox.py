@@ -1172,6 +1172,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     channel_add.add_argument("channel_id", help="stable retained channel address")
     channel_add.add_argument("--metadata", default="{}", help="channel metadata JSON object")
+    channel_add.add_argument("--alias", action="append", default=[], dest="aliases",
+                             help="alternate channel address or display name; repeatable")
     channel_add.add_argument("--set", action="append", default=[], dest="metadata_values",
                              help="metadata as KEY=VALUE; repeatable and .cmd-safe")
     channel_del = commands.add_parser(
@@ -1766,7 +1768,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.metadata, args.metadata_values, "--metadata",
             )
             from .subscriptions import ensure_channel
-            result = ensure_channel(args.channel_id, metadata=metadata)
+            result = ensure_channel(args.channel_id, metadata=metadata, aliases=args.aliases)
         elif args.command == "channel-del":
             from .subscriptions import delete_channel
             result = delete_channel(args.channel_id, force=args.force)

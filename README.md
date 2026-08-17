@@ -12,6 +12,13 @@ values. Platform details belong in `adapter`; channel details belong in
 than a separate destination resource. A presence, when needed, is nested
 session/account metadata and is never a fifth managed kind.
 
+External channel resources use stable, non-address IDs. For example,
+`mm-chat-singularitynet-io-chat-c83yjesfejgbmdptwtjqgqis9h` identifies a
+Mattermost channel. Its `aliases` include the external address
+`mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h` and its readable
+channel name. Subscriptions and cursors always use the resource ID; slashed
+addresses are reserved for external send/relay targets.
+
 Python package/repository name: `mailbox_channels`.
 
 Mailbox Channel Relay Bridging Proxy is a standalone, transport-neutral daemon for

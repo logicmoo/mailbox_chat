@@ -20,11 +20,11 @@ def test_zero_instance_is_canonical_default_instance(monkeypatch) -> None:
     assert endpoint.canonical == "mm/0/channel-1"
     monkeypatch.setattr(
         "mailbox_channels.subscriptions.subscribers",
-        lambda address: ["default-agent"] if address == "mm/0/channel-1" else ["specific-agent"],
+        lambda address: ["specific-agent"] if address == "mm-chat-snt-channel-1" else [],
     )
     assert subscription_recipients(
         "mattermost", {"id": "primary", "instance": "chat.snt"}, "channel-1",
-    ) == ["specific-agent", "default-agent"]
+    ) == ["specific-agent"]
 
 
 def test_endpoint_descriptions_have_common_typed_properties() -> None:
@@ -61,7 +61,7 @@ def test_remote_from_subscribes_as_local_identity(tmp_path, monkeypatch, capsys)
         "--from", "mm/chat.snt/channel-1", "--checks", "1",
     ]) == 0
     capsys.readouterr()
-    assert subscriptions("symbolic-workbench-codex") == ["mm/chat.snt/channel-1"]
+    assert subscriptions("symbolic-workbench-codex") == ["mm-chat-snt-channel-1"]
 
 
 def test_remote_to_becomes_channel_relay_request(tmp_path, capsys) -> None:

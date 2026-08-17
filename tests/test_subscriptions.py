@@ -6,7 +6,7 @@ from mailbox_channels.subscriptions import (
 )
 
 
-def test_monitored_sources_use_canonical_channel_addresses(tmp_path, monkeypatch) -> None:
+def test_monitored_sources_use_resource_ids_not_transport_addresses(tmp_path, monkeypatch) -> None:
     config = tmp_path / "config"
     config.mkdir()
     (config / "relays.json").write_text(json.dumps({
@@ -22,11 +22,11 @@ def test_monitored_sources_use_canonical_channel_addresses(tmp_path, monkeypatch
     sources = available_sources()
     assert {item["id"] for item in sources} == {
         "server_events", "agent_to_agent",
-        "agent_to_channel", "mm/chat.singularitynet.io/channel-123",
+        "agent_to_channel", "mm-chat-singularitynet-io-channel-123",
     }
     assert {item["kind"] for item in sources} == {"channel"}
     assert {item["channel_type"] for item in sources} == {"system", "audit", "mattermost"}
-    assert all(set(item) == {"id", "kind", "channel_type", "subscribers", "metadata"}
+    assert all(set(item) == {"id", "kind", "channel_type", "aliases", "subscribers", "metadata"}
                for item in sources)
 
 
@@ -51,6 +51,7 @@ def test_local_audit_subscription_uses_one_canonical_channel(tmp_path, monkeypat
         "id": "agent_to_agent",
         "kind": "channel",
         "channel_type": "audit",
+        "aliases": [],
         "subscribers": ["worker"],
         "metadata": {"scope": "direct_agent"},
     }]
@@ -62,21 +63,23 @@ def test_available_sources_keep_channel_metadata_without_mapping(tmp_path, monke
     (config / "relays.json").write_text(json.dumps({
         "version": 1,
         "subscriptions": [{
-            "id": "mm/chat.singularitynet.io/opaque-id",
+            "id": "mm-chat-singularitynet-io-opaque-id",
             "subscribers": [],
-            "metadata": {"channel_name": "test"},
+            "metadata": {"channel_name": "test", "connector": "mattermost-primary"},
         }],
-        "connectors": [],
+        "connectors": [{"id": "mattermost-primary", "adapter": "mattermost"}],
     }), encoding="utf-8")
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
 
-    source = next(item for item in available_sources() if item["id"].endswith("/opaque-id"))
+    source = next(item for item in available_sources()
+                  if item["id"] == "mm-chat-singularitynet-io-opaque-id")
     assert source == {
-        "id": "mm/chat.singularitynet.io/opaque-id",
+        "id": "mm-chat-singularitynet-io-opaque-id",
         "kind": "channel",
         "channel_type": "mattermost",
+        "aliases": ["test"],
         "subscribers": [],
-        "metadata": {"channel_name": "test"},
+        "metadata": {"channel_name": "test", "connector": "mattermost-primary"},
     }
 
 
@@ -95,6 +98,7 @@ def test_registered_agents_are_exposed_as_direct_channels(tmp_path, monkeypatch)
         "id": "workspace-codex-agent",
         "kind": "channel",
         "channel_type": "agent_direct",
+        "aliases": [],
         "subscribers": [],
         "metadata": {"agent_id": "workspace-codex-agent"},
     }
@@ -142,7 +146,7 @@ def test_mailbox_client_lists_every_subscribed_mailbox(tmp_path, monkeypatch, ca
 
     assert agent_mailbox.main(["subscriptions", "--all"]) == 0
     assert json.loads(capsys.readouterr().out) == {"mailboxes": [
-        {"identity": "agent-one", "channels": ["server_events", "mm/0/channel-one"]},
+        {"identity": "agent-one", "channels": ["server_events", "mm-0-channel-one"]},
         {"identity": "agent-two", "channels": ["server_events"]},
     ]}
 
@@ -162,5 +166,5 @@ def test_poll_can_idempotently_ensure_all_declared_subscriptions(tmp_path, monke
     assert agent_mailbox.main(arguments) == 0
     capsys.readouterr()
     assert subscriptions("symbolic-workbench-codex") == [
-        "server_events", "mm/0/3423423434234", "mm/0/2342444444444",
+        "server_events", "mm-0-3423423434234", "mm-0-2342444444444",
     ]
