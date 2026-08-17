@@ -1174,6 +1174,10 @@ def build_parser() -> argparse.ArgumentParser:
     channel_add.add_argument("--metadata", default="{}", help="channel metadata JSON object")
     channel_add.add_argument("--alias", action="append", default=[], dest="aliases",
                              help="alternate channel address or display name; repeatable")
+    channel_add.add_argument(
+        "--subscribe-all", action="store_true",
+        help="subscribe every registered agent to this channel",
+    )
     channel_add.add_argument("--set", action="append", default=[], dest="metadata_values",
                              help="metadata as KEY=VALUE; repeatable and .cmd-safe")
     channel_del = commands.add_parser(
@@ -1767,8 +1771,19 @@ def main(argv: list[str] | None = None) -> int:
             metadata = _json_object_with_assignments(
                 args.metadata, args.metadata_values, "--metadata",
             )
-            from .subscriptions import ensure_channel
-            result = ensure_channel(args.channel_id, metadata=metadata, aliases=args.aliases)
+            from .subscriptions import ensure_channel, set_subscription
+            channel = ensure_channel(args.channel_id, metadata=metadata, aliases=args.aliases)
+            result = channel
+            if args.subscribe_all:
+                from .connector_registry import load_agents
+                agent_ids = [agent["agent_id"] for agent in load_agents()]
+                for agent_id in agent_ids:
+                    set_subscription(channel["id"], agent_id, enabled=True)
+                result = {
+                    "channel": channel,
+                    "subscribed_agents": agent_ids,
+                    "count": len(agent_ids),
+                }
         elif args.command == "channel-del":
             from .subscriptions import delete_channel
             result = delete_channel(args.channel_id, force=args.force)

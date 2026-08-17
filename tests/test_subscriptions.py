@@ -2,7 +2,7 @@ import json
 
 from mailbox_channels import agent_mailbox
 from mailbox_channels.subscriptions import (
-    available_sources, set_subscription, subscribers, subscriptions,
+    available_sources, ensure_channel, set_subscription, subscribers, subscriptions,
 )
 
 
@@ -133,6 +133,34 @@ def test_mailbox_client_manages_local_channel_subscription(tmp_path, monkeypatch
     assert json.loads(capsys.readouterr().out)["channels"] == ["server_events"]
     assert agent_mailbox.main(["unsubscribe", "server_events", "--to", "omegaclaw-min"]) == 0
     assert json.loads(capsys.readouterr().out)["subscribed"] is False
+
+
+def test_channel_add_subscribe_all_resolves_alias_and_subscribes_agents(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    address = "mm/chat.example/channel-one"
+    stable_id = "mm-chat-example-team-channel-one"
+    (config / "relays.json").write_text(json.dumps({
+        "version": 1,
+        "agents": [
+            {"agent_id": "agent-one", "presences": []},
+            {"agent_id": "agent-two", "presences": []},
+        ],
+        "connectors": [],
+        "subscriptions": [{
+            "kind": "channel", "id": stable_id, "aliases": [address], "subscribers": [],
+        }],
+    }), encoding="utf-8")
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+
+    assert agent_mailbox.main(["channel-add", "mm/0/channel-one", "--subscribe-all"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["channel"]["id"] == stable_id
+    assert output["subscribed_agents"] == ["agent-one", "agent-two"]
+    assert subscribers(stable_id) == ["agent-one", "agent-two"]
+    assert ensure_channel(address)["id"] == stable_id
 
 
 def test_mailbox_client_lists_every_subscribed_mailbox(tmp_path, monkeypatch, capsys) -> None:

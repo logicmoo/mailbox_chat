@@ -18,7 +18,7 @@ SERVER_AGENT_TO_CHANNEL_CHANNEL = "agent_to_channel"
 _SUBSCRIPTION_LOCK = threading.Lock()
 
 
-def canonical_channel(value: str) -> str:
+def canonical_channel(value: str, path: Path | None = None) -> str:
     from .endpoint_address import channel_resource_id, parse_endpoint
 
     value = value.strip()
@@ -29,6 +29,36 @@ def canonical_channel(value: str) -> str:
     address = parse_endpoint(value)
     if address is None:
         raise ValueError("channel must use TYPE/INSTANCE/IDENTIFIER addressing")
+    target = path or relays_file()
+    if target.exists():
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        equivalent_ids: list[str] = []
+        for record in payload.get("subscriptions") or []:
+            aliases = [
+                *(record.get("aliases") or []),
+                (record.get("metadata") or {}).get("external_address"),
+            ]
+            if value in aliases:
+                configured_id = str(record.get("id") or "").strip()
+                if configured_id:
+                    return configured_id
+            for alias in aliases:
+                try:
+                    alias_address = parse_endpoint(str(alias or ""))
+                except ValueError:
+                    alias_address = None
+                if (alias_address and alias_address.adapter == address.adapter
+                        and alias_address.identifier == address.identifier
+                        and (alias_address.instance == address.instance
+                             or address.instance.isdigit())):
+                    configured_id = str(record.get("id") or "").strip()
+                    if configured_id:
+                        equivalent_ids.append(configured_id)
+        equivalent_ids = list(dict.fromkeys(equivalent_ids))
+        if len(equivalent_ids) == 1:
+            return equivalent_ids[0]
+        if len(equivalent_ids) > 1:
+            raise ValueError(f"channel alias is ambiguous: {value}")
     return channel_resource_id(address.adapter, address.instance, address.identifier)
 
 
@@ -63,7 +93,8 @@ def channels(path: Path | None = None) -> list[dict[str, Any]]:
 
 
 def subscribers(channel_id: str, path: Path | None = None) -> list[str]:
-    channel_id = canonical_channel(channel_id)
+    target = path or relays_file()
+    channel_id = canonical_channel(channel_id, target)
     match = next((item for item in channels(path) if item["id"] == channel_id), None)
     return list(match["subscribers"]) if match else []
 
@@ -156,8 +187,8 @@ def ensure_channel(channel_id: str, *, path: Path | None = None,
                    metadata: dict[str, Any] | None = None,
                    aliases: list[str] | None = None) -> dict[str, Any]:
     """Create a qualified subscription address without requiring a subscriber."""
-    channel_id = canonical_channel(channel_id)
     target = path or relays_file()
+    channel_id = canonical_channel(channel_id, target)
     with _SUBSCRIPTION_LOCK:
         payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
         records = payload.setdefault("subscriptions", [])
@@ -194,12 +225,12 @@ def ensure_channel(channel_id: str, *, path: Path | None = None,
 def delete_channel(channel_id: str, *, force: bool = False,
                    path: Path | None = None) -> dict[str, Any]:
     """Delete a configured channel, protecting subscribers unless forced."""
-    channel_id = canonical_channel(channel_id)
+    target = path or relays_file()
+    channel_id = canonical_channel(channel_id, target)
     if channel_id in {
         SERVER_EVENTS_CHANNEL, SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL,
     }:
         raise ValueError(f"built-in channel cannot be deleted: {channel_id}")
-    target = path or relays_file()
     with _SUBSCRIPTION_LOCK:
         payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
         records = payload.setdefault("subscriptions", [])
@@ -225,10 +256,10 @@ def delete_channel(channel_id: str, *, force: bool = False,
 
 def set_subscription(channel_id: str, identity: str, *, enabled: bool,
                      path: Path | None = None) -> dict[str, Any]:
-    channel_id, identity = canonical_channel(channel_id), identity.strip()
+    target = path or relays_file()
+    channel_id, identity = canonical_channel(channel_id, target), identity.strip()
     if not channel_id or not identity:
         raise ValueError("channel and identity are required")
-    target = path or relays_file()
     with _SUBSCRIPTION_LOCK:
         payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
         records = payload.setdefault("subscriptions", [])

@@ -344,6 +344,8 @@ example, use `mailbox-client join #testing` or `mailbox-client whois alice`.
 For Mattermost, `join mm/INSTANCE/CHANNEL --subscribe-all` both joins the bot
 account and subscribes every registered mailbox agent to the resulting stable
 channel resource ID.
+For an already-known retained channel, `channel-add ADDRESS --subscribe-all`
+performs the subscription step without contacting or joining through the bot.
 
 With no `--on` selector, `mailbox-client list` visits every enabled configured
 provider and groups the channel results by provider. An unavailable provider is
