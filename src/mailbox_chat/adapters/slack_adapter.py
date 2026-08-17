@@ -14,8 +14,7 @@ import requests
 from ..attachment_storage import write_bytes
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..endpoint_address import subscription_recipients
-from ..listener_registry import listeners_for
-from ..channel_routes import dispatch_routes
+from ..connector_registry import connectors_for
 
 
 SLACK_API = "https://slack.com/api"
@@ -24,7 +23,7 @@ SLACK_API = "https://slack.com/api"
 class SlackAdapter:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
-        self.listeners: list[dict[str, Any]] = []
+        self.connectors: list[dict[str, Any]] = []
         self.bot_user_ids: dict[str, str] = {}
         self.latest_ts: dict[tuple[str, str], str] = {}
         self.status: dict[str, Any] = {
@@ -32,14 +31,14 @@ class SlackAdapter:
         }
 
     @staticmethod
-    def _token(listener: dict[str, Any]) -> str:
-        name = str(listener.get("token_env") or "SLACK_BOT_TOKEN")
+    def _token(connector: dict[str, Any]) -> str:
+        name = str(connector.get("token_env") or "SLACK_BOT_TOKEN")
         return os.environ.get(name, "").strip()
 
-    def _headers(self, listener: dict[str, Any]) -> dict[str, str]:
-        token = self._token(listener)
+    def _headers(self, connector: dict[str, Any]) -> dict[str, str]:
+        token = self._token(connector)
         if not token:
-            raise ValueError(f"Slack listener {listener['id']} is missing {listener.get('token_env') or 'SLACK_BOT_TOKEN'}")
+            raise ValueError(f"Slack connector {connector['id']} is missing {connector.get('token_env') or 'SLACK_BOT_TOKEN'}")
         return {"Authorization": f"Bearer {token}"}
 
     @staticmethod
@@ -51,31 +50,31 @@ class SlackAdapter:
         return payload
 
     def configure(self) -> bool:
-        self.listeners = listeners_for("slack")
-        missing = [item["id"] for item in self.listeners if not self._token(item)]
+        self.connectors = connectors_for("slack")
+        missing = [item["id"] for item in self.connectors if not self._token(item)]
         self.status.update({
-            "enabled": bool(self.listeners) and not missing,
+            "enabled": bool(self.connectors) and not missing,
             "connected": False,
             "channels": list(dict.fromkeys(
-                channel for item in self.listeners for channel in item.get("channel_ids", [])
+                channel for item in self.connectors for channel in item.get("channel_ids", [])
             )),
             "lastError": f"Missing Slack tokens for: {', '.join(missing)}" if missing else None,
         })
         return bool(self.status["enabled"])
 
     def connect(self) -> None:
-        for listener in self.listeners:
+        for connector in self.connectors:
             auth = self._payload(self.session.post(
-                f"{SLACK_API}/auth.test", headers=self._headers(listener), timeout=15,
+                f"{SLACK_API}/auth.test", headers=self._headers(connector), timeout=15,
             ))
-            self.bot_user_ids[listener["id"]] = str(auth.get("user_id") or "")
-            for channel_id in listener.get("channel_ids", []):
+            self.bot_user_ids[connector["id"]] = str(auth.get("user_id") or "")
+            for channel_id in connector.get("channel_ids", []):
                 history = self._payload(self.session.get(
-                    f"{SLACK_API}/conversations.history", headers=self._headers(listener),
+                    f"{SLACK_API}/conversations.history", headers=self._headers(connector),
                     params={"channel": channel_id, "limit": 1}, timeout=15,
                 ))
                 messages = history.get("messages") or []
-                self.latest_ts[(listener["id"], channel_id)] = str(messages[0]["ts"]) if messages else "0"
+                self.latest_ts[(connector["id"], channel_id)] = str(messages[0]["ts"]) if messages else "0"
         self.status.update({"connected": True, "lastError": None})
 
     def close(self) -> None:
@@ -88,44 +87,44 @@ class SlackAdapter:
             return
         if not self.status["connected"]:
             self.connect()
-        for listener in self.listeners:
-            if listener["direction"] not in {"inbound", "bidirectional"}:
+        for connector in self.connectors:
+            if connector["direction"] not in {"inbound", "bidirectional"}:
                 continue
-            for channel_id in listener.get("channel_ids", []):
-                self._poll_channel(mailbox, listener, channel_id)
+            for channel_id in connector.get("channel_ids", []):
+                self._poll_channel(mailbox, connector, channel_id)
         self.status.update({"connected": True, "lastError": None, "lastCycleAt": time.time()})
 
-    def _poll_channel(self, mailbox: Any, listener: dict[str, Any], channel_id: str) -> None:
+    def _poll_channel(self, mailbox: Any, connector: dict[str, Any], channel_id: str) -> None:
         payload = self._payload(self.session.get(
-            f"{SLACK_API}/conversations.history", headers=self._headers(listener),
-            params={"channel": channel_id, "oldest": self.latest_ts.get((listener["id"], channel_id), "0"),
+            f"{SLACK_API}/conversations.history", headers=self._headers(connector),
+            params={"channel": channel_id, "oldest": self.latest_ts.get((connector["id"], channel_id), "0"),
                     "inclusive": "false", "limit": 100}, timeout=15,
         ))
         for message in reversed(payload.get("messages") or []):
             source_id = str(message.get("ts") or "")
             if not source_id:
                 continue
-            self.latest_ts[(listener["id"], channel_id)] = max(
-                source_id, self.latest_ts.get((listener["id"], channel_id), "0"), key=float,
+            self.latest_ts[(connector["id"], channel_id)] = max(
+                source_id, self.latest_ts.get((connector["id"], channel_id), "0"), key=float,
             )
-            if message.get("user") == self.bot_user_ids.get(listener["id"]) or message.get("subtype") == "bot_message":
+            if message.get("user") == self.bot_user_ids.get(connector["id"]) or message.get("subtype") == "bot_message":
                 continue
-            attachments = self._download_files(mailbox, listener, source_id, message.get("files") or [])
+            attachments = self._download_files(mailbox, connector, source_id, message.get("files") or [])
             origin = with_origin(
                 {"author": str(message.get("user") or message.get("username") or ""),
                  "attachments": attachments},
-                adapter="slack", listener_id=listener["id"], source_id=source_id,
-                channel_id=channel_id, presence_id=str(listener.get("presence_id") or ""),
+                adapter="slack", connector_id=connector["id"], source_id=source_id,
+                channel_id=channel_id, presence_id=str(connector.get("presence_id") or ""),
             )
             if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-                "slack", listener_id=listener["id"], channel_id=channel_id,
-                presence_id=str(listener.get("presence_id") or ""),
+                "slack", connector_id=connector["id"], channel_id=channel_id,
+                presence_id=str(connector.get("presence_id") or ""),
             )):
                 continue
             recipients = list(dict.fromkeys([
-                *([listener["bridge_agent"]] if listener.get("bridge_agent") else []),
-                *listener.get("mailbox_recipients", []),
-                *subscription_recipients("slack", listener, channel_id),
+                *([connector["bridge_agent"]] if connector.get("bridge_agent") else []),
+                *connector.get("mailbox_recipients", []),
+                *subscription_recipients("slack", connector, channel_id),
             ]))
             for recipient in recipients:
                 mailbox.send(
@@ -135,12 +134,8 @@ class SlackAdapter:
                     source_id=source_id, thread_id=str(message.get("thread_ts") or "") or None,
                     extra_fields=origin,
                 )
-            dispatch_routes(mailbox, listener_id=listener["id"], channel_id=channel_id,
-                            message={**origin, "text": str(message.get("text") or ""),
-                                     "source_id": source_id,
-                                     "thread_id": str(message.get("thread_ts") or "") or None})
 
-    def _download_files(self, mailbox: Any, listener: dict[str, Any], source_id: str,
+    def _download_files(self, mailbox: Any, connector: dict[str, Any], source_id: str,
                         files: list[dict[str, Any]]) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
         for item in files:
@@ -148,7 +143,7 @@ class SlackAdapter:
             if not url:
                 continue
             name = Path(str(item.get("name") or item.get("id") or "attachment")).name
-            response = self.session.get(url, headers=self._headers(listener), timeout=60)
+            response = self.session.get(url, headers=self._headers(connector), timeout=60)
             response.raise_for_status()
             target_dir = mailbox.mailbox_dir() / "attachments" / source_id.replace(".", "-")
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -163,18 +158,18 @@ class SlackAdapter:
             })
         return records
 
-    def _listener_for(self, message: dict[str, Any]) -> dict[str, Any]:
-        listener_id = str(message.get("listener_id") or "")
-        listener = next((item for item in self.listeners if item["id"] == listener_id), None)
-        if listener is None:
-            eligible = [item for item in self.listeners if item["direction"] in {"outbound", "bidirectional"}]
-            listener = eligible[0] if len(eligible) == 1 else None
-        if listener is None:
-            raise ValueError("Slack outbound message requires an unambiguous listener_id")
-        return listener
+    def _connector_for(self, message: dict[str, Any]) -> dict[str, Any]:
+        connector_id = str(message.get("connector_id") or "")
+        connector = next((item for item in self.connectors if item["id"] == connector_id), None)
+        if connector is None:
+            eligible = [item for item in self.connectors if item["direction"] in {"outbound", "bidirectional"}]
+            connector = eligible[0] if len(eligible) == 1 else None
+        if connector is None:
+            raise ValueError("Slack outbound message requires an unambiguous connector_id")
+        return connector
 
     def send_message(self, message: dict[str, Any]) -> None:
-        listener = self._listener_for(message)
+        connector = self._connector_for(message)
         channel_id = str(message.get("channel_id") or "").strip()
         if not channel_id:
             raise ValueError("Slack outbound message requires channel_id")
@@ -185,16 +180,16 @@ class SlackAdapter:
             if thread_ts:
                 payload["thread_ts"] = thread_ts
             self._payload(self.session.post(
-                f"{SLACK_API}/chat.postMessage", headers=self._headers(listener), json=payload, timeout=15,
+                f"{SLACK_API}/chat.postMessage", headers=self._headers(connector), json=payload, timeout=15,
             ))
         for record in message.get("attachments") or []:
-            self._upload_file(listener, channel_id, thread_ts, record)
+            self._upload_file(connector, channel_id, thread_ts, record)
 
-    def _upload_file(self, listener: dict[str, Any], channel_id: str, thread_ts: str,
+    def _upload_file(self, connector: dict[str, Any], channel_id: str, thread_ts: str,
                      record: dict[str, Any]) -> None:
         path = Path(str(record.get("path") or "")).expanduser().resolve(strict=True)
         allocation = self._payload(self.session.get(
-            f"{SLACK_API}/files.getUploadURLExternal", headers=self._headers(listener),
+            f"{SLACK_API}/files.getUploadURLExternal", headers=self._headers(connector),
             params={"filename": path.name, "length": path.stat().st_size}, timeout=15,
         ))
         with path.open("rb") as stream:
@@ -206,6 +201,6 @@ class SlackAdapter:
         if thread_ts:
             complete["thread_ts"] = thread_ts
         self._payload(self.session.post(
-            f"{SLACK_API}/files.completeUploadExternal", headers=self._headers(listener),
+            f"{SLACK_API}/files.completeUploadExternal", headers=self._headers(connector),
             json=complete, timeout=15,
         ))

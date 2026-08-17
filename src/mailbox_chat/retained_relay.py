@@ -1,4 +1,4 @@
-"""Cursor-driven pumps from retained mailbox buses to external endpoints."""
+"""Cursor-driven pumps from retained channels to external endpoints."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 
 from . import agent_mailbox
 from .endpoint_address import parse_endpoint
-from .listener_registry import relays_file
+from .connector_registry import relays_file
 
 
 SAFE_ID = re.compile(r"[^a-zA-Z0-9_.-]+")
@@ -20,7 +20,7 @@ _RELAY_WRITE_LOCK = Lock()
 
 
 def load_relays(path: Path | None = None) -> list[dict[str, Any]]:
-    """Load cursor relays without conflating them with legacy listener routes."""
+    """Load cursor relays without conflating them with legacy connector routes."""
     target = path or relays_file()
     if not target.exists():
         return []
@@ -34,14 +34,14 @@ def load_relays(path: Path | None = None) -> list[dict[str, Any]]:
         if not isinstance(raw, dict):
             raise ValueError(f"relays[{index}] must be an object")
         relay_id = str(raw.get("id") or "").strip()
-        source_bus = str(raw.get("source_bus") or "").strip()
+        source_channel = str(raw.get("source_channel") or "").strip()
         cursor = str(raw.get("cursor") or "").strip()
         destination = str(raw.get("destination") or "").strip()
         if not relay_id or relay_id in seen:
             raise ValueError(f"relays[{index}].id must be non-empty and unique")
-        if not source_bus or not cursor or not destination:
+        if not source_channel or not cursor or not destination:
             raise ValueError(
-                f"relays[{index}] requires source_bus, cursor, and destination"
+                f"relays[{index}] requires source_channel, cursor, and destination"
             )
         endpoint = parse_endpoint(destination)
         if endpoint is None or endpoint.adapter == "local":
@@ -50,8 +50,9 @@ def load_relays(path: Path | None = None) -> list[dict[str, Any]]:
         result.append({
             **raw,
             "id": relay_id,
+            "kind": "relay",
             "enabled": bool(raw.get("enabled", True)),
-            "source_bus": source_bus,
+            "source_channel": source_channel,
             "cursor": cursor,
             "destination": endpoint.canonical,
         })
@@ -60,8 +61,8 @@ def load_relays(path: Path | None = None) -> list[dict[str, Any]]:
 
 def _document(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return {"version": 1, "agents": [], "subscriptions": [], "listeners": [],
-                "routes": [], "relays": []}
+        return {"version": 1, "agents": [], "subscriptions": [], "connectors": [],
+                "relays": []}
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("version") != 1:
         raise ValueError(f"{path.name} must contain version 1")
@@ -79,7 +80,7 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
 
 
 def add_relay(
-    source_bus: str,
+    source_channel: str,
     destination: str,
     *,
     relay_id: str = "",
@@ -89,16 +90,16 @@ def add_relay(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Register a relay and initialize its source cursor exactly once."""
-    source_bus = source_bus.strip()
+    source_channel = source_channel.strip()
     endpoint = parse_endpoint(destination)
-    if not source_bus:
-        raise ValueError("source bus is required")
-    if source_bus == "channel-relay":
-        raise ValueError("channel-relay cannot pump itself")
+    if not source_channel:
+        raise ValueError("source channel is required")
+    if source_channel == "outbound_delivery":
+        raise ValueError("outbound_delivery cannot pump itself")
     if endpoint is None or endpoint.adapter == "local":
         raise ValueError("destination must be an external TYPE/INSTANCE/IDENTIFIER endpoint")
     clean_id = SAFE_ID.sub("-", relay_id.strip()) if relay_id else SAFE_ID.sub(
-        "-", f"relay-{source_bus}-{endpoint.adapter}-{uuid.uuid4().hex[:8]}"
+        "-", f"relay-{source_channel}-{endpoint.adapter}-{uuid.uuid4().hex[:8]}"
     )
     clean_id = clean_id.strip("-")
     if not clean_id:
@@ -106,8 +107,9 @@ def add_relay(
     cursor = f"mailbox-relay:{clean_id}"
     record = {
         "id": clean_id,
+        "kind": "relay",
         "enabled": True,
-        "source_bus": source_bus,
+        "source_channel": source_channel,
         "cursor": cursor,
         "destination": endpoint.canonical,
         "created_by": "mailbox-client relay",
@@ -123,7 +125,7 @@ def add_relay(
         _write(target, payload)
         try:
             cursor_state = agent_mailbox.initialize_cursor(
-                source_bus, cursor=cursor, start=start, root=mailbox_root,
+                source_channel, cursor=cursor, start=start, root=mailbox_root,
             )
         except Exception:
             payload["relays"] = [
@@ -132,7 +134,7 @@ def add_relay(
             _write(target, payload)
             raise
     return {**record, "subscription": {
-        "bus": source_bus, "cursor": cursor, "offset": cursor_state["offset"],
+        "channel": source_channel, "cursor": cursor, "offset": cursor_state["offset"],
     }}
 
 
@@ -164,7 +166,7 @@ def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
     if endpoint is None:
         raise ValueError(f"relay {relay['id']} has an invalid destination")
     records = agent_mailbox.peek(
-        str(relay["source_bus"]), root=mailbox_root, cursor=str(relay["cursor"]),
+        str(relay["source_channel"]), root=mailbox_root, cursor=str(relay["cursor"]),
     )
     if limit is not None:
         records = records[:max(0, limit)]
@@ -173,9 +175,9 @@ def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
     for message in records:
         try:
             agent_mailbox.send(
-                "channel-relay", str(message.get("text") or ""),
-                sender=f"bus-relay:{relay['id']}",
-                message_type="bus_relay_delivery",
+                "outbound_delivery", str(message.get("text") or ""),
+                sender="mailbox-server",
+                message_type="channel_relay_delivery",
                 channel_type=endpoint.adapter,
                 channel_id=endpoint.identifier,
                 thread_id=str(message.get("thread_id") or "") or None,
@@ -183,7 +185,7 @@ def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
                 extra_fields={
                     "endpoint_address": endpoint.canonical,
                     "relay_id": relay["id"],
-                    "relay_source_bus": relay["source_bus"],
+                    "relay_source_channel": relay["source_channel"],
                     "origin_id": message.get("origin_id") or message.get("id"),
                     "source_message_id": message.get("id"),
                     **({"attachments": message["attachments"]} if message.get("attachments") else {}),
@@ -191,7 +193,7 @@ def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
                 root=mailbox_root,
             )
             if not agent_mailbox.acknowledge(
-                str(relay["source_bus"]), str(message["id"]), root=mailbox_root,
+                str(relay["source_channel"]), str(message["id"]), root=mailbox_root,
                 cursor=str(relay["cursor"]),
             ):
                 raise RuntimeError(f"could not advance relay cursor through {message['id']}")
@@ -200,7 +202,7 @@ def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
             error = str(caught)
             break
     return {
-        "id": relay["id"], "source_bus": relay["source_bus"],
+        "id": relay["id"], "source_channel": relay["source_channel"],
         "destination": endpoint.canonical, "delivered": delivered,
         "pending": max(0, len(records) - delivered), "error": error,
     }

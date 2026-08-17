@@ -76,35 +76,35 @@ def parse_endpoint(value: str) -> EndpointAddress | None:
     return EndpointAddress(adapter, instance.lower(), unquote(identifier))
 
 
-def endpoint_instance(adapter: str, listener: dict[str, Any]) -> str:
+def endpoint_instance(adapter: str, connector: dict[str, Any]) -> str:
     """Derive a stable configured instance name, preferring an explicit value."""
-    explicit = str(listener.get("instance") or "").strip()
+    explicit = str(connector.get("instance") or "").strip()
     if explicit:
         return explicit.lower()
     candidates = {
         "local": "0",
-        "discord": listener.get("id"),
-        "slack": listener.get("workspace_id") or listener.get("id"),
-        "matrix": listener.get("homeserver"),
-        "mattermost": listener.get("base_url"),
-        "irc": listener.get("server"),
-        "telegram": listener.get("id"),
-        "whatsapp": listener.get("phone_number_id"),
-        "whatsapp_personal": listener.get("id") or "local",
-        "facebook_messenger": listener.get("page_id"),
-        "viber": listener.get("id"),
-        "line": listener.get("id"),
-        "discourse": listener.get("base_url"),
+        "discord": connector.get("id"),
+        "slack": connector.get("workspace_id") or connector.get("id"),
+        "matrix": connector.get("homeserver"),
+        "mattermost": connector.get("base_url"),
+        "irc": connector.get("server"),
+        "telegram": connector.get("id"),
+        "whatsapp": connector.get("phone_number_id"),
+        "whatsapp_personal": connector.get("id") or "local",
+        "facebook_messenger": connector.get("page_id"),
+        "viber": connector.get("id"),
+        "line": connector.get("id"),
+        "discourse": connector.get("base_url"),
     }
-    value = str(candidates.get(adapter) or listener.get("id") or adapter).strip()
+    value = str(candidates.get(adapter) or connector.get("id") or adapter).strip()
     if "://" in value:
         value = urlsplit(value).hostname or value
     return value.lower()
 
 
-def subscription_recipients(adapter: str, listener: dict[str, Any], identifier: str) -> list[str]:
+def subscription_recipients(adapter: str, connector: dict[str, Any], identifier: str) -> list[str]:
     from .subscriptions import subscribers
 
-    specific = EndpointAddress(adapter, endpoint_instance(adapter, listener), str(identifier)).canonical
+    specific = EndpointAddress(adapter, endpoint_instance(adapter, connector), str(identifier)).canonical
     default = EndpointAddress(adapter, "0", str(identifier)).canonical
     return list(dict.fromkeys([*subscribers(specific), *subscribers(default)]))

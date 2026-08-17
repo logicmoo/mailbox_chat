@@ -103,5 +103,5 @@ def render_cmd_client_page(arguments: str = "", session: CommandSession | None =
 <pre id="output" aria-live="polite">{html.escape(command)}</pre><script>
 const session={json.dumps(session_id)},output=document.querySelector('#output'),state=document.querySelector('#state'),stop=document.querySelector('#stop');
 async function refresh(){{if(!session)return;const response=await fetch('/cmd-client/output?session='+encodeURIComponent(session));const data=await response.json();output.textContent={json.dumps(command)}+data.output;state.textContent=data.running?'running':'exit: '+data.returncode;stop.disabled=!data.running;if(data.running)setTimeout(refresh,300)}}
-stop.addEventListener('click',async()=>{{await fetch('/cmd-client/stop?session='+encodeURIComponent(session),{{method:'POST'}});refresh()}});refresh();
+stop.addEventConnector('click',async()=>{{await fetch('/cmd-client/stop?session='+encodeURIComponent(session),{{method:'POST'}});refresh()}});refresh();
 </script></body></html>""".encode("utf-8")

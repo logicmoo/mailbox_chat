@@ -43,8 +43,7 @@ except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
         shutil.copyfile(source, destination)
 
 
-DEFAULT_SENDER = "local-agent"
-PEERS = ("omegaclaw-core", "omegaclaw-min", "channel-relay")
+DEFAULT_SENDER = "console-default-agent"
 MAILBOX_ENV = "AGENT_MAILBOX_DIR"
 MAILBOX_URL_ENV = "AGENT_MAILBOX_URL"
 MAILBOX_TOKEN_ENV = "AGENT_MAILBOX_TOKEN"
@@ -56,9 +55,9 @@ REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
 MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
 DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
-SERVER_AGENT_TO_AGENT_BUS = "mailbox-server-agent-to-agent-bus"
-SERVER_AGENT_TO_CHANNEL_BUS = "mailbox-server-agent-to-channel-bus"
-SERVER_AUDIT_BUSES = {SERVER_AGENT_TO_AGENT_BUS, SERVER_AGENT_TO_CHANNEL_BUS}
+SERVER_AGENT_TO_AGENT_CHANNEL = "agent_to_agent"
+SERVER_AGENT_TO_CHANNEL_CHANNEL = "agent_to_channel"
+SERVER_AUDIT_CHANNELS = {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}
 IRC_COMMANDS = ("ping", "list", "names", "join", "part", "topic", "nick", "whois",
                 "mode", "invite", "kick", "message", "notice", "raw")
 MATTERMOST_COMMANDS = ("ping", "teams", "list", "names", "threads", "join", "part",
@@ -97,7 +96,6 @@ COMMAND_POSITIONALS = {
     "poll-many": ("recipients",),
     "history": ("recipients",),
     "cursor-init": ("recipients",),
-    "poll-sources": (),
     "cursors": (),
     "agents": (),
     "agent-add": ("agent_id",),
@@ -150,7 +148,7 @@ def cursor_subscriptions(cursor: str, *, root: Path | None = None) -> list[str]:
 
 
 def cursor_positions(cursor: str, *, root: Path | None = None) -> list[dict[str, Any]]:
-    """List every retained bus initialized for a cursor and its byte position."""
+    """List every retained channel initialized for a cursor and its byte position."""
     target = root or mailbox_dir()
     return [
         {
@@ -181,7 +179,7 @@ def purge_agent_data(
     agent_id: str,
     *,
     presence_ids: set[str],
-    presence_bus: str,
+    agent_mailbox: str,
     remove_agent: bool,
     dry_run: bool = False,
     root: Path | None = None,
@@ -190,7 +188,7 @@ def purge_agent_data(
     target = root or mailbox_dir()
     private_recipients = set(presence_ids)
     if remove_agent:
-        private_recipients.update({agent_id, presence_bus})
+        private_recipients.update({agent_id, agent_mailbox})
     messages_path = target / "messages.jsonl"
     removed_records = 0
     retained_bytes = 0
@@ -202,7 +200,7 @@ def purge_agent_data(
                 str(record.get("to") or "") in private_recipients
                 or (
                     not remove_agent
-                    and str(record.get("to") or "") == presence_bus
+                    and str(record.get("to") or "") == agent_mailbox
                     and str(record.get("audit_recipient") or "") in presence_ids
                 )
             )
@@ -237,7 +235,7 @@ def purge_agent_data(
         return {
             "purged": False,
             "dry_run": True,
-            "would_purge_buses": sorted(private_recipients),
+            "would_purge_channels": sorted(private_recipients),
             "would_purge_records": removed_records,
             "would_purge_cursor_files": len([path for path in cursor_candidates if path.exists()]),
         }
@@ -316,7 +314,7 @@ def purge_agent_data(
 
     return {
         "purged": True,
-        "purged_buses": sorted(private_recipients),
+        "purged_channels": sorted(private_recipients),
         "purged_records": removed_records,
         "purged_cursor_files": len(existing_cursor_files),
     }
@@ -477,15 +475,15 @@ def send(
     if copied_attachments:
         record["attachments"] = copied_attachments
     records = [record]
-    if recipient not in SERVER_AUDIT_BUSES:
-        audit_recipients = [SERVER_AGENT_TO_CHANNEL_BUS]
+    if recipient not in SERVER_AUDIT_CHANNELS:
+        audit_recipients = [SERVER_AGENT_TO_CHANNEL_CHANNEL]
         resolved_agent_id = ""
         addressed_presence_id = ""
         try:
             try:
-                from .listener_registry import agent_presence_bus, load_agents
+                from .connector_registry import agent_mailbox_address, load_agents
             except ImportError:
-                from mailbox_channels.listener_registry import agent_presence_bus, load_agents
+                from mailbox_channels.connector_registry import agent_mailbox_address, load_agents
             agents = load_agents()
             if recipient in {item["agent_id"] for item in agents}:
                 resolved_agent_id = recipient
@@ -497,10 +495,9 @@ def send(
                 ), "")
                 addressed_presence_id = recipient if resolved_agent_id else ""
             if resolved_agent_id:
-                audit_recipients.extend([
-                    SERVER_AGENT_TO_AGENT_BUS,
-                    agent_presence_bus(resolved_agent_id),
-                ])
+                audit_recipients.append(SERVER_AGENT_TO_AGENT_CHANNEL)
+                if addressed_presence_id:
+                    audit_recipients.append(agent_mailbox_address(resolved_agent_id))
         except (ImportError, OSError, ValueError, json.JSONDecodeError):
             pass
         for audit_recipient in audit_recipients:
@@ -648,12 +645,56 @@ def poll(
 def status(*, root: Path | None = None) -> dict[str, Any]:
     target = root or mailbox_dir()
     path = target / "messages.jsonl"
+    agents: list[dict[str, Any]] = []
+    connectors: list[dict[str, Any]] = []
+    channels: list[dict[str, Any]] = []
+    relays: list[dict[str, Any]] = []
+    try:
+        from .retained_relay import load_relays
+        from .connector_registry import load_agents, load_connectors
+        from .subscriptions import available_sources
+
+        agents = [
+            {
+                **agent,
+                "cursor": agent["agent_id"],
+                "subscriptions": [
+                    {
+                        "channel": position["recipient"],
+                        "cursor": position["cursor"],
+                        "offset": position["offset"],
+                    }
+                    for position in cursor_positions(agent["agent_id"], root=target)
+                ],
+            }
+            for agent in load_agents()
+        ]
+        configured_connectors = [item for item in load_connectors() if item["enabled"]]
+        connectors = []
+        for connector in configured_connectors:
+            connectors.append({
+                "id": connector["id"],
+                "kind": "connector",
+                "adapter": connector["adapter"],
+                "instance": str(connector.get("instance") or ""),
+                "can_listen": connector["direction"] in {"inbound", "bidirectional"},
+                "can_send": connector["direction"] in {"outbound", "bidirectional"},
+                "channel_ids": connector["channel_ids"],
+            })
+        channels = available_sources()
+        relays = [item for item in load_relays() if item["enabled"]]
+    except ImportError:
+        # A downloaded /agent_mailbox.py can run without the server package.
+        pass
     return {
         "directory": str(target),
         "messages_file": str(path),
         "size_bytes": path.stat().st_size if path.exists() else 0,
         "default_sender": DEFAULT_SENDER,
-        "peers": list(PEERS),
+        "agents": agents,
+        "connectors": connectors,
+        "channels": channels,
+        "relays": relays,
     }
 
 
@@ -722,11 +763,11 @@ def initialize_cursor_rest(recipient: str, *, cursor: str, start: str = "now",
     }, base_url=base_url))
 
 
-def register_agent_rest(agent_id: str, *, presence_id: str = "", kind: str = "mailbox",
+def register_agent_rest(agent_id: str, *, presence_id: str = "",
                         dry_run: bool = False,
                         base_url: str | None = None) -> dict[str, Any]:
     return dict(_rest_request("POST", "/v1/agents", {
-        "agent_id": agent_id, "presence_id": presence_id, "kind": kind,
+        "agent_id": agent_id, "presence_id": presence_id,
         "dry_run": dry_run,
     }, base_url=base_url))
 
@@ -814,8 +855,8 @@ def _render_text_record(item: dict[str, Any]) -> str:
         f"adapter={item.get('adapter') or context.get('adapter') or item.get('channel_type', '')}",
         f"state={item.get('connection_state', '')}",
     ]
-    if context.get("listener_ids"):
-        details.append(f"listeners={','.join(map(str, context['listener_ids']))}")
+    if context.get("connector_ids"):
+        details.append(f"connectors={','.join(map(str, context['connector_ids']))}")
     if context.get("channel_ids"):
         details.append(f"channels={','.join(map(str, context['channel_ids']))}")
     if diagnostic:
@@ -881,7 +922,7 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
         url = f"{base}/v1/agents"
         method = "POST"
         payload = {
-            "agent_id": args.agent_id, "presence_id": args.presence_id, "kind": args.kind,
+            "agent_id": args.agent_id, "presence_id": args.presence_id,
             "dry_run": args.dry_run,
         }
     elif args.command == "agent-del":
@@ -1008,15 +1049,15 @@ def build_parser() -> argparse.ArgumentParser:
     poll_parser.add_argument("--require-port", action="append", default=[], type=int,
                              help="fail when this local TCP port stops listening; repeatable")
     poll_parser.add_argument("--subscriptions", action="store_true", dest="poll_subscriptions",
-                             help="poll every bus initialized for this cursor/agent identity")
+                             help="poll every channel initialized for this cursor/agent identity")
     _add_read_options(poll_parser, waiting=False)
     poll_many_parser = commands.add_parser(
-        "poll-many", help="poll several mailbox buses in one command",
+        "poll-many", help="poll several retained channels in one command",
         description="Poll multiple recipients using one independently saved cursor name.",
-        epilog=("Example: mailbox-client poll-many snet-mm-channel-a-bus "
-                "snet-mm-channel-b-bus --cursor workbench-codex"),
+        epilog=("Example: mailbox-client poll-many mm/example.test/channel-a "
+                "mm/example.test/channel-b --cursor workbench-codex"),
     )
-    poll_many_parser.add_argument("recipients", nargs="+", help="mailbox bus identities to poll")
+    poll_many_parser.add_argument("recipients", nargs="+", help="channel addresses to poll")
     poll_many_parser.add_argument("--interval", type=float, default=30.0,
                                   help="seconds between checks (default: 30)")
     poll_many_parser.add_argument("--checks", type=int, default=10,
@@ -1025,12 +1066,12 @@ def build_parser() -> argparse.ArgumentParser:
                                   help="fail when this local TCP port stops listening; repeatable")
     _add_read_options(poll_many_parser, waiting=False)
     history_parser = commands.add_parser(
-        "history", help="search retained history across mailbox buses",
+        "history", help="search retained history across channels",
         description="Read retained records independently of every live cursor.",
-        epilog=("Example: mailbox-client history snet-mm-channel-a-bus "
-                "snet-mm-channel-b-bus --since 7d"),
+        epilog=("Example: mailbox-client history mm/example.test/channel-a "
+                "mm/example.test/channel-b --since 7d"),
     )
-    history_parser.add_argument("recipients", nargs="+", help="mailbox bus identities to search")
+    history_parser.add_argument("recipients", nargs="+", help="channel addresses to search")
     history_parser.add_argument("--since", help="records after a timestamp, message ID, or duration such as 7d")
     history_parser.add_argument("--until", help="records through a timestamp or relative duration")
     history_parser.add_argument("--limit", type=int, help="maximum merged records to return")
@@ -1039,22 +1080,16 @@ def build_parser() -> argparse.ArgumentParser:
     cursor_parser = commands.add_parser(
         "cursor-init", help="set a new cursor's initial history position",
         description="Create a cursor once at the beginning, now, a timestamp, or a relative time.",
-        epilog=("Example: mailbox-client cursor-init snet-mm-channel-a-bus "
-                "snet-mm-channel-b-bus --cursor workbench-codex --start now"),
+        epilog=("Example: mailbox-client cursor-init mm/example.test/channel-a "
+                "mm/example.test/channel-b --cursor workbench-codex --start now"),
     )
-    cursor_parser.add_argument("recipients", nargs="+", help="mailbox bus identities sharing this cursor name")
+    cursor_parser.add_argument("recipients", nargs="+", help="channel addresses sharing this cursor name")
     cursor_parser.add_argument("--cursor", required=True, help="new independent cursor name")
     cursor_parser.add_argument("--start", default="now",
                                help="beginning, now, UTC timestamp, or relative duration such as 7d")
-    commands.add_parser(
-        "poll-sources", help="list conversations retained as pollable buses",
-        description=("List every cursor-capable retained bus, including channel, server, "
-                     "audit, and per-agent presence buses."),
-        epilog="Example: mailbox-client --url http://127.0.0.1:46667 poll-sources",
-    )
     cursors_parser = commands.add_parser(
-        "cursors", help="list the buses and positions initialized for one cursor",
-        description="List every retained bus already initialized for one cursor or agent identity.",
+        "cursors", help="list channels and positions initialized for one cursor",
+        description="List every retained channel initialized for one cursor or agent identity.",
         epilog=("Example: mailbox-client --url http://127.0.0.1:46667 "
                 "cursors --cursor symbolic-workbench-codex"),
     )
@@ -1069,18 +1104,14 @@ def build_parser() -> argparse.ArgumentParser:
         description=("Create a stable messageable agent identity and optionally attach one "
                      "globally unique presence."),
         epilog=("Example: mailbox-client --url http://127.0.0.1:46667 agent-add "
-                "review-agent --presence review-agent-codex --kind codex"),
+                "review-agent --presence review-agent-app"),
     )
     agent_add_parser.add_argument("agent_id", help="stable agent identity to create or extend")
     agent_add_parser.add_argument("--presence", dest="presence_id",
                                   help="globally unique presence identity to attach")
     agent_add_parser.add_argument(
-        "--kind", choices=("mailbox", "console", "codex", "platform"), default="mailbox",
-        help="presence kind when --presence is supplied (default: mailbox)",
-    )
-    agent_add_parser.add_argument(
         "--dry-run", action="store_true",
-        help="show the agent, presence, and initial buses that would be added",
+        help="show the agent, presence, and initial channels that would be added",
     )
     agent_del_parser = commands.add_parser(
         "agent-del", help="remove an agent or one of its presences",
@@ -1094,12 +1125,86 @@ def build_parser() -> argparse.ArgumentParser:
                                   help="remove only this presence instead of the whole agent")
     agent_del_parser.add_argument(
         "--purge", action="store_true",
-        help="also erase private bus records and cursor state (history is retained by default)",
+        help="also erase private channel records and cursor state (history is retained by default)",
     )
     agent_del_parser.add_argument(
         "--dry-run", action="store_true",
         help="preview --purge without deleting the agent, records, or cursor state",
     )
+    commands.add_parser(
+        "connectors", help="list configured external-system connectors",
+        description="List connectors and their inbound/outbound capabilities.",
+        epilog="Example: mailbox-client connectors",
+    )
+    connector_add = commands.add_parser(
+        "connector-add", help="register an external-system connector",
+        description="Register one connector with optional adapter-specific settings.",
+        epilog="Example: mailbox-client connector-add mm-primary mattermost --instance chat.example",
+    )
+    connector_add.add_argument("connector_id", help="stable connector identity")
+    connector_add.add_argument("kind", help="adapter kind, such as mattermost, discord, or irc")
+    connector_add.add_argument("--direction", choices=["inbound", "outbound", "bidirectional"],
+                               default="bidirectional", help="connector traffic capability")
+    connector_add.add_argument("--instance", default="", help="external server or account instance")
+    connector_add.add_argument("--channel", action="append", default=[], dest="channel_ids",
+                               help="monitored channel identifier; repeatable")
+    connector_add.add_argument("--config", default="{}", help="adapter-specific JSON object")
+    connector_add.add_argument("--set", action="append", default=[], dest="config_values",
+                               help="adapter setting as KEY=VALUE; repeatable and .cmd-safe")
+    connector_add.add_argument("--dry-run", action="store_true", help="validate without saving")
+    connector_del = commands.add_parser(
+        "connector-del", help="delete an external-system connector",
+        description="Delete one connector from the canonical registry.",
+        epilog="Example: mailbox-client connector-del mm-primary",
+    )
+    connector_del.add_argument("connector_id", help="connector identity to delete")
+    connector_del.add_argument("--dry-run", action="store_true", help="preview without deleting")
+
+    commands.add_parser(
+        "channels", help="list configured and discovered retained channels",
+        description="List every retained channel available to agents and relays.",
+        epilog="Example: mailbox-client channels",
+    )
+    channel_add = commands.add_parser(
+        "channel-add", help="register a retained channel",
+        description="Add one retained channel with optional metadata.",
+        epilog="Example: mailbox-client channel-add team_updates --set title=Updates",
+    )
+    channel_add.add_argument("channel_id", help="stable retained channel address")
+    channel_add.add_argument("--metadata", default="{}", help="channel metadata JSON object")
+    channel_add.add_argument("--set", action="append", default=[], dest="metadata_values",
+                             help="metadata as KEY=VALUE; repeatable and .cmd-safe")
+    channel_del = commands.add_parser(
+        "channel-del", help="delete a configured retained channel",
+        description="Delete one configured channel while protecting active subscribers.",
+        epilog="Example: mailbox-client channel-del team_updates",
+    )
+    channel_del.add_argument("channel_id", help="configured channel address to delete")
+    channel_del.add_argument("--force", action="store_true",
+                             help="remove the channel even when it has subscribers")
+
+    commands.add_parser(
+        "relays", help="list cursor-driven channel relays",
+        description="List cursor-driven relays from retained channels to external destinations.",
+        epilog="Example: mailbox-client relays",
+    )
+    relay_add = commands.add_parser(
+        "relay-add", help="register a cursor-driven channel relay",
+        description="Add a relay with its own durable source-channel cursor.",
+        epilog="Example: mailbox-client relay-add team_updates mm/chat.example/channel-id",
+    )
+    relay_add.add_argument("source_channel", help="retained channel consumed by the relay")
+    relay_add.add_argument("destination", help="external TYPE/INSTANCE/IDENTIFIER address")
+    relay_add.add_argument("--id", dest="relay_id", default="", help="stable relay identity")
+    relay_add.add_argument("--start", default="now", help="initial cursor position")
+    relay_add.add_argument("--dry-run", action="store_true", help="validate without saving")
+    relay_del = commands.add_parser(
+        "relay-del", help="delete a relay and retain its cursor",
+        description="Delete a relay configuration without erasing its cursor history.",
+        epilog="Example: mailbox-client relay-del updates-to-mm",
+    )
+    relay_del.add_argument("relay_id", help="relay identity to delete")
+    relay_del.add_argument("--dry-run", action="store_true", help="preview without deleting")
     follow_parser = commands.add_parser(
         "follow", help="continuously stream incoming messages",
         description="Continuously read new messages, advancing the selected cursor as they arrive.",
@@ -1131,13 +1236,13 @@ def build_parser() -> argparse.ArgumentParser:
     subscribe_parser = commands.add_parser(
         "subscribe", help="subscribe an identity to a qualified conversation address",
         description="Durably subscribe one mailbox identity to a TYPE/INSTANCE/IDENTIFIER address.",
-        epilog="Example: mailbox-client subscribe local/0/server_events --to symbolic-workbench-codex",
+        epilog="Example: mailbox-client subscribe server_events --to symbolic-workbench-codex",
     )
     subscribe_parser.add_argument("channel", help="TYPE/INSTANCE/IDENTIFIER conversation address")
     unsubscribe_parser = commands.add_parser(
         "unsubscribe", help="remove an identity from a conversation address",
         description="Remove one mailbox identity's durable conversation subscription.",
-        epilog="Example: mailbox-client unsubscribe local/0/server_events --to symbolic-workbench-codex",
+        epilog="Example: mailbox-client unsubscribe server_events --to symbolic-workbench-codex",
     )
     unsubscribe_parser.add_argument("channel", help="TYPE/INSTANCE/IDENTIFIER conversation address")
     subscriptions_parser = commands.add_parser(
@@ -1162,15 +1267,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("token", help="register or inspect server authentication tokens",
                         add_help=False)
-    commands.add_parser("route", help="list, attach, or detach persistent relay routes",
-                        add_help=False)
     commands.add_parser("contacts", help="import or inspect durable platform contacts",
                         add_help=False)
     commands.add_parser("registry", help="manage UUID and identifier-to-text mappings",
                         add_help=False)
     commands.add_parser("discover", help="list visible resources from configured platforms",
-                        add_help=False)
-    commands.add_parser("channels", help="create channels on supported platforms",
                         add_help=False)
     for chat_command in CHAT_COMMANDS:
         commands.add_parser(
@@ -1214,7 +1315,7 @@ def _command_document_argv(document: Any) -> list[str]:
     command_options = {
         "sender", "type", "channel_id", "channel_type", "source_id", "thread_id", "root_id",
         "attach", "cursor", "ack", "interval", "checks", "require_port", "wait", "limit",
-        "contains", "message_type", "no_advance", "until", "start", "presence", "kind",
+        "contains", "message_type", "no_advance", "until", "start", "presence",
         "purge", "dry_run",
     }
     unknown = command_fields - command_options
@@ -1400,6 +1501,25 @@ def _enable_unbuffered_output() -> None:
             reconfigure(line_buffering=True, write_through=True)
 
 
+def _json_object_with_assignments(document: str, assignments: list[str], option: str) -> dict[str, Any]:
+    try:
+        result = json.loads(document)
+    except json.JSONDecodeError as error:
+        build_parser().error(f"{option} must be a JSON object: {error}")
+    if not isinstance(result, dict):
+        build_parser().error(f"{option} must be a JSON object")
+    for assignment in assignments:
+        key, separator, raw_value = assignment.partition("=")
+        if not separator or not key.strip():
+            build_parser().error(f"--set requires KEY=VALUE, received: {assignment}")
+        try:
+            value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            value = raw_value
+        result[key.strip()] = value
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     global REST_TIMEOUT, REST_RETRIES, REST_RETRY_DELAY, REST_TOKEN
     supplied = list(sys.argv[1:] if argv is None else argv)
@@ -1411,21 +1531,17 @@ def main(argv: list[str] | None = None) -> int:
         build_parser().error(str(error))
     supplied = _normalize_chat_dispatch(supplied)
     if supplied and supplied[0] in {
-        "token", "route", "contacts", "registry", "discover", "channels", *CHAT_COMMANDS,
+        "token", "contacts", "registry", "discover", *CHAT_COMMANDS,
     }:
         family, nested = supplied[0], supplied[1:]
         if family == "token":
             from .token_admin import main as administration_main
-        elif family == "route":
-            from .route_admin import main as administration_main
         elif family == "contacts":
             from .contact_admin import main as administration_main
         elif family == "registry":
             from .registry_admin import main as administration_main
         elif family == "discover":
             from .discovery_admin import main as administration_main
-        elif family == "channels":
-            from .channel_admin import main as administration_main
         elif family in CHAT_COMMANDS:
             from .chat_admin import main as administration_main
             nested = [family, *nested]
@@ -1454,9 +1570,9 @@ def main(argv: list[str] | None = None) -> int:
             args.channel_type = destination_endpoint.adapter
             args.channel_id = destination_endpoint.identifier
             if args.global_recipient:
-                args.global_recipient = "channel-relay"
+                args.global_recipient = "outbound_delivery"
             else:
-                args.recipient = "channel-relay"
+                args.recipient = "outbound_delivery"
         if args.global_recipient and args.recipient:
             if args.text is not None:
                 build_parser().error("send accepts either positional recipient or --to, not both")
@@ -1497,7 +1613,7 @@ def main(argv: list[str] | None = None) -> int:
             build_parser().error(f"{args.command} requires positional recipient or {option}")
     elif args.command in {"poll-many", "history", "cursor-init"}:
         if args.global_recipient or args.global_sender or args.local_identity:
-            build_parser().error(f"{args.command} takes its mailbox buses as positional arguments")
+            build_parser().error(f"{args.command} takes channel addresses as positional arguments")
     elif args.command in {"subscribe", "unsubscribe", "subscriptions"}:
         all_subscriptions = bool(
             args.command == "subscriptions" and getattr(args, "all_subscriptions", False)
@@ -1559,10 +1675,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.verbose:
         target = rest_url if use_rest else str(mailbox_root or mailbox_dir())
         print(f"agent_mailbox transport={'REST' if use_rest else 'JSONL'} target={target}", file=sys.stderr)
-    if args.command in {"agents", "poll-sources"}:
-        registry = (_rest_request("GET", "/v1/listeners", base_url=rest_url)
+    if args.command in {"agents", "connectors", "channels", "relays"}:
+        registry = (_rest_request("GET", "/v1/registry", base_url=rest_url)
                     if use_rest else __import__(
-                        "mailbox_channels.listener_registry", fromlist=["public_registry"]
+                        "mailbox_channels.connector_registry", fromlist=["public_registry"]
                     ).public_registry())
         if args.command == "agents":
             enriched_agents = []
@@ -1578,7 +1694,7 @@ def main(argv: list[str] | None = None) -> int:
                 })
                 subscriptions = [
                     {
-                        "bus": item.get("recipient"),
+                        "channel": item.get("recipient"),
                         "cursor": item.get("cursor"),
                         "offset": item.get("offset", 0),
                     }
@@ -1590,11 +1706,7 @@ def main(argv: list[str] | None = None) -> int:
                 })
             result = {"agents": enriched_agents}
         else:
-            result = (_rest_request("GET", "/v1/poll-sources", base_url=rest_url) if use_rest else {
-                      "sources": __import__(
-                          "mailbox_channels.subscriptions", fromlist=["available_buses"]
-                      ).available_buses()
-                  })
+            result = {args.command: registry.get(args.command, [])}
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
     elif args.command == "cursors":
         result = (_rest_request(
@@ -1609,13 +1721,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "agent-add":
         if use_rest:
             result = register_agent_rest(
-                args.agent_id, presence_id=args.presence_id or "", kind=args.kind,
+                args.agent_id, presence_id=args.presence_id or "",
                 dry_run=args.dry_run, base_url=rest_url,
             )
         else:
-            from .listener_registry import register_agent
+            from .connector_registry import register_agent
             result = register_agent(
-                args.agent_id, presence_id=args.presence_id or "", kind=args.kind,
+                args.agent_id, presence_id=args.presence_id or "",
                 dry_run=args.dry_run, mailbox_root=mailbox_root,
             )
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
@@ -1628,19 +1740,53 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run, base_url=rest_url,
             )
         else:
-            from .listener_registry import unregister_agent
+            from .connector_registry import unregister_agent
             result = unregister_agent(
                 args.agent_id, presence_id=args.presence_id or "", purge=args.purge,
                 dry_run=args.dry_run, mailbox_root=mailbox_root,
             )
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command in {
+        "connector-add", "connector-del", "channel-add", "channel-del", "relay-add", "relay-del",
+    }:
+        if use_rest:
+            build_parser().error(f"{args.command} currently requires direct local configuration access")
+        if args.command == "connector-add":
+            config = _json_object_with_assignments(args.config, args.config_values, "--config")
+            from .connector_registry import register_connector
+            result = register_connector(
+                args.connector_id, args.kind, direction=args.direction, instance=args.instance,
+                channel_ids=args.channel_ids, config=config, dry_run=args.dry_run,
+            )
+        elif args.command == "connector-del":
+            from .connector_registry import unregister_connector
+            result = unregister_connector(args.connector_id, dry_run=args.dry_run)
+        elif args.command == "channel-add":
+            metadata = _json_object_with_assignments(
+                args.metadata, args.metadata_values, "--metadata",
+            )
+            from .subscriptions import ensure_channel
+            result = ensure_channel(args.channel_id, metadata=metadata)
+        elif args.command == "channel-del":
+            from .subscriptions import delete_channel
+            result = delete_channel(args.channel_id, force=args.force)
+        elif args.command == "relay-add":
+            from .retained_relay import add_relay
+            result = add_relay(
+                args.source_channel, args.destination, relay_id=args.relay_id,
+                start=args.start, mailbox_root=mailbox_root, dry_run=args.dry_run,
+            )
+        else:
+            from .retained_relay import delete_relay
+            result = delete_relay(args.relay_id, dry_run=args.dry_run)
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
     elif args.command in {"subscribe", "unsubscribe", "subscriptions"}:
         from .subscriptions import set_subscription, subscriptions
         if args.command == "subscriptions":
             if args.all_subscriptions:
                 if use_rest:
-                    configured = _rest_request("GET", "/v1/listeners", base_url=rest_url).get(
-                        "subscriptions", []
+                    configured = _rest_request("GET", "/v1/registry", base_url=rest_url).get(
+                        "channels", []
                     )
                 else:
                     from .subscriptions import channels

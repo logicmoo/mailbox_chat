@@ -12,11 +12,10 @@ import uuid
 import urllib.request
 from typing import Any, Callable
 
-from ..listener_registry import listeners_for
+from ..connector_registry import connectors_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..endpoint_address import subscription_recipients
 from ..attachment_gateway import attachment_url
-from ..channel_routes import dispatch_routes
 
 
 SocketFactory = Callable[[tuple[str, int], float], socket.socket]
@@ -26,7 +25,7 @@ class IrcAdapter:
     def __init__(self, *, socket_factory: SocketFactory = socket.create_connection) -> None:
         self.socket_factory = socket_factory
         self.connection: socket.socket | None = None
-        self.listener: dict[str, Any] | None = None
+        self.connector: dict[str, Any] | None = None
         self.buffer = ""
         self.joined = False
         self.status: dict[str, Any] = {
@@ -37,22 +36,22 @@ class IrcAdapter:
         }
 
     def configure(self) -> bool:
-        configured = listeners_for("irc")
-        self.listener = configured[0] if configured else None
-        self.status["enabled"] = self.listener is not None
-        self.status["channels"] = list(self.listener.get("channel_ids", [])) if self.listener else []
-        return bool(self.listener)
+        configured = connectors_for("irc")
+        self.connector = configured[0] if configured else None
+        self.status["enabled"] = self.connector is not None
+        self.status["channels"] = list(self.connector.get("channel_ids", [])) if self.connector else []
+        return bool(self.connector)
 
     def connect(self) -> None:
-        if not self.listener:
-            raise RuntimeError("No enabled IRC listener is configured")
-        server = str(self.listener.get("server") or "").strip()
+        if not self.connector:
+            raise RuntimeError("No enabled IRC connector is configured")
+        server = str(self.connector.get("server") or "").strip()
         if server.startswith("$"):
             server = os.environ.get(server[1:], "").strip()
         if not server:
-            raise ValueError("IRC listener requires server")
-        use_tls = bool(self.listener.get("tls", True))
-        port = int(self.listener.get("port") or (6697 if use_tls else 6667))
+            raise ValueError("IRC connector requires server")
+        use_tls = bool(self.connector.get("tls", True))
+        port = int(self.connector.get("port") or (6697 if use_tls else 6667))
         connection = self.socket_factory((server, port), 15)
         if use_tls:
             connection = ssl.create_default_context().wrap_socket(connection, server_hostname=server)
@@ -61,7 +60,7 @@ class IrcAdapter:
         password = os.environ.get("IRC_PASSWORD", "").strip()
         if password:
             self._write(f"PASS {password}")
-        nickname = str(self.listener.get("nickname") or "mailbox-relay")
+        nickname = str(self.connector.get("nickname") or "mailbox-relay")
         self._write(f"NICK {nickname}")
         self._write(f"USER {nickname} 0 * :Mailbox Channel Relay Bridging Proxy")
         self.status.update({"connected": True, "lastError": None})
@@ -81,9 +80,9 @@ class IrcAdapter:
         self.connection.sendall((line.replace("\r", " ").replace("\n", " ") + "\r\n").encode("utf-8"))
 
     def _join_channels(self) -> None:
-        if self.joined or not self.listener:
+        if self.joined or not self.connector:
             return
-        for channel in self.listener.get("channel_ids", []):
+        for channel in self.connector.get("channel_ids", []):
             self._write(f"JOIN {channel}")
         self.joined = True
 
@@ -121,9 +120,9 @@ class IrcAdapter:
                 line.startswith(":") and len(line.split(" ", 3)) >= 3
                 and line.split(" ", 3)[1].isdigit()
             ):
-                listener = self.listener or {}
+                connector = self.connector or {}
                 text = line.partition(" :")[2] or line
-                for recipient in subscription_recipients("irc", listener, "status"):
+                for recipient in subscription_recipients("irc", connector, "status"):
                     mailbox.send(
                         recipient, text, sender="irc:server", message_type="irc_status",
                         channel_id="status", channel_type="irc",
@@ -135,29 +134,29 @@ class IrcAdapter:
         if not separator:
             return
         nickname = prefix.split("!", 1)[0]
-        own_nick = str((self.listener or {}).get("nickname") or "mailbox-relay")
+        own_nick = str((self.connector or {}).get("nickname") or "mailbox-relay")
         if nickname.casefold() == own_nick.casefold():
             return
-        listener = self.listener or {}
+        connector = self.connector or {}
         recipients = list(dict.fromkeys([
-            *([str(listener["bridge_agent"])] if listener.get("bridge_agent") else []),
-            *listener.get("mailbox_recipients", []),
-            *subscription_recipients("irc", listener, target),
+            *([str(connector["bridge_agent"])] if connector.get("bridge_agent") else []),
+            *connector.get("mailbox_recipients", []),
+            *subscription_recipients("irc", connector, target),
         ]))
         source_id = tags.get("msgid") or f"irc-{uuid.uuid4()}"
         extra_fields = with_origin(
             {"author": nickname, "irc_prefix": prefix},
             adapter="irc",
-            listener_id=str(listener.get("id") or ""),
+            connector_id=str(connector.get("id") or ""),
             source_id=source_id,
             channel_id=target,
-            presence_id=str(listener.get("presence_id") or ""),
+            presence_id=str(connector.get("presence_id") or ""),
         )
         DeliveryLedger(mailbox.mailbox_dir()).claim(
             extra_fields,
             endpoint_id(
-                "irc", listener_id=str(listener.get("id") or ""), channel_id=target,
-                presence_id=str(listener.get("presence_id") or ""),
+                "irc", connector_id=str(connector.get("id") or ""), channel_id=target,
+                presence_id=str(connector.get("presence_id") or ""),
             ),
         )
         for recipient in recipients:
@@ -171,8 +170,6 @@ class IrcAdapter:
                 source_id=source_id,
                 extra_fields=extra_fields,
             )
-        dispatch_routes(mailbox, listener_id=str(listener.get("id") or ""), channel_id=target,
-                        message={**extra_fields, "text": text, "source_id": source_id})
 
     def send_message(self, message: dict[str, Any]) -> None:
         if not self.status["enabled"]:

@@ -13,16 +13,16 @@ from . import agent_mailbox
 from .endpoint_address import endpoint_instance
 from .identifier_directory import IdentifierDirectory
 from .adapters.irc_adapter import IrcAdapter
-from .listener_registry import listeners_for
+from .connector_registry import connectors_for
 from .admin_io import render
 
 
 def discover_irc_channels(*, timeout: float = 30.0) -> list[dict[str, Any]]:
     adapter = IrcAdapter()
     if not adapter.configure():
-        raise ValueError("no enabled IRC listener is configured")
-    listener = adapter.listener or {}
-    instance = endpoint_instance("irc", listener)
+        raise ValueError("no enabled IRC connector is configured")
+    connector = adapter.connector or {}
+    instance = endpoint_instance("irc", connector)
     try:
         entries = adapter.list_channels(timeout=timeout)
     finally:
@@ -41,9 +41,9 @@ def discover_irc_channels(*, timeout: float = 30.0) -> list[dict[str, Any]]:
 def discover_irc_users(channel: str, *, timeout: float = 15.0) -> list[dict[str, Any]]:
     adapter = IrcAdapter()
     if not adapter.configure():
-        raise ValueError("no enabled IRC listener is configured")
-    listener = adapter.listener or {}
-    instance = endpoint_instance("irc", listener)
+        raise ValueError("no enabled IRC connector is configured")
+    connector = adapter.connector or {}
+    instance = endpoint_instance("irc", connector)
     if "/" in channel:
         from .endpoint_address import parse_endpoint
         address = parse_endpoint(channel)

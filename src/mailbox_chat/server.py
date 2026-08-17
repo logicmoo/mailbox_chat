@@ -30,7 +30,7 @@ from .channel_relay import (
     SUPPORTED_CHANNEL_TYPES,
 )
 from . import agent_mailbox
-from .listener_registry import CONFIG_DIR_ENV, config_dir, load_routes, public_registry
+from .connector_registry import CONFIG_DIR_ENV, config_dir, public_registry
 from .websocket_chat import accept_value, handle_chat
 from .attachment_gateway import ATTACHMENT_PREFIX, PUBLIC_URL_ENV
 from .attachment_storage import (
@@ -39,7 +39,6 @@ from .attachment_storage import (
 from .sqlite_limits import DEFAULT_MAX_SQLITE_BYTES, MAX_SQLITE_ENV
 from .identifier_directory import IdentifierDirectory
 from .meta_webhooks import verify_challenge, verify_signature
-from .route_admin import attach as attach_route, detach as detach_route
 from .subscriptions import set_subscription, subscriptions
 from .cmd_client_page import (
     command_status, render_cmd_client_page, start_mailbox_client, stop_mailbox_client,
@@ -368,15 +367,9 @@ def main(argv: list[str] | None = None) -> int:
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
-            if parsed.path == "/v1/listeners":
+            if parsed.path == "/v1/registry":
                 try:
                     self._json(200, public_registry())
-                except (OSError, ValueError, json.JSONDecodeError) as error:
-                    self._json(500, {"error": str(error)})
-                return
-            if parsed.path == "/v1/routes":
-                try:
-                    self._json(200, {"routes": load_routes()})
                 except (OSError, ValueError, json.JSONDecodeError) as error:
                     self._json(500, {"error": str(error)})
                 return
@@ -386,10 +379,6 @@ def main(argv: list[str] | None = None) -> int:
                     self._json(400, {"error": "identity is required"})
                     return
                 self._json(200, {"identity": identity, "channels": subscriptions(identity)})
-                return
-            if parsed.path == "/v1/poll-sources":
-                from .subscriptions import available_buses
-                self._json(200, {"sources": available_buses()})
                 return
             if parsed.path == "/v1/cursors":
                 cursor = parse_qs(parsed.query).get("cursor", [""])[0].strip()
@@ -462,14 +451,14 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/viber":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.viber.authenticate_webhook(
+                connector = relay.viber.authenticate_webhook(
                     body, self.headers.get("X-Viber-Content-Signature", ""),
                 )
-                if listener is None:
+                if connector is None:
                     self._json(401, {"error": "invalid Viber webhook signature"})
                     return
                 try:
-                    relay.viber.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, listener)
+                    relay.viber.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, connector)
                 except (ValueError, OSError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
                     return
@@ -478,12 +467,12 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/line":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.line.authenticate_webhook(body, self.headers.get("X-Line-Signature", ""))
-                if listener is None:
+                connector = relay.line.authenticate_webhook(body, self.headers.get("X-Line-Signature", ""))
+                if connector is None:
                     self._json(401, {"error": "invalid LINE webhook signature"})
                     return
                 try:
-                    relay.line.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, listener)
+                    relay.line.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, connector)
                 except (ValueError, OSError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
                     return
@@ -492,15 +481,15 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/discourse":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.discourse.authenticate_webhook(
+                connector = relay.discourse.authenticate_webhook(
                     body, self.headers.get("X-Discourse-Event-Signature", ""),
                 )
-                if listener is None:
+                if connector is None:
                     self._json(401, {"error": "invalid Discourse webhook signature"})
                     return
                 try:
                     relay.discourse.handle_webhook(
-                        json.loads(body.decode("utf-8")), agent_mailbox, listener,
+                        json.loads(body.decode("utf-8")), agent_mailbox, connector,
                         event_id=self.headers.get("X-Discourse-Event-Id", ""),
                         event_name=self.headers.get("X-Discourse-Event", ""),
                     )
@@ -512,15 +501,15 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/whatsapp-personal":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.whatsapp_personal.authenticate_webhook(
+                connector = relay.whatsapp_personal.authenticate_webhook(
                     body, self.headers.get("X-WhatsApp-Personal-Signature", ""),
                 )
-                if listener is None:
+                if connector is None:
                     self._json(401, {"error": "invalid WhatsApp Personal webhook signature"})
                     return
                 try:
                     relay.whatsapp_personal.handle_webhook(
-                        json.loads(body.decode("utf-8")), agent_mailbox, listener,
+                        json.loads(body.decode("utf-8")), agent_mailbox, connector,
                     )
                 except (ValueError, OSError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
@@ -534,8 +523,8 @@ def main(argv: list[str] | None = None) -> int:
                 self._json(200, {"stopped": stop_mailbox_client(session_id)})
                 return
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/cursors", "/v1/agents", "/v1/identifiers",
-                                     "/v1/identifier-resolution-requests", "/v1/routes",
-                                     "/v1/subscriptions", "/v1/channels", "/v1/irc/command",
+                                     "/v1/identifier-resolution-requests",
+                                     "/v1/subscriptions", "/v1/irc/command",
                                      "/v1/mm/command"}:
                 self._json(404, {"error": "not found"})
                 return
@@ -572,32 +561,6 @@ def main(argv: list[str] | None = None) -> int:
                     relay.irc._write(line)
                     self._json(202, {"accepted": True, "line": line.split(" ", 1)[0].upper()})
                     return
-                if request_path == "/v1/channels":
-                    from .channel_admin import create_channel
-                    channel = create_channel(
-                        str(payload.get("address") or ""), title=str(payload.get("title") or ""),
-                        topic=str(payload.get("topic") or ""), private=bool(payload.get("private")),
-                        container=str(payload.get("container") or ""),
-                    )
-                    self._json(201, {"channel": channel})
-                    return
-                if request_path == "/v1/routes":
-                    action = str(payload.get("action") or "")
-                    if action == "attach":
-                        route = attach_route(
-                            str(payload.get("source_listener") or ""),
-                            str(payload.get("source_channel") or ""),
-                            str(payload.get("destination_listener") or ""),
-                            str(payload.get("destination_channel") or ""),
-                            controller=str(payload.get("controller") or "presence"),
-                            route_id=str(payload.get("route_id") or ""),
-                        )
-                        self._json(201, {"route": route})
-                        return
-                    if action == "detach":
-                        self._json(200, {"detached": detach_route(str(payload.get("route_id") or ""))})
-                        return
-                    raise ValueError("route action must be attach or detach")
                 if request_path == "/v1/subscriptions":
                     channel = str(payload.get("channel") or "")
                     if channel.lower().startswith(("mm/", "mattermost/")):
@@ -652,7 +615,7 @@ def main(argv: list[str] | None = None) -> int:
                     ))
                     return
                 if request_path == "/v1/agents":
-                    from .listener_registry import register_agent, unregister_agent
+                    from .connector_registry import register_agent, unregister_agent
                     if str(payload.get("action") or "").lower() == "delete":
                         result = unregister_agent(
                             str(payload.get("agent_id") or ""),
@@ -665,7 +628,6 @@ def main(argv: list[str] | None = None) -> int:
                         result = register_agent(
                             str(payload.get("agent_id") or ""),
                             presence_id=str(payload.get("presence_id") or ""),
-                            kind=str(payload.get("kind") or "mailbox"),
                             dry_run=bool(payload.get("dry_run", False)),
                         )
                         created = bool(

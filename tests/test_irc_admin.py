@@ -84,7 +84,7 @@ def test_mattermost_command_reports_new_registry_entries(monkeypatch, capsys) ->
 
 
 def test_bare_list_loops_through_configured_providers(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("mailbox_channels.chat_admin.load_listeners", lambda: [
+    monkeypatch.setattr("mailbox_channels.chat_admin.load_connectors", lambda: [
         {"enabled": True, "adapter": "mattermost"},
         {"enabled": True, "adapter": "irc"},
         {"enabled": True, "adapter": "mattermost"},

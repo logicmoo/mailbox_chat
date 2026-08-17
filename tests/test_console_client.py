@@ -47,15 +47,12 @@ def test_console_client_accepts_relay_base_urls() -> None:
 
 def test_console_administration_uses_active_transport(monkeypatch, tmp_path) -> None:
     calls = []
-    monkeypatch.setattr(console_client.route_admin, "main", lambda argv: calls.append(("route", argv)) or 0)
     monkeypatch.setattr(console_client.contact_admin, "main", lambda argv: calls.append(("contacts", argv)) or 0)
     monkeypatch.setattr(console_client.token_admin, "main", lambda argv: calls.append(("token", argv)) or 0)
 
-    assert run_administration("route", "list", url="ws://relay:46667/v1/chat/ws", directory=None) == 0
     assert run_administration("contacts", "list", url="http://relay:46667", directory=tmp_path) == 0
     assert run_administration("token", "status", url="unused", directory=tmp_path) == 0
     assert calls == [
-        ("route", ["--url", "http://relay:46667", "list"]),
         ("contacts", ["--dir", str(tmp_path), "list"]),
         ("token", ["status"]),
     ]
@@ -202,7 +199,7 @@ def test_console_can_emulate_external_channel_presence(monkeypatch, tmp_path) ->
     assert "irc/0/%23agents" in __import__(
         "mailbox_channels.subscriptions", fromlist=["subscriptions"],
     ).subscriptions("agent-one")
-    relayed = agent_mailbox.receive("channel-relay", root=tmp_path)[0]
+    relayed = agent_mailbox.receive("outbound_delivery", root=tmp_path)[0]
     assert relayed["from"] == "agent-one"
     assert relayed["endpoint_address"] == "irc/0/%23agents"
 

@@ -9,6 +9,52 @@ import pytest
 from mailbox_channels import agent_mailbox
 
 
+def test_status_reports_agents_connectors_channels_and_relays(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "relays.json").write_text(json.dumps({
+        "version": 1,
+        "agents": [{
+            "agent_id": "agent-one",
+            "presences": [{"presence_id": "agent-one-console"}],
+        }],
+        "subscriptions": [],
+        "connectors": [
+            {"id": "in", "adapter": "irc", "direction": "inbound", "enabled": True},
+            {"id": "both", "adapter": "mattermost", "instance": "example.test",
+             "direction": "bidirectional", "enabled": True},
+            {"id": "disabled", "adapter": "discord", "direction": "bidirectional",
+             "enabled": False},
+        ],
+        "relays": [{
+            "id": "relay-one", "enabled": True, "source_channel": "source-channel",
+            "cursor": "relay-one-cursor", "destination": "mm/example.test/channel-id",
+        }],
+    }, indent=2), encoding="utf-8")
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+
+    result = agent_mailbox.status(root=tmp_path / "mailbox")
+
+    assert "peers" not in result
+    assert [item["agent_id"] for item in result["agents"]] == ["agent-one"]
+    assert result["agents"][0]["kind"] == "agent"
+    assert result["agents"][0]["cursor"] == "agent-one"
+    assert [(item["id"], item["can_listen"], item["can_send"]) for item in result["connectors"]] == [
+        ("in", True, False), ("both", True, True),
+    ]
+    assert all(item["kind"] == "connector" for item in result["connectors"])
+    assert {item["id"] for item in result["channels"]} >= {
+        "server_events", "agent_to_agent", "agent_to_channel", "agent-one",
+    }
+    assert [item["id"] for item in result["relays"]] == ["relay-one"]
+    assert result["relays"][0]["kind"] == "relay"
+    assert "destinations" not in result
+    direct = next(item for item in result["channels"] if item["id"] == "agent-one")
+    assert (direct["kind"], direct["channel_type"]) == ("channel", "agent_direct")
+
+
 def test_served_client_runs_as_standalone_script() -> None:
     result = subprocess.run(
         [sys.executable, str(Path(agent_mailbox.__file__).resolve()), "--version"],
@@ -61,7 +107,7 @@ def test_jsonl_send_receive_and_cursor(tmp_path: Path) -> None:
 
 def test_unknown_envelope_fields_are_preserved(tmp_path: Path) -> None:
     sent = agent_mailbox.send(
-        "channel-relay", "done", root=tmp_path,
+        "outbound_delivery", "done", root=tmp_path,
         extra_fields={"workflow_run_id": "run-1", "correlation_id": "corr-1"},
     )
     assert sent["workflow_run_id"] == "run-1"
@@ -69,10 +115,10 @@ def test_unknown_envelope_fields_are_preserved(tmp_path: Path) -> None:
     assert json.loads(first_line)["correlation_id"] == "corr-1"
 
 
-def test_every_send_is_copied_to_agent_to_channel_bus(tmp_path: Path) -> None:
+def test_every_send_is_copied_to_agent_to_channel_audit(tmp_path: Path) -> None:
     sent = agent_mailbox.send("some-channel", "hello", sender="worker", root=tmp_path)
 
-    copies = agent_mailbox.peek("mailbox-server-agent-to-channel-bus", root=tmp_path)
+    copies = agent_mailbox.peek("agent_to_channel", root=tmp_path)
     assert len(copies) == 1
     assert copies[0]["audit_of"] == sent["id"]
     assert copies[0]["dedupe_id"] == sent["dedupe_id"] == sent["id"]
@@ -80,7 +126,7 @@ def test_every_send_is_copied_to_agent_to_channel_bus(tmp_path: Path) -> None:
     assert copies[0]["text"] == "hello"
 
 
-def test_direct_registered_agent_send_is_also_copied_to_agent_bus(
+def test_direct_registered_agent_send_is_also_copied_to_agent_channel(
     tmp_path: Path, monkeypatch,
 ) -> None:
     config = tmp_path / "config"
@@ -88,29 +134,27 @@ def test_direct_registered_agent_send_is_also_copied_to_agent_bus(
     (config / "relays.json").write_text(json.dumps({
         "version": 1,
         "agents": [{"agent_id": "worker-two", "presences": []}],
-        "listeners": [],
+        "connectors": [],
     }), encoding="utf-8")
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
 
     sent = agent_mailbox.send("worker-two", "direct", sender="worker-one", root=tmp_path / "mailbox")
 
-    direct = agent_mailbox.peek("mailbox-server-agent-to-agent-bus", root=tmp_path / "mailbox")
-    all_sends = agent_mailbox.peek("mailbox-server-agent-to-channel-bus", root=tmp_path / "mailbox")
-    presence_ingress = agent_mailbox.peek(
-        "mailbox-server-presence-to-worker-two", root=tmp_path / "mailbox",
-    )
+    direct = agent_mailbox.peek("agent_to_agent", root=tmp_path / "mailbox")
+    all_sends = agent_mailbox.peek("agent_to_channel", root=tmp_path / "mailbox")
+    agent_inbox = agent_mailbox.peek("worker-two", root=tmp_path / "mailbox")
     assert direct[0]["audit_of"] == sent["id"]
     assert all_sends[0]["audit_of"] == sent["id"]
     assert direct[0]["dedupe_id"] == all_sends[0]["dedupe_id"] == sent["id"]
-    assert presence_ingress[0]["dedupe_id"] == sent["id"]
+    assert agent_inbox == [sent]
 
 
-def test_audit_bus_writes_do_not_recursively_audit_themselves(tmp_path: Path) -> None:
-    agent_mailbox.send("mailbox-server-agent-to-channel-bus", "audit", root=tmp_path)
+def test_audit_channel_writes_do_not_recursively_audit_themselves(tmp_path: Path) -> None:
+    agent_mailbox.send("agent_to_channel", "audit", root=tmp_path)
     assert len((tmp_path / "messages.jsonl").read_text(encoding="utf-8").splitlines()) == 1
 
 
-def test_presence_address_stays_intact_while_owner_agent_receives_bus_copy(
+def test_presence_address_stays_intact_while_owner_agent_receives_channel_copy(
     tmp_path: Path, monkeypatch,
 ) -> None:
     config = tmp_path / "config"
@@ -119,9 +163,9 @@ def test_presence_address_stays_intact_while_owner_agent_receives_bus_copy(
         "version": 1,
         "agents": [{
             "agent_id": "workspace-codex-agent",
-            "presences": [{"presence_id": "codex.star", "kind": "codex"}],
+            "presences": [{"presence_id": "codex.star"}],
         }],
-        "listeners": [],
+        "connectors": [],
     }), encoding="utf-8")
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
 
@@ -132,7 +176,7 @@ def test_presence_address_stays_intact_while_owner_agent_receives_bus_copy(
 
     assert sent["to"] == "codex.star"
     copy = agent_mailbox.peek(
-        "mailbox-server-presence-to-workspace-codex-agent", root=tmp_path / "mailbox",
+        "workspace-codex-agent", root=tmp_path / "mailbox",
     )[0]
     assert copy["audit_of"] == sent["id"]
     assert copy["audit_recipient"] == "codex.star"
@@ -180,29 +224,29 @@ def test_acknowledge_advances_selected_cursor(tmp_path: Path) -> None:
     assert agent_mailbox.receive("agent-b", root=tmp_path, cursor="worker") == [second]
 
 
-def test_cursor_initialization_is_create_once_and_remembers_polling_bus(tmp_path: Path) -> None:
-    agent_mailbox.send("bus-a", "before login", root=tmp_path)
-    result = agent_mailbox.initialize_cursor("bus-a", cursor="agent-1", start="now", root=tmp_path)
+def test_cursor_initialization_is_create_once_and_remembers_channel(tmp_path: Path) -> None:
+    agent_mailbox.send("a", "before login", root=tmp_path)
+    result = agent_mailbox.initialize_cursor("a", cursor="agent-1", start="now", root=tmp_path)
     assert result["offset"] > 0
-    assert agent_mailbox.cursor_subscriptions("agent-1", root=tmp_path) == ["bus-a"]
-    assert agent_mailbox.receive("bus-a", root=tmp_path, cursor="agent-1") == []
+    assert agent_mailbox.cursor_subscriptions("agent-1", root=tmp_path) == ["a"]
+    assert agent_mailbox.receive("a", root=tmp_path, cursor="agent-1") == []
     with pytest.raises(ValueError, match="already initialized"):
-        agent_mailbox.initialize_cursor("bus-a", cursor="agent-1", start="beginning", root=tmp_path)
+        agent_mailbox.initialize_cursor("a", cursor="agent-1", start="beginning", root=tmp_path)
 
 
-def test_cursor_listing_reports_every_initialized_bus_and_position(tmp_path: Path, capsys) -> None:
-    agent_mailbox.send("private-agent-bus", "before login", root=tmp_path)
+def test_cursor_listing_reports_every_initialized_channel_and_position(tmp_path: Path, capsys) -> None:
+    agent_mailbox.send("private-agent", "before login", root=tmp_path)
     initialized = agent_mailbox.initialize_cursor(
-        "private-agent-bus", cursor="agent-1", start="now", root=tmp_path,
+        "private-agent", cursor="agent-1", start="now", root=tmp_path,
     )
 
     assert agent_mailbox.main([
         "--dir", str(tmp_path), "cursors", "--cursor", "agent-1",
     ]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["recipients"] == ["private-agent-bus"]
+    assert result["recipients"] == ["private-agent"]
     assert result["positions"] == [{
-        "recipient": "private-agent-bus", "cursor": "agent-1", "offset": initialized["offset"],
+        "recipient": "private-agent", "cursor": "agent-1", "offset": initialized["offset"],
     }]
 
 
@@ -213,20 +257,20 @@ def test_agent_add_and_del_commands_manage_agent_and_presence(
 
     assert agent_mailbox.main([
         "--dir", str(tmp_path / "mailbox"), "agent-add", "review-agent",
-        "--presence", "review-agent-codex", "--kind", "codex",
+        "--presence", "review-agent-app",
     ]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["agent_created"] is True
     assert result["presence_created"] is True
     assert result["agent"]["agent_id"] == "review-agent"
     assert result["agent"]["presences"] == [{
-        "presence_id": "review-agent-codex", "kind": "codex",
+        "presence_id": "review-agent-app",
     }]
-    assert result["initial_buses"] == ["mailbox-server-presence-to-review-agent"]
+    assert result["initial_mailboxes"] == ["review-agent"]
 
     assert agent_mailbox.main([
         "--dir", str(tmp_path / "mailbox"), "agent-del", "review-agent",
-        "--presence", "review-agent-codex",
+        "--presence", "review-agent-app",
     ]) == 0
     removed_presence = json.loads(capsys.readouterr().out)
     assert removed_presence["presence_removed"] is True
@@ -245,19 +289,18 @@ def test_agent_add_dry_run_previews_without_writing(tmp_path: Path, monkeypatch,
 
     assert agent_mailbox.main([
         "--dir", str(tmp_path / "mailbox"), "agent-add", "review-agent",
-        "--presence", "review-agent-codex", "--kind", "codex", "--dry-run",
+        "--presence", "review-agent-app", "--dry-run",
     ]) == 0
 
     preview = json.loads(capsys.readouterr().out)
     assert preview == {
         "dry_run": True,
         "agent_id": "review-agent",
-        "presence_id": "review-agent-codex",
-        "presence_kind": "codex",
+        "presence_id": "review-agent-app",
         "would_create_agent": True,
         "would_create_presence": True,
-        "would_add_buses": ["mailbox-server-presence-to-review-agent"],
-        "initial_buses": ["mailbox-server-presence-to-review-agent"],
+        "would_add_mailboxes": ["review-agent"],
+        "initial_mailboxes": ["review-agent"],
     }
     assert not (config / "relays.json").exists()
     assert not (tmp_path / "mailbox" / "messages.jsonl").exists()
@@ -271,16 +314,16 @@ def test_agents_listing_includes_read_only_cursor_metadata(
     agent_mailbox.main(["--dir", str(mailbox), "agent-add", "review-agent"])
     capsys.readouterr()
     agent_mailbox.initialize_cursor(
-        "mailbox-server-presence-to-review-agent", cursor="review-agent",
+        "review-agent", cursor="review-agent",
         start="now", root=mailbox,
     )
 
     assert agent_mailbox.main(["--dir", str(mailbox), "agents"]) == 0
 
     agent = json.loads(capsys.readouterr().out)["agents"][0]
-    assert agent["presence_bus"] == "mailbox-server-presence-to-review-agent"
+    assert agent["mailbox"] == "review-agent"
     assert agent["subscriptions"] == [{
-            "bus": "mailbox-server-presence-to-review-agent",
+            "channel": "review-agent",
             "cursor": "review-agent",
             "offset": agent["subscriptions"][0]["offset"],
     }]
@@ -293,12 +336,12 @@ def test_agent_del_purge_dry_run_reports_without_deleting(
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
     agent_mailbox.main([
         "--dir", str(mailbox), "agent-add", "review-agent",
-        "--presence", "review-agent-codex", "--kind", "codex",
+        "--presence", "review-agent-app",
     ])
     capsys.readouterr()
     agent_mailbox.send("review-agent", "private direct message", root=mailbox)
     agent_mailbox.initialize_cursor(
-        "mailbox-server-presence-to-review-agent", cursor="review-agent",
+        "review-agent", cursor="review-agent",
         start="beginning", root=mailbox,
     )
     before_registry = (config / "relays.json").read_bytes()
@@ -311,15 +354,13 @@ def test_agent_del_purge_dry_run_reports_without_deleting(
     preview = json.loads(capsys.readouterr().out)
     assert preview["dry_run"] is True
     assert preview["would_remove_agent"] is True
-    assert preview["would_purge_buses"] == [
-        "mailbox-server-presence-to-review-agent", "review-agent", "review-agent-codex",
-    ]
-    assert preview["would_purge_records"] == 2
+    assert preview["would_purge_channels"] == ["review-agent", "review-agent-app"]
+    assert preview["would_purge_records"] == 1
     assert preview["would_purge_cursor_files"] == 1
     assert (config / "relays.json").read_bytes() == before_registry
     assert (mailbox / "messages.jsonl").read_bytes() == before_messages
     assert agent_mailbox.cursor_subscriptions("review-agent", root=mailbox) == [
-        "mailbox-server-presence-to-review-agent"
+        "review-agent"
     ]
 
 
@@ -339,21 +380,21 @@ def test_agent_del_purge_removes_private_history_but_keeps_global_audit(
     result = json.loads(capsys.readouterr().out)
     assert result["agent_removed"] is True
     assert result["purged"] is True
-    assert result["purged_records"] == 2
+    assert result["purged_records"] == 1
     records = [
         json.loads(line) for line in (mailbox / "messages.jsonl").read_text().splitlines()
     ]
-    assert not any(item["to"] in result["purged_buses"] for item in records)
+    assert not any(item["to"] in result["purged_channels"] for item in records)
     assert any(
-        item["to"] == "mailbox-server-agent-to-agent-bus"
+        item["to"] == "agent_to_agent"
         and item.get("audit_recipient") == "review-agent"
         for item in records
     )
 
 
 def test_cursor_can_start_at_caller_chosen_relative_history_boundary(tmp_path: Path) -> None:
-    old = agent_mailbox.send("bus-a", "six days old", root=tmp_path)
-    recent = agent_mailbox.send("bus-a", "recent", root=tmp_path)
+    old = agent_mailbox.send("a", "six days old", root=tmp_path)
+    recent = agent_mailbox.send("a", "recent", root=tmp_path)
     records = [json.loads(line) for line in (tmp_path / "messages.jsonl").read_text().splitlines()]
     records[0]["timestamp"] = (
         datetime.now(timezone.utc) - timedelta(days=6)
@@ -361,30 +402,30 @@ def test_cursor_can_start_at_caller_chosen_relative_history_boundary(tmp_path: P
     (tmp_path / "messages.jsonl").write_text(
         "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8",
     )
-    agent_mailbox.initialize_cursor("bus-a", cursor="agent-1", start="7d", root=tmp_path)
+    agent_mailbox.initialize_cursor("a", cursor="agent-1", start="7d", root=tmp_path)
     assert [item["id"] for item in agent_mailbox.receive(
-        "bus-a", root=tmp_path, cursor="agent-1",
+        "a", root=tmp_path, cursor="agent-1",
     )] == [old["id"], recent["id"]]
 
 
-def test_global_poll_reads_every_bus_initialized_for_agent(tmp_path: Path, capsys) -> None:
-    for bus in ("bus-a", "bus-b"):
-        agent_mailbox.initialize_cursor(bus, cursor="agent-1", start="now", root=tmp_path)
-        agent_mailbox.send(bus, f"from {bus}", root=tmp_path)
+def test_global_poll_reads_every_channel_initialized_for_agent(tmp_path: Path, capsys) -> None:
+    for channel in ("a", "b"):
+        agent_mailbox.initialize_cursor(channel, cursor="agent-1", start="now", root=tmp_path)
+        agent_mailbox.send(channel, f"from {channel}", root=tmp_path)
     assert agent_mailbox.main([
         "--dir", str(tmp_path), "--as", "agent-1", "poll", "--subscriptions", "--checks", "1",
     ]) == 0
     output = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert {item["to"] for item in output} == {"bus-a", "bus-b"}
+    assert {item["to"] for item in output} == {"a", "b"}
 
 
 def test_history_search_does_not_move_live_cursor(tmp_path: Path, capsys) -> None:
-    sent = agent_mailbox.send("bus-a", "retained", root=tmp_path)
+    sent = agent_mailbox.send("a", "retained", root=tmp_path)
     assert agent_mailbox.main([
-        "--dir", str(tmp_path), "history", "bus-a", "--since", "7d",
+        "--dir", str(tmp_path), "history", "a", "--since", "7d",
     ]) == 0
     assert json.loads(capsys.readouterr().out)["id"] == sent["id"]
-    assert agent_mailbox.receive("bus-a", root=tmp_path, cursor="live") == [sent]
+    assert agent_mailbox.receive("a", root=tmp_path, cursor="live") == [sent]
 
 
 def test_named_mailbox_resolves_relative_directory(tmp_path: Path) -> None:
@@ -415,7 +456,7 @@ def test_cli_text_output_explains_chat_server_diagnostics(tmp_path: Path, capsys
         extra_fields={
             "adapter": "discord", "connection_state": "connection_failed",
             "service_context": {
-                "adapter": "discord", "listener_ids": ["discord-main"], "channel_ids": ["ops"],
+                "adapter": "discord", "connector_ids": ["discord-main"], "channel_ids": ["ops"],
             },
             "diagnostic": {
                 "operation": "connect_or_poll", "error_type": "ConnectionError",
@@ -429,7 +470,7 @@ def test_cli_text_output_explains_chat_server_diagnostics(tmp_path: Path, capsys
     output = capsys.readouterr().out
     assert "local-discord-server: discord chat server connection failed: offline" in output
     assert "adapter=discord; state=connection_failed" in output
-    assert "listeners=discord-main; channels=ops" in output
+    assert "connectors=discord-main; channels=ops" in output
     assert "error=ConnectionError: offline; will_retry=true" in output
 
 
@@ -620,7 +661,7 @@ def test_positional_external_endpoint_routes_through_channel_relay(tmp_path, cap
     ]) == 0
 
     record = json.loads(capsys.readouterr().out)
-    assert record["to"] == "channel-relay"
+    assert record["to"] == "outbound_delivery"
     assert record["text"] == "hello"
     assert record["channel_type"] == "mattermost"
     assert record["channel_id"] == "channel-1"

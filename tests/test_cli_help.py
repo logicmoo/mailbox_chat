@@ -5,7 +5,6 @@ from mailbox_channels.console_client import parser as speaker_parser
 from mailbox_channels.server import build_parser as server_parser
 from mailbox_channels.token_admin import parser as token_parser
 from mailbox_channels.contact_admin import parser as contact_parser
-from mailbox_channels.route_admin import parser as route_parser
 from mailbox_channels.agent_mailbox import CHAT_COMMANDS, IRC_COMMANDS, MATTERMOST_COMMANDS
 
 
@@ -62,13 +61,15 @@ def test_agent_help_lists_every_global_option() -> None:
 
 def test_every_agent_command_has_comprehensive_help() -> None:
     expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
-                "subscribe", "unsubscribe", "subscriptions", "token", "route", "contacts",
+                "subscribe", "unsubscribe", "subscriptions", "token", "contacts",
                 "registry", "discover", "channels", "poll-many", "history", "cursor-init",
-                "poll-sources", "cursors", "agents", "agent-add", "agent-del", *CHAT_COMMANDS}
+                "cursors", "agents", "agent-add", "agent-del", "connectors", "connector-add",
+                "connector-del", "channel-add", "channel-del", "relays", "relay-add", "relay-del",
+                *CHAT_COMMANDS}
     commands = _agent_commands()
     assert set(commands) == expected
     for name, command_parser in commands.items():
-        if name in {"token", "route", "contacts", "registry", "discover", "channels", *CHAT_COMMANDS}:
+        if name in {"token", "contacts", "registry", "discover", *CHAT_COMMANDS}:
             continue
         help_text = command_parser.format_help()
         assert command_parser.description
@@ -92,8 +93,3 @@ def test_console_and_administration_help_are_complete() -> None:
     contacts = contact_parser()
     assert all(item in contacts.format_help() for item in ("--dir", "--url", "--token", "import", "list"))
     _assert_actions_documented(contacts)
-    routes = route_parser()
-    assert all(item in routes.format_help() for item in (
-        "--config-dir", "--url", "--token", "--json", "list", "attach", "detach",
-    ))
-    _assert_actions_documented(routes)

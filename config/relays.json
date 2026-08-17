@@ -2,94 +2,93 @@
   "version": 1,
   "agents": [
     {
-      "agent_id": "local-agent",
+      "agent_id": "console-default-agent",
       "presences": [
         {
-          "presence_id": "local-agent-codex",
-          "kind": "codex"
+          "presence_id": "console-default-agent-terminal"
         },
         {
-          "presence_id": "local-agent-console",
-          "kind": "console"
-        },
-        {
-          "presence_id": "local-agent-mailbox",
-          "kind": "mailbox"
-        },
-        {
-          "presence_id": "local-agent-mattermost",
-          "kind": "platform"
+          "presence_id": "console-default-agent-client"
         }
-      ]
-    },
-    {
-      "agent_id": "snet-mm-subscribers-bus",
-      "presences": [
-        {
-          "presence_id": "snet-mm-subscribers-bus-mailbox",
-          "kind": "mailbox"
-        }
-      ]
-    },
-    {
-      "agent_id": "workbench-codex-worker",
-      "presences": [
-        {
-          "presence_id": "workbench-codex-worker-codex",
-          "kind": "codex"
-        }
-      ]
+      ],
+      "kind": "agent"
     },
     {
       "agent_id": "symbolic-workbench-codex",
       "presences": [
         {
-          "presence_id": "symbolic-workbench-codex-codex",
-          "kind": "codex"
+          "presence_id": "symbolic-workbench-codex-app"
         }
-      ]
+      ],
+      "kind": "agent"
+    },
+    {
+      "agent_id": "workbench-ui-codex-agent",
+      "presences": [
+        {
+          "presence_id": "workbench-ui-codex-agent-app"
+        }
+      ],
+      "kind": "agent"
+    },
+    {
+      "agent_id": "symbolic-workbench-resources-codex",
+      "presences": [
+        {
+          "presence_id": "symbolic-workbench-resources-codex-app"
+        }
+      ],
+      "kind": "agent"
+    },
+    {
+      "agent_id": "omegaclaw-core-codex",
+      "presences": [
+        {
+          "presence_id": "omegaclaw-core-codex-app"
+        }
+      ],
+      "kind": "agent"
     }
   ],
   "subscriptions": [
     {
-      "id": "local/0/server_events",
-      "subscribers": []
-    },
-    {
-      "id": "mm/chat.singularitynet.io/channel",
+      "id": "server_events",
       "subscribers": [],
-      "metadata": {
-        "bus": "chat-singularitynet-io-mm-channel-bus",
-        "listener": "mattermost-primary",
-        "endpoint": "chat.singularitynet.io",
-        "channel_name": "test",
-        "workspace_id": "team-1",
-        "workspace_name": "opencog"
-      }
-    },
-    {
-      "id": "mm/mattermost-main/channel",
-      "subscribers": [],
-      "metadata": {
-        "bus": "mattermost-main-mm-channel-bus",
-        "listener": "mattermost-main",
-        "endpoint": "mattermost-main"
-      }
+      "kind": "channel"
     },
     {
       "id": "mm/chat.singularitynet.io/jmoduftrb3yjdnozzwst5ore1c",
       "subscribers": [],
       "metadata": {
-        "bus": "chat-singularitynet-io-mm-chat-test-bus",
-        "listener": "mattermost-primary",
+        "connector": "mattermost-primary",
         "endpoint": "chat.singularitynet.io",
         "channel_name": "test",
         "workspace_id": "smmrm413tfy8xfgzb33k91bpbr",
         "workspace_name": "chat"
-      }
+      },
+      "kind": "channel"
+    },
+    {
+      "id": "mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h",
+      "subscribers": [],
+      "metadata": {
+        "connector": "mattermost-primary",
+        "endpoint": "chat.singularitynet.io",
+        "channel_name": "image-perception-to-recognizable-memory-and-arc3",
+        "workspace_id": "smmrm413tfy8xfgzb33k91bpbr",
+        "workspace_name": "chat"
+      },
+      "kind": "channel"
+    },
+    {
+      "id": "agent_to_agent",
+      "subscribers": [
+        "symbolic-workbench-codex"
+      ],
+      "kind": "channel"
     }
   ],
-  "listeners": [
+  "connectors": [
     {
       "id": "mattermost-primary",
       "adapter": "mattermost",
@@ -103,14 +102,11 @@
         "$MM_CHANNEL_IDS"
       ],
       "bridge_agent": "mattermost-bridge-agent",
-      "agent_id": "local-agent",
-      "presence_id": "local-agent-mattermost",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
       "include_direct_messages": true,
-      "preserve_threads": true
+      "preserve_threads": true,
+      "kind": "connector"
     },
     {
       "id": "irc-primary",
@@ -125,11 +121,10 @@
         "$IRC_CHANNELS"
       ],
       "bridge_agent": "irc-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
-      "preserve_threads": false
+      "preserve_threads": false,
+      "kind": "connector"
     },
     {
       "id": "discord-primary",
@@ -141,11 +136,10 @@
         "$DISCORD_CHANNEL_IDS"
       ],
       "bridge_agent": "discord-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
-      "preserve_threads": true
+      "preserve_threads": true,
+      "kind": "connector"
     },
     {
       "id": "matrix-primary",
@@ -158,11 +152,10 @@
         "$MATRIX_ROOM_IDS"
       ],
       "bridge_agent": "matrix-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
-      "preserve_threads": true
+      "preserve_threads": true,
+      "kind": "connector"
     },
     {
       "id": "slack-primary",
@@ -174,12 +167,11 @@
         "$SLACK_CHANNEL_IDS"
       ],
       "bridge_agent": "slack-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
       "preserve_threads": true,
-      "presence_id": "slack-primary-bot"
+      "presence_id": "slack-primary-bot",
+      "kind": "connector"
     },
     {
       "id": "telegram-primary",
@@ -191,12 +183,11 @@
         "$TELEGRAM_ALLOWED_CHAT_IDS"
       ],
       "bridge_agent": "telegram-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
       "include_direct_messages": false,
-      "preserve_threads": true
+      "preserve_threads": true,
+      "kind": "connector"
     },
     {
       "id": "whatsapp-business-primary",
@@ -209,12 +200,11 @@
         "$WHATSAPP_ALLOWED_CONVERSATIONS"
       ],
       "bridge_agent": "whatsapp-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
       "groups_enabled": false,
-      "preserve_threads": false
+      "preserve_threads": false,
+      "kind": "connector"
     },
     {
       "id": "facebook-messenger-primary",
@@ -227,11 +217,10 @@
         "$FACEBOOK_ALLOWED_CONVERSATIONS"
       ],
       "bridge_agent": "facebook-messenger-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
-      "preserve_threads": false
+      "preserve_threads": false,
+      "kind": "connector"
     },
     {
       "id": "viber-primary",
@@ -243,13 +232,12 @@
         "$VIBER_ALLOWED_CONVERSATIONS"
       ],
       "bridge_agent": "viber-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
       "include_direct_messages": false,
       "preserve_threads": false,
-      "bot_name": "Mailbox Relay"
+      "bot_name": "Mailbox Relay",
+      "kind": "connector"
     },
     {
       "id": "line-primary",
@@ -262,12 +250,11 @@
         "$LINE_ALLOWED_SOURCE_IDS"
       ],
       "bridge_agent": "line-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
       "include_direct_messages": false,
-      "preserve_threads": true
+      "preserve_threads": true,
+      "kind": "connector"
     },
     {
       "id": "discourse-primary",
@@ -283,11 +270,10 @@
       ],
       "category_ids": [],
       "bridge_agent": "discourse-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
-      "preserve_threads": true
+      "preserve_threads": true,
+      "kind": "connector"
     },
     {
       "id": "whatsapp-personal-primary",
@@ -301,52 +287,12 @@
         "$WHATSAPP_PERSONAL_CHAT_IDS"
       ],
       "bridge_agent": "whatsapp-personal-bridge-agent",
-      "mailbox_recipients": [
-        "local-agent"
-      ],
+      "mailbox_recipients": [],
       "trusted_admins": [],
       "include_groups": true,
       "include_direct_messages": false,
-      "preserve_threads": true
-    }
-  ],
-  "routes": [
-    {
-      "id": "mattermost-to-irc-via-presence",
-      "enabled": false,
-      "source": {
-        "listener_id": "mattermost-primary",
-        "channel_id": "$MM_CHANNEL_ID"
-      },
-      "destinations": [
-        {
-          "adapter": "irc",
-          "listener_id": "irc-primary",
-          "channel_id": "#agents"
-        }
-      ],
-      "controller": {
-        "type": "presence_controller",
-        "presence_id": "relay-presence"
-      }
-    },
-    {
-      "id": "discord-to-matrix-via-agent",
-      "enabled": false,
-      "source": {
-        "listener_id": "discord-primary"
-      },
-      "destinations": [
-        {
-          "adapter": "matrix",
-          "listener_id": "matrix-primary",
-          "channel_id": "!room:example.org"
-        }
-      ],
-      "controller": {
-        "type": "relay_agent",
-        "mailbox_recipient": "cross-channel-router"
-      }
+      "preserve_threads": true,
+      "kind": "connector"
     }
   ]
 }

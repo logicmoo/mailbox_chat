@@ -20,12 +20,12 @@ from .adapters.line_adapter import LineAdapter
 from .adapters.discourse_adapter import DiscourseAdapter
 from .adapters.whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
-from .listener_registry import listeners_for
-from .subscriptions import SERVER_EVENTS_CHANNEL, channel_bus, subscribers
+from .connector_registry import connectors_for
+from .subscriptions import SERVER_EVENTS_CHANNEL, subscribers
 from .endpoint_address import endpoint_instance, parse_endpoint
 
 
-RELAY_RECIPIENT = "channel-relay"
+RELAY_RECIPIENT = "outbound_delivery"
 SUPPORTED_CHANNEL_TYPES = ("mattermost", "irc", "discord", "matrix", "slack", "telegram",
                            "whatsapp", "whatsapp_personal", "facebook_messenger", "viber", "line",
                            "discourse")
@@ -120,12 +120,12 @@ class ChannelRelay(MattermostRelay):
         return message
 
     def _adapter_recipients(self, name: str, adapter: Any) -> list[str]:
-        listeners = (listeners_for("mattermost") if name == "mattermost"
-                     else list(getattr(adapter, "listeners", [])))
+        connectors = (connectors_for("mattermost") if name == "mattermost"
+                     else list(getattr(adapter, "connectors", [])))
         recipients = [
             recipient
-            for listener in listeners
-            for recipient in [listener.get("bridge_agent"), *listener.get("mailbox_recipients", [])]
+            for connector in connectors
+            for recipient in [connector.get("bridge_agent"), *connector.get("mailbox_recipients", [])]
             if recipient
         ]
         if name == "mattermost" and not recipients:
@@ -133,17 +133,17 @@ class ChannelRelay(MattermostRelay):
         return list(dict.fromkeys(recipients))
 
     def _adapter_context(self, name: str, adapter: Any) -> dict[str, Any]:
-        listeners = (listeners_for("mattermost") if name == "mattermost"
-                     else list(getattr(adapter, "listeners", [])))
+        connectors = (connectors_for("mattermost") if name == "mattermost"
+                     else list(getattr(adapter, "connectors", [])))
         status = getattr(adapter, "status", {})
         return {
             "adapter": name,
-            "listener_ids": [str(item.get("id") or "") for item in listeners if item.get("id")],
+            "connector_ids": [str(item.get("id") or "") for item in connectors if item.get("id")],
             "channel_ids": list(dict.fromkeys(
-                str(channel_id) for item in listeners for channel_id in item.get("channel_ids", [])
+                str(channel_id) for item in connectors for channel_id in item.get("channel_ids", [])
             )),
             "directions": list(dict.fromkeys(
-                str(item.get("direction") or "") for item in listeners if item.get("direction")
+                str(item.get("direction") or "") for item in connectors if item.get("direction")
             )),
             "enabled": bool(status.get("enabled")),
             "connected": bool(status.get("connected")),
@@ -159,7 +159,7 @@ class ChannelRelay(MattermostRelay):
         self._adapter_event_states[name] = state
         mailbox = self._mailbox()
         recipients = list(dict.fromkeys([
-            channel_bus(SERVER_EVENTS_CHANNEL),
+            SERVER_EVENTS_CHANNEL,
             *subscribers(SERVER_EVENTS_CHANNEL), *self._adapter_recipients(name, adapter),
         ]))
         for recipient in recipients:
@@ -368,22 +368,22 @@ class ChannelRelay(MattermostRelay):
         for message in mailbox.receive(RELAY_RECIPIENT):
             channel_type = str(message.get("channel_type") or "mattermost").lower()
             address = parse_endpoint(str(message.get("endpoint_address") or ""))
-            if address and not message.get("listener_id") and channel_type != "mattermost":
+            if address and not message.get("connector_id") and channel_type != "mattermost":
                 matches = [
-                    listener for listener in listeners_for(channel_type, direction="outbound")
-                    if address.instance == "0" or endpoint_instance(channel_type, listener) == address.instance
+                    connector for connector in connectors_for(channel_type, direction="outbound")
+                    if address.instance == "0" or endpoint_instance(channel_type, connector) == address.instance
                 ]
                 if matches and (address.instance == "0" or len(matches) == 1):
-                    message["listener_id"] = matches[0]["id"]
+                    message["connector_id"] = matches[0]["id"]
             destination = endpoint_id(
                 channel_type,
-                listener_id=str(message.get("listener_id") or ""),
+                connector_id=str(message.get("connector_id") or ""),
                 channel_id=str(message.get("channel_id") or ""),
                 presence_id=str(message.get("presence_id") or ""),
             )
             if not self.delivery_ledger.claim(message, destination):
                 mailbox.send(
-                    str(message.get("from") or "local-agent"),
+                    str(message.get("from") or "console-default-agent"),
                     f"Suppressed duplicate relay to {destination}",
                     sender=RELAY_RECIPIENT,
                     message_type="channel_delivery_suppressed",
@@ -428,7 +428,7 @@ class ChannelRelay(MattermostRelay):
             except Exception as error:
                 self.delivery_ledger.release(message, destination)
                 mailbox.send(
-                    str(message.get("from") or "local-agent"),
+                    str(message.get("from") or "console-default-agent"),
                     str(error),
                     sender=RELAY_RECIPIENT,
                     message_type="channel_delivery_failed",
@@ -451,28 +451,28 @@ class ChannelRelay(MattermostRelay):
         """Deliver a bot-authored channel post once to the other mailbox subscribers."""
         mailbox = self._mailbox()
         channel_id = str(message.get("channel_id") or self.default_channel)
-        sender = str(message.get("from") or "local-agent")
+        sender = str(message.get("from") or "console-default-agent")
         source_id = str(posted.get("id") or message.get("id") or "")
-        listener = next((
-            item for item in listeners_for("mattermost", direction="inbound")
+        connector = next((
+            item for item in connectors_for("mattermost", direction="inbound")
             if channel_id in item.get("channel_ids", [])
         ), {})
         origin_fields = {
             "origin": {
                 "adapter": "mailbox",
-                "listener_id": str(listener.get("id") or "mattermost-default"),
+                "connector_id": str(connector.get("id") or "mattermost-default"),
                 "source_id": str(message.get("id") or source_id),
                 "channel_id": channel_id,
-                "presence_id": str(listener.get("presence_id") or ""),
+                "presence_id": str(connector.get("presence_id") or ""),
             },
             "origin_id": origin_id(message),
             "relay_trace": list(dict.fromkeys([
                 *list(message.get("relay_trace") or []),
                 endpoint_id(
                     "mattermost",
-                    listener_id=str(listener.get("id") or "mattermost-default"),
+                    connector_id=str(connector.get("id") or "mattermost-default"),
                     channel_id=channel_id,
-                    presence_id=str(listener.get("presence_id") or ""),
+                    presence_id=str(connector.get("presence_id") or ""),
                 ),
             ])),
             "platform_author": self._bot_user_id,

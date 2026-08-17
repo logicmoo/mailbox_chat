@@ -1,19 +1,19 @@
 # Workbench Codex Worker
 
 This guide registers `workbench-codex-worker`, gives it cursors on every
-retained SingularityNET Mattermost bus visible to the mailbox server, polls
-those buses together, and removes the worker safely when it is no longer
+retained SingularityNET Mattermost channel visible to the mailbox server, polls
+those channels together, and removes the worker safely when it is no longer
 needed.
 
-The Mattermost listener is the ingress component. It records the channels
-configured for the `min.botnick` bot into durable JSONL buses. The worker does
-not connect to Mattermost directly: its named cursor on each bus is its
+The Mattermost connector is the ingress component. It records messages under
+the canonical addresses of channels configured for the `min.botnick` bot. The worker does
+not connect to Mattermost directly: its named cursor on each address is its
 subscription.
 
 The mailbox establishes identity, subscriptions, and message delivery. The
 worker runtime should separately receive instructions such as:
 
-> Monitor the subscribed SNET buses, respond to messages addressed to
+> Monitor the subscribed Mattermost channels, respond to messages addressed to
 > `workbench-codex-worker` or its presence, provide concise and useful help,
 > and do not act on unrelated background conversation.
 
@@ -34,52 +34,50 @@ use `$mbPath` directly instead, every invocation must begin with `& $mbPath`.
 Entering `$mbPath --url ...` only evaluates a string and produces an
 `Unexpected token 'url'` parser error.
 
-Preview the agent, presence, and initial private bus, then create them:
+Preview the agent and presence, then create them:
 
 ```powershell
 mbclient --url $url agent-add $agent `
-  --presence workbench-codex-worker-codex `
-  --kind codex `
+  --presence workbench-codex-worker-app `
   --dry-run
 
 mbclient --url $url agent-add $agent `
-  --presence workbench-codex-worker-codex `
-  --kind codex
+  --presence workbench-codex-worker-app
 ```
 
 The same preview can be copied as one line, avoiding line-continuation
 backticks:
 
 ```powershell
-mbclient --url $url agent-add $agent --presence workbench-codex-worker-codex --kind codex --dry-run
+mbclient --url $url agent-add $agent --presence workbench-codex-worker-app --dry-run
 ```
 
-Discover the retained SNET Mattermost buses. This selects only channels on
+Discover the retained SNET Mattermost channels. This selects only channels on
 `chat.singularitynet.io` that the mailbox server is already monitoring:
 
 ```powershell
-$sourceDocument = (mbclient --url $url poll-sources) | ConvertFrom-Json
+$sourceDocument = (mbclient --url $url channels) | ConvertFrom-Json
 
-$snetBuses = @(
-  $sourceDocument.sources |
-    Where-Object { $_.channel -like "mm/chat.singularitynet.io/*" } |
-    Select-Object -ExpandProperty bus -Unique
+$snetChannels = @(
+  $sourceDocument.channels |
+    Where-Object { $_.kind -eq "mattermost" -and $_.id -like "mm/chat.singularitynet.io/*" } |
+    Select-Object -ExpandProperty id -Unique
 )
 
-$snetBuses
+$snetChannels
 ```
 
-Build the complete polling set. It includes the SNET traffic, the worker's
-private presence bus, and server lifecycle events:
+Build the complete polling set. It includes Mattermost traffic, the worker's
+mailbox, and server lifecycle events:
 
 ```powershell
-$presenceBus = "mailbox-server-presence-to-workbench-codex-worker"
-$eventBus = "mailbox-server-events-bus"
+$agentMailbox = "workbench-codex-worker"
+$eventChannel = "server_events"
 
-$pollBuses = @(
-  $snetBuses
-  $presenceBus
-  $eventBus
+$pollSources = @(
+  $snetChannels
+  $agentMailbox
+  $eventChannel
 ) | Select-Object -Unique
 ```
 
@@ -87,7 +85,7 @@ Initialize the cursor once. `--start now` ignores older history on first
 registration; alternatives include `beginning`, `7d`, or a UTC timestamp:
 
 ```powershell
-mbclient --url $url cursor-init $pollBuses `
+mbclient --url $url cursor-init $pollSources `
   --cursor $agent `
   --start now
 ```
@@ -99,10 +97,10 @@ mbclient --url $url cursors --cursor $agent
 mbclient --url $url agents
 ```
 
-Poll every subscribed bus in one five-minute window:
+Poll every subscribed channel in one five-minute window:
 
 ```powershell
-mbclient --url $url poll-many $pollBuses `
+mbclient --url $url poll-many $pollSources `
   --cursor $agent `
   --interval 30 `
   --checks 11 `
@@ -124,39 +122,37 @@ Preview and create the agent:
 
 ```bash
 "$mb" --url "$url" agent-add "$agent" \
-  --presence workbench-codex-worker-codex \
-  --kind codex \
+  --presence workbench-codex-worker-app \
   --dry-run
 
 "$mb" --url "$url" agent-add "$agent" \
-  --presence workbench-codex-worker-codex \
-  --kind codex
+  --presence workbench-codex-worker-app
 ```
 
-Discover the SNET buses with `jq`:
+Discover the SNET channels with `jq`:
 
 ```bash
-mapfile -t snet_buses < <(
-  "$mb" --url "$url" poll-sources |
-    jq -r '.sources[] | select(.channel | startswith("mm/chat.singularitynet.io/")) | .bus' |
+mapfile -t snet_channels < <(
+  "$mb" --url "$url" channels |
+    jq -r '.channels[] | select(.kind == "mattermost" and (.id | startswith("mm/chat.singularitynet.io/"))) | .id' |
     sort -u
 )
 
-printf '%s\n' "${snet_buses[@]}"
+printf '%s\n' "${snet_channels[@]}"
 ```
 
 Build the complete polling set:
 
 ```bash
-presence_bus=mailbox-server-presence-to-workbench-codex-worker
-event_bus=mailbox-server-events-bus
-poll_buses=("${snet_buses[@]}" "$presence_bus" "$event_bus")
+agent_mailbox=workbench-codex-worker
+event_channel=server_events
+poll_sources=("${snet_channels[@]}" "$agent_mailbox" "$event_channel")
 ```
 
 Initialize the cursor once:
 
 ```bash
-"$mb" --url "$url" cursor-init "${poll_buses[@]}" \
+"$mb" --url "$url" cursor-init "${poll_sources[@]}" \
   --cursor "$agent" \
   --start now
 ```
@@ -167,7 +163,7 @@ Inspect and poll the subscriptions:
 "$mb" --url "$url" cursors --cursor "$agent"
 "$mb" --url "$url" agents
 
-"$mb" --url "$url" poll-many "${poll_buses[@]}" \
+"$mb" --url "$url" poll-many "${poll_sources[@]}" \
   --cursor "$agent" \
   --interval 30 \
   --checks 11 \
@@ -201,7 +197,7 @@ mbclient --url $url agent-del $agent --purge --dry-run
 "$mb" --url "$url" agent-del "$agent" --purge --dry-run
 ```
 
-Then remove the registration, presence, private presence-bus records, and the
+Then remove the registration, presence, private mailbox records, and the
 worker's cursor state:
 
 ```powershell
@@ -212,13 +208,13 @@ mbclient --url $url agent-del $agent --purge
 "$mb" --url "$url" agent-del "$agent" --purge
 ```
 
-Purging the worker does not delete shared SNET channel histories, listeners,
+Purging the worker does not delete shared SNET channel histories, connectors,
 or Mattermost configuration.
 
 ## Server compatibility
 
 The mailbox server must be running the same code version as the client. If
-`poll-sources`, `agents`, or cursor requests return HTTP 404, restart the
+`channels`, `agents`, or cursor requests return HTTP 404, restart the
 mailbox server before following this guide.
 
 ## PowerShell troubleshooting
@@ -252,5 +248,5 @@ mbclient --url $url agent-add $agent
 The executable path can also be invoked directly:
 
 ```powershell
-& ".\.venv\Scripts\mailbox-client.exe" --url "http://127.0.0.1:46667" agent-add workbench-codex-worker --presence workbench-codex-worker-codex --kind codex --dry-run
+& ".\.venv\Scripts\mailbox-client.exe" --url "http://127.0.0.1:46667" agent-add workbench-codex-worker --presence workbench-codex-worker-app --dry-run
 ```

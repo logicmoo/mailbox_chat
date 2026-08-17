@@ -17,10 +17,9 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 from ..attachment_storage import write_bytes
-from ..listener_registry import config_dir, listeners_for
+from ..connector_registry import config_dir, connectors_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from ..channel_routes import dispatch_routes
-from ..subscriptions import channel_bus, ensure_channel, subscribers
+from ..subscriptions import ensure_channel, subscribers
 from ..endpoint_address import EndpointAddress, endpoint_instance, parse_endpoint
 from ..admin_io import load_input, normalize_options, render
 from ..identifier_directory import IdentifierDirectory
@@ -29,8 +28,8 @@ from urllib.parse import quote, unquote, urlsplit
 
 
 LOGGER = logging.getLogger(__name__)
-RELAY_RECIPIENT = "channel-relay"
-DEFAULT_INBOUND_RECIPIENTS = ("local-agent",)
+RELAY_RECIPIENT = "outbound_delivery"
+DEFAULT_INBOUND_RECIPIENTS: tuple[str, ...] = ()
 RELAY_PORT = 46667
 
 
@@ -56,29 +55,29 @@ class MattermostRelay:
         self._latest_create_at: dict[str, int] = {}
         self._bot_user_id = ""
         self._next_dm_refresh = 0.0
-        self.listener: dict[str, Any] = {}
+        self.connector: dict[str, Any] = {}
         self.base_url = ""
         self.token = ""
         self.default_channel = ""
-        self._channel_bus_metadata: dict[str, dict[str, str]] = {}
+        self._channel_metadata: dict[str, dict[str, str]] = {}
 
     def configure(self) -> bool:
         load_dotenv(config_dir() / ".env", override=False)
-        configured = listeners_for("mattermost")
-        self.listener = configured[0] if configured else {}
-        self.base_url = str(self.listener.get("base_url") or os.environ.get("MM_URL") or "").rstrip("/")
-        token_env = str(self.listener.get("token_env") or "MM_BOT_TOKEN")
+        configured = connectors_for("mattermost")
+        self.connector = configured[0] if configured else {}
+        self.base_url = str(self.connector.get("base_url") or os.environ.get("MM_URL") or "").rstrip("/")
+        token_env = str(self.connector.get("token_env") or "MM_BOT_TOKEN")
         self.token = os.environ.get(token_env, "").strip()
-        configured_channels = list(self.listener.get("channel_ids") or [])
+        configured_channels = list(self.connector.get("channel_ids") or [])
         legacy_channels = [item.strip() for item in os.environ.get(
             "MM_CHANNEL_IDS", os.environ.get("MM_CHANNEL_ID", ""),
         ).split(",") if item.strip()]
         channels = configured_channels or legacy_channels
         self.default_channel = channels[0] if channels else ""
         missing = [name for name, value in (
-            ("listeners[].base_url (or MM_URL)", self.base_url),
+            ("connectors[].base_url (or MM_URL)", self.base_url),
             (f"environment variable {token_env}", self.token),
-            ("listeners[].channel_ids (or MM_CHANNEL_ID)", self.default_channel),
+            ("connectors[].channel_ids (or MM_CHANNEL_ID)", self.default_channel),
         ) if not value]
         enabled = os.environ.get("MATTERMOST_RELAY_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
         self.status["enabled"] = enabled and not missing
@@ -92,9 +91,9 @@ class MattermostRelay:
         self.status["connected"] = False
 
     def _channels(self) -> list[str]:
-        configured_listeners = listeners_for("mattermost", direction="inbound")
+        configured_connectors = connectors_for("mattermost", direction="inbound")
         configured_channels = [
-            channel_id for listener in configured_listeners for channel_id in listener["channel_ids"]
+            channel_id for connector in configured_connectors for channel_id in connector["channel_ids"]
         ]
         if configured_channels:
             return list(dict.fromkeys(configured_channels))
@@ -103,42 +102,36 @@ class MattermostRelay:
     def _inbound_recipients(self, channel_id: str) -> list[str]:
         configured = [
             recipient
-            for listener in listeners_for("mattermost", direction="inbound")
-            if channel_id in listener["channel_ids"] or (
-                listener.get("include_direct_messages") and channel_id not in self._channels()
+            for connector in connectors_for("mattermost", direction="inbound")
+            if channel_id in connector["channel_ids"] or (
+                connector.get("include_direct_messages") and channel_id not in self._channels()
             )
-            for recipient in [listener.get("bridge_agent"), *listener["mailbox_recipients"]]
+            for recipient in [connector.get("bridge_agent"), *connector.get("mailbox_recipients", [])]
             if recipient
         ]
         if not configured:
             fallback = os.environ.get("MATTERMOST_RELAY_RECIPIENTS", ",".join(DEFAULT_INBOUND_RECIPIENTS))
             configured = [item.strip() for item in fallback.split(",") if item.strip()]
-        instance = endpoint_instance("mattermost", self.listener) if self.listener else (
+        instance = endpoint_instance("mattermost", self.connector) if self.connector else (
             urlsplit(self.base_url).hostname or "mattermost").lower()
         address = EndpointAddress("mattermost", instance, channel_id).canonical
         identity = self._mattermost_channel_identity(channel_id)
-        bus = channel_bus(
-            address,
-            workspace=identity.get("workspace_name", ""),
-            channel_name=identity.get("channel_name", ""),
-        )
         ensure_channel(address, metadata={
-            "bus": bus,
-            "listener": self.listener.get("id", ""),
+            "connector": self.connector.get("id", ""),
             "endpoint": instance,
             **identity,
         })
         return list(dict.fromkeys([
             *configured,
-            bus,
+            address,
             *subscribers(address),
             *subscribers(EndpointAddress("mattermost", "0", channel_id).canonical),
         ]))
 
     def _mattermost_channel_identity(self, channel_id: str) -> dict[str, str]:
         """Resolve a channel's readable team/workspace identity once per process."""
-        if channel_id in self._channel_bus_metadata:
-            return self._channel_bus_metadata[channel_id]
+        if channel_id in self._channel_metadata:
+            return self._channel_metadata[channel_id]
         identity: dict[str, str] = {}
         try:
             response = self.session.get(f"{self.base_url}/api/v4/channels/{channel_id}", timeout=15)
@@ -163,7 +156,7 @@ class MattermostRelay:
                         if workspace_name:
                             identity["workspace_name"] = workspace_name
                 directory = IdentifierDirectory(_mailbox_module().mailbox_dir())
-                system = f"mm/{endpoint_instance('mattermost', self.listener)}"
+                system = f"mm/{endpoint_instance('mattermost', self.connector)}"
                 if channel_name:
                     directory.remember(
                         channel_id, channel_name, system=system, kind="channel", metadata=channel,
@@ -176,11 +169,11 @@ class MattermostRelay:
         except (requests.RequestException, KeyError, TypeError, ValueError):
             LOGGER.debug("Could not resolve Mattermost channel identity for %s", channel_id,
                          exc_info=True)
-        self._channel_bus_metadata[channel_id] = identity
+        self._channel_metadata[channel_id] = identity
         return identity
 
     def _post_recipients(self, channel_id: str, author_id: str) -> list[str]:
-        instance = endpoint_instance("mattermost", self.listener) if self.listener else (
+        instance = endpoint_instance("mattermost", self.connector) if self.connector else (
             urlsplit(self.base_url).hostname or "mattermost").lower()
         direct_subscribers = (list(dict.fromkeys([
             *subscribers(EndpointAddress("mattermost", instance, author_id).canonical),
@@ -260,7 +253,7 @@ class MattermostRelay:
                     continue
                 attachments = self._download_attachments(base_url, post)
                 matching = next((
-                    item for item in listeners_for("mattermost", direction="inbound")
+                    item for item in connectors_for("mattermost", direction="inbound")
                     if channel_id in item["channel_ids"]
                 ), {})
                 channel_identity = self._mattermost_channel_identity(channel_id)
@@ -273,7 +266,7 @@ class MattermostRelay:
                            if channel_identity.get("workspace_id") else {}),
                     },
                     adapter="mattermost",
-                    listener_id=str(matching.get("id") or "mattermost-default"),
+                    connector_id=str(matching.get("id") or "mattermost-default"),
                     source_id=source_id,
                     channel_id=channel_id,
                     presence_id=str(matching.get("presence_id") or ""),
@@ -282,7 +275,7 @@ class MattermostRelay:
                     origin_fields,
                     endpoint_id(
                         "mattermost",
-                        listener_id=str(matching.get("id") or "mattermost-default"),
+                        connector_id=str(matching.get("id") or "mattermost-default"),
                         channel_id=channel_id,
                         presence_id=str(matching.get("presence_id") or ""),
                     ),
@@ -299,12 +292,6 @@ class MattermostRelay:
                         thread_id=str(post.get("root_id", "") or "") or None,
                         extra_fields=origin_fields,
                     )
-                dispatch_routes(mailbox,
-                                listener_id=str(matching.get("id") or "mattermost-default"),
-                                channel_id=channel_id,
-                                message={**origin_fields, "text": str(post.get("message", "")),
-                                         "source_id": source_id,
-                                         "thread_id": str(post.get("root_id", "") or "") or None})
 
     @staticmethod
     def _source_seen(messages_path: Path, source_id: str) -> bool:

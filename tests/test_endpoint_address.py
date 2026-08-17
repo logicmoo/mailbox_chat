@@ -29,13 +29,8 @@ def test_zero_instance_is_canonical_default_instance(monkeypatch) -> None:
 
 def test_endpoint_descriptions_have_common_typed_properties() -> None:
     status = parse_endpoint("irc/0/status")
-    channel = parse_endpoint("local/0/debug-console")
     assert status is not None and status.describe()["type"] == "status"
-    assert channel is not None and channel.describe(properties={"topic": "debug"}) == {
-        "address": "local/0/debug-console", "platform": "local", "adapter": "local",
-        "instance": "0", "id": "debug-console", "type": "channel",
-        "properties": {"topic": "debug"},
-    }
+    assert parse_endpoint("debug-console") is None
 
 
 def test_every_platform_endpoint_type_round_trips() -> None:
@@ -59,7 +54,7 @@ def test_every_platform_endpoint_type_round_trips() -> None:
 def test_remote_from_subscribes_as_local_identity(tmp_path, monkeypatch, capsys) -> None:
     config = tmp_path / "config"
     config.mkdir()
-    (config / "relays.json").write_text('{"version":1,"listeners":[]}', encoding="utf-8")
+    (config / "relays.json").write_text('{"version":1,"connectors":[]}', encoding="utf-8")
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
     assert agent_mailbox.main([
         "--dir", str(tmp_path / "mailbox"), "poll", "--as", "symbolic-workbench-codex",
@@ -76,7 +71,7 @@ def test_remote_to_becomes_channel_relay_request(tmp_path, capsys) -> None:
     ]) == 0
     sent = json.loads(capsys.readouterr().out)
     assert sent["from"] == "symbolic-workbench-codex"
-    assert sent["to"] == "channel-relay"
+    assert sent["to"] == "outbound_delivery"
     assert sent["channel_type"] == "mattermost"
     assert sent["channel_id"] == "person-1"
     assert sent["endpoint_address"] == "mm/chat.snt/person-1"

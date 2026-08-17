@@ -8,8 +8,7 @@ def test_demo_page_links_to_live_relay_resources() -> None:
     for path in (
         "/v1/status",
         "/v1/adapters",
-        "/v1/listeners",
-        "/v1/routes",
+        "/v1/registry",
         "/v1/identifiers",
         "/v1/identifier-resolution-requests",
         "/agent_mailbox.py",

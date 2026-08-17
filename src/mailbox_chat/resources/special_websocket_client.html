@@ -18,7 +18,7 @@
 <label>Identity <input id="identity" value="special-websocket-client"></label>
 <button id="connect">Connect</button>
 <hr>
-<label>To <input id="to" value="local-agent"></label>
+<label>To <input id="to" value="console-default-agent"></label>
 <label>Text <input id="text" value="Hello"></label>
 <button id="send" disabled>Send</button>
 <pre id="log"></pre>
@@ -26,8 +26,7 @@
 <ul class="links">
   <li><a href="/v1/status">Live status</a><small>Server, mailbox, adapter, storage, and verbose-message state.</small></li>
   <li><a href="/v1/adapters">Adapter capabilities</a><small>Implemented platforms and supported features.</small></li>
-  <li><a href="/v1/listeners">Configured listeners</a><small>Safe public listener configuration.</small></li>
-  <li><a href="/v1/routes">Relay routes</a><small>Current channel-to-channel routing rules.</small></li>
+  <li><a href="/v1/registry">Messaging registry</a><small>Agents, connectors, channels, relays, and destinations.</small></li>
   <li><a href="/v1/identifiers">Identifier directory</a><small>Remembered platform IDs, UUIDs, and readable names.</small></li>
   <li><a href="/v1/identifier-resolution-requests">Resolution requests</a><small>Outstanding and completed identifier lookups.</small></li>
   <li><a href="/agent_mailbox.py" download>Download agent_mailbox.py</a><small>Standalone mailbox command-line client.</small></li>

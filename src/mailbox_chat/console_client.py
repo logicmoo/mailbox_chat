@@ -14,7 +14,7 @@ import websocket
 
 from . import agent_mailbox
 from .agent_mailbox import CHAT_COMMANDS
-from . import channel_admin, chat_admin, contact_admin, discovery_admin, registry_admin, route_admin, token_admin
+from . import chat_admin, contact_admin, discovery_admin, registry_admin, token_admin
 
 CLIENT_NAME = "Mailbox Console"
 CHAT_PATH = "/v1/chat/ws"
@@ -36,11 +36,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("identity", nargs="?",
                         help="unique stable agent ID; alternatively use --as")
     result.add_argument("--as", dest="agent_id",
-                        help="default stable agent ID used as the sender")
+                        help="stable agent ID used as the sender (default: console-default-agent)")
     result.add_argument("--from", dest="source",
                         help="default sending presence or external source endpoint")
-    result.add_argument("--to", dest="destination", default="local-agent",
-                        help="initial destination mailbox identity (default: local-agent)")
+    result.add_argument("--to", dest="destination", default="console-default-agent",
+                        help="initial destination mailbox identity (default: console-default-agent)")
     result.add_argument("--on", dest="chat_instance", default="",
                         help="default TYPE/INSTANCE or TYPE/INSTANCE/ID chat context")
     transport = result.add_mutually_exclusive_group()
@@ -93,11 +93,6 @@ def run_administration(command: str, arguments: str | list[str], *, url: str,
         return 2
     if command == "token":
         handler = token_admin.main
-    elif command == "route":
-        handler = route_admin.main
-        if not any(item == "--url" or item.startswith("--url=") or
-                   item == "--config-dir" or item.startswith("--config-dir=") for item in argv):
-            argv = ["--url", relay_http_url(url), *argv]
     elif command == "contacts":
         handler = contact_admin.main
         if not any(item == "--url" or item.startswith("--url=") or
@@ -112,12 +107,6 @@ def run_administration(command: str, arguments: str | list[str], *, url: str,
                     ["--url", relay_http_url(url)]) + argv
     elif command == "discover":
         handler = discovery_admin.main
-        if directory is None and not any(
-            item == "--url" or item.startswith("--url=") for item in argv
-        ):
-            argv = ["--url", relay_http_url(url), *argv]
-    elif command == "channels":
-        handler = channel_admin.main
         if directory is None and not any(
             item == "--url" or item.startswith("--url=") for item in argv
         ):
@@ -158,7 +147,7 @@ def run_client_command(command_line: str, *, identity: str, destination: str,
                 continue
         if not has_on and not has_qualified_address:
             argv.extend(["--on", chat_instance])
-    if argv[0] in {"token", "route", "contacts", "registry", "discover", "channels", *CHAT_COMMANDS}:
+    if argv[0] in {"token", "contacts", "registry", "discover", *CHAT_COMMANDS}:
         return run_administration(argv[0], argv[1:], url=url, directory=directory)
     transport = ["--dir", str(directory)] if directory is not None else ["--url", relay_http_url(url)]
     explicit_to = any(item == "--to" or item.startswith("--to=") for item in argv)
@@ -260,7 +249,7 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
         )
         return 2
     print(f"{CLIENT_NAME} connected as {identity}; destination is {destination}; transport is {transport}.")
-    print("Commands: /as, /from, /to, /on, /join, /console, /leave, /url, /ws, /wss, /dir, /token, /route, "
+    print("Commands: /as, /from, /to, /on, /join, /console, /leave, /url, /ws, /wss, /dir, /token, "
           "/contacts, /ping, /help, /quit")
     joined: set[str] = set()
     temporary_console = ""
@@ -395,9 +384,6 @@ def run(identity: str, destination: str, url: str, *, source: str = "",
             elif line == "/token" or line.startswith("/token "):
                 run_administration("token", line[len("/token"):].strip(),
                                    url=url, directory=directory)
-            elif line == "/route" or line.startswith("/route "):
-                run_administration("route", line[len("/route"):].strip(),
-                                   url=url, directory=directory)
             elif line == "/contacts" or line.startswith("/contacts "):
                 run_administration("contacts", line[len("/contacts"):].strip(),
                                    url=url, directory=directory)
@@ -435,9 +421,7 @@ def main() -> int:
     arguments = parser().parse_args()
     if arguments.identity and arguments.agent_id:
         parser().error("use either positional identity or --as, not both")
-    identity = arguments.agent_id or arguments.identity
-    if not identity:
-        parser().error("an agent ID is required; use --as AGENT_ID")
+    identity = arguments.agent_id or arguments.identity or "console-default-agent"
     destination = arguments.destination
     source = arguments.source or ""
     chat_instance = arguments.chat_instance.rstrip("/")

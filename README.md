@@ -3,6 +3,15 @@ Wall time: 1.1 seconds
 Output:
 # Mailbox Channel Relay Bridging Proxy
 
+## Managed resource kinds
+
+The registry has exactly four top-level managed kinds: `agent`, `connector`,
+`channel`, and `relay`. Every returned resource carries one of those `kind`
+values. Platform details belong in `adapter`; channel details belong in
+`channel_type`; a relay's external output is an address on the relay rather
+than a separate destination resource. A presence, when needed, is nested
+session/account metadata and is never a fifth managed kind.
+
 Python package/repository name: `mailbox_channels`.
 
 Mailbox Channel Relay Bridging Proxy is a standalone, transport-neutral daemon for
@@ -44,17 +53,17 @@ logs emit periodic repeat summaries without terminal control characters.
 The same state is available from `/v1/status` as `lastVerboseMessage`,
 `lastVerboseMessageRepeatCount`, and `lastVerboseMessageAt`.
 Adapter startup, connection, and failure transitions are also delivered to
-each listener's bridge agent and mailbox recipients as durable
+each connector's bridge agent and mailbox recipients as durable
 `chat_server_status` messages from `local-ADAPTER-server`. This lets agents
 observe or forward service state without scraping process logs. Failure
 messages include a structured `diagnostic` object with the safe exception type
 and message, failed operation, enabled state, and automatic-retry flags. A
-`service_context` object supplies safe listener IDs, channel IDs, directions,
+`service_context` object supplies safe connector IDs, channel IDs, directions,
 connection state, and retry policy.
 
 `mailbox-client receive`, `peek`, `poll`, and `follow` retain these objects in
 their default JSONL output. With `--format text`, the client prints a compact
-diagnostic summary including the service, state, listener/channel IDs, failed
+diagnostic summary including the service, state, connector/channel IDs, failed
 operation, error type/message, and whether another attempt will occur.
 
 The daemon is independent of FastAPI and survives development API reloads.
@@ -66,8 +75,8 @@ Runtime PID, status, and logs are under `mailbox/runtime/channel-relay-PORT/`.
 GET  /health
 GET  /v1/status
 GET  /v1/adapters
-GET  /v1/listeners
-GET  /v1/poll-sources
+GET  /v1/registry
+GET  /v1/registry
 GET  /v1/cursors?cursor=AGENT_ID
 GET  /v1/messages?recipient=IDENTITY
 POST /v1/agents
@@ -91,7 +100,7 @@ Example send:
 ```powershell
 $body = @{
   from = 'worker-1'
-  to = 'channel-relay'
+  to = 'outbound_delivery'
   type = 'channel_send'
   text = 'Workflow completed'
   channel_type = 'mattermost'
@@ -121,7 +130,7 @@ mailbox-client --url http://127.0.0.1:46667 subscriptions --all
 That mailbox identity is the stable **agent ID**, not a particular connection.
 One agent may have several simultaneous presences (commonly three or four),
 such as a Codex task, console client, mailbox poller, and Mattermost bot. Define
-them once in `config/relays.json`; listeners bind a platform connection to one
+them once in `config/relays.json`; connectors bind a platform connection to one
 of those presences. All inbound traffic for the bound presence is delivered to
 the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
 
@@ -130,13 +139,13 @@ the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
   "agents": [{
     "agent_id": "symbolic-workbench-codex",
     "presences": [
-      {"presence_id": "symbolic-codex-app", "kind": "codex"},
-      {"presence_id": "symbolic-console", "kind": "console"},
-      {"presence_id": "symbolic-mailbox", "kind": "mailbox"},
-      {"presence_id": "symbolic-mm", "kind": "platform"}
+      {"presence_id": "symbolic-codex-app"},
+      {"presence_id": "symbolic-console"},
+      {"presence_id": "symbolic-mailbox"},
+      {"presence_id": "symbolic-mm"}
     ]
   }],
-  "listeners": [{
+  "connectors": [{
     "id": "mattermost-primary",
     "adapter": "mattermost",
     "agent_id": "symbolic-workbench-codex",
@@ -145,41 +154,38 @@ the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
 }
 ```
 
-Presence IDs are globally unique. A listener cannot claim a presence belonging
+Presence IDs are globally unique. A connector cannot claim a presence belonging
 to a different agent. Existing configurations without `agents` remain valid.
 
 Create an agent, or idempotently add one of its presences, through the registry
 API. A newly created agent emits `agent_registered`; a newly created presence
 emits `presence_registered`. Both lifecycle records are retained on
-`mailbox-server-events-bus`. Repeating the same registration does not emit a
+`server_events`. Repeating the same registration does not emit a
 duplicate event.
 
 ```powershell
 $registration = @{
   agent_id = 'symbolic-workbench-codex'
   presence_id = 'symbolic-codex-app'
-  kind = 'codex'
 } | ConvertTo-Json
 Invoke-RestMethod http://127.0.0.1:46667/v1/agents `
   -Method Post -ContentType application/json -Body $registration
 ```
 
-The server exposes retained operational buses:
+The server exposes retained operational channels:
 
-- `mailbox-server-events-bus` contains server lifecycle and adapter events.
-- `mailbox-server-agent-to-agent-bus` contains copies of sends whose target is
+- `server_events` contains server lifecycle and adapter events.
+- `agent_to_agent` contains copies of sends whose target is
   a registered agent.
-- `mailbox-server-agent-to-channel-bus` contains a copy of every ordinary
+- `agent_to_channel` contains a copy of every ordinary
   send.
-- `mailbox-server-presence-to-AGENT_ID` is created for every registered agent
-  and aggregates every message routed toward that agent, whether the source is
-  another agent, one of its presences, or an external channel presence. For
-  example, `workspace-codex-agent` owns
-  `mailbox-server-presence-to-workspace-codex-agent`.
+- The agent ID itself is its writable mailbox. Messages addressed through one
+  of its presences are copied to that mailbox. For example,
+  `workspace-codex-agent` owns the `workspace-codex-agent` mailbox.
 
 Addressing a presence does not rewrite the original envelope. If `codex.star`
 is registered to `workspace-codex-agent`, the original record still says
-`to: "codex.star"`. Its per-agent bus copy adds
+`to: "codex.star"`. Its per-agent channel copy adds
 `addressed_presence_id: "codex.star"` and
 `resolved_agent_id: "workspace-codex-agent"`, allowing the owning agent to
 recognize and consume the message without losing the precise address used by
@@ -187,17 +193,17 @@ the sender.
 
 An original record and all of its audit copies share `dedupe_id`. Audit copies
 also contain `audit_of` (the original record ID) and `audit_recipient` (the
-original destination). The audit buses do not copy themselves, preventing
+original destination). The audit channels do not copy themselves, preventing
 recursive records.
 
 Agents can discover all retained sources, initialize each cursor exactly once
 at a caller-selected position, and poll every saved source in one command:
 
 ```powershell
-mailbox-client --url http://127.0.0.1:46667 poll-sources
+mailbox-client --url http://127.0.0.1:46667 channels
 mailbox-client --url http://127.0.0.1:46667 agents
 mailbox-client --url http://127.0.0.1:46667 agent-add review-agent `
-  --presence review-agent-codex --kind codex
+  --presence review-agent-app
 mailbox-client --url http://127.0.0.1:46667 agent-add review-agent --dry-run
 mailbox-client --url http://127.0.0.1:46667 agent-del review-agent `
   --presence review-agent-codex
@@ -205,43 +211,42 @@ mailbox-client --url http://127.0.0.1:46667 agent-del review-agent `
   --purge --dry-run
 mailbox-client --url http://127.0.0.1:46667 cursors --cursor symbolic-workbench-codex
 mailbox-client --url http://127.0.0.1:46667 cursor-init `
-  mailbox-server-events-bus mailbox-server-agent-to-agent-bus `
-  mailbox-server-agent-to-channel-bus --cursor symbolic-workbench-codex --start now
+  server_events agent_to_agent `
+  agent_to_channel --cursor symbolic-workbench-codex --start now
 mailbox-client --url http://127.0.0.1:46667 --as symbolic-workbench-codex `
   poll --subscriptions --interval 30 --checks 11
 ```
 
-`poll-sources` is a global catalog: it includes monitored channel buses,
-server/audit buses, and every registered agent's presence bus. `agents` lists
+`channels` is a global catalog: it includes monitored external channels,
+server/audit channels, and every registered agent mailbox. `agents` lists
 all registered messageable agents, including their presences. Each entry also
-includes its private `presence_bus` and a flat
-`subscriptions` list. Every subscription is the saved cursor state for one bus
-(`bus`, `cursor`, and byte `offset`); there is no second polling-subscription
+includes its private `agent_mailbox` and a flat
+`subscriptions` list. Every subscription is the saved cursor state for one channel
+(`channel`, `cursor`, and byte `offset`); there is no second polling-subscription
 layer. Listing agents never advances a subscription. `agent-add`
-creates a stable agent and can add one presence; valid presence kinds are
-`mailbox`, `console`, `codex`, and `platform`. Repeating the same registration
+creates a stable agent and can add one presence. Repeating the same registration
 is safe and reports that nothing new was created. Registration also exposes
-the agent's initial private presence bus in `poll-sources`. `agent-del` removes one
+the agent's mailbox in `channels`. `agent-del` removes one
 presence when `--presence` is supplied, or the entire agent otherwise. It
-retains private bus history and cursor files unless `--purge` is supplied.
-Use `--purge --dry-run` to see exactly which buses, records, and cursor files
+retains private channel history and cursor files unless `--purge` is supplied.
+Use `--purge --dry-run` to see exactly which channels, records, and cursor files
 would be deleted without changing anything. It refuses removals that would
-leave a listener pointing at a missing identity. `cursors`
-reports which of those buses have already been initialized for one cursor and
+leave a connector pointing at a missing identity. `cursors`
+reports which of those channels have already been initialized for one cursor and
 the current byte offset of each. The listing does not hide other agents'
 pollable sources.
 
 There is no server-defined age cutoff. Initial cursor positions may be
 `beginning`, `now`, an exact timestamp, or a caller-selected relative duration
 such as `7d`. Retained history can be queried independently of live cursors
-with `mailbox-client history BUS... --since 7d`.
+with `mailbox-client history CHANNEL... --since 7d`.
 
-Fully qualified qualified channels fan events out to those identities. For
+Subscribed channels fan events out to those identities. For
 example, subscribe an agent to server diagnostics and continue polling the
 agent's own mailbox:
 
 ```powershell
-mailbox-client subscribe local/0/server_events --to symbolic-workbench-codex
+mailbox-client subscribe server_events --to symbolic-workbench-codex
 mailbox-client poll --to symbolic-workbench-codex
 ```
 
@@ -249,22 +254,16 @@ An agent can ensure all required subscriptions when it starts:
 
 ```powershell
 mailbox-client poll --to symbolic-workbench-codex `
-  --subscribed local/0/server_events,mm/chat.snt/MATTERMOST_CHANNEL_ID
+  --subscribed server_events,mm/chat.snt/MATTERMOST_CHANNEL_ID
 ```
 
 These memberships are saved by the server in `config/relays.json` under
 `subscriptions[].subscribers` and survive relay restarts.
 
-Mattermost channel buses are named automatically. The relay resolves the
-configured endpoint, the Mattermost team (workspace), and the channel name,
-then persists the resulting slug. The `chat.singularitynet.io` endpoint
-becomes the literal normalized prefix
-`chat-singularitynet-io-mm`, producing a complete name such as
-`chat-singularitynet-io-mm-opencog-agent-test-bus`. Other endpoints use the
-same normalized-hostname rule. Until readable Mattermost
-metadata is available, the channel ID is used as a deterministic fallback;
-once resolved, the selected bus name is retained in the subscription metadata
-and returned by `poll-sources`.
+Mattermost messages are retained directly under their canonical address, such
+as `mm/chat.singularitynet.io/opaque-channel-id`. There is no generated alias
+or separate mapping. The immutable channel ID keeps the address stable if its
+display name changes.
 
 Every inbound Mattermost JSONL event also carries `workspace_id` (the original
 Mattermost `team_id`), `team_id`, `workspace_name`, and `channel_name`. The
@@ -318,7 +317,7 @@ Create a qualified local channel, or a channel on a configured platform whose
 credentials have creation permission:
 
 ```powershell
-mailbox-client channels create local/0/debug-console --title "Debug console"
+mailbox-client channels create debug-console --title "Debug console"
 mailbox-client channels create irc/0/testing
 mailbox-client channels create slack/0/agent-testing --topic "Agent testing"
 mailbox-client channels create discord/0/agent-testing --container GUILD_ID
@@ -541,12 +540,12 @@ Only the secret belongs in ignored `config/.env` or the process environment:
 
 ```dotenv
 MM_BOT_TOKEN=...
-MATTERMOST_RELAY_RECIPIENTS=local-agent
+MATTERMOST_RELAY_RECIPIENTS=
 MATTERMOST_RELAY_ENABLED=1
 ```
 
 The former `MM_URL`, `MM_CHANNEL_ID`, and `MM_CHANNEL_IDS` variables remain a
-legacy fallback when the JSON listener omits those fields.
+legacy fallback when the JSON connector omits those fields.
 
 Never store tokens in workspace resources, workflow files, mailbox records, or
 this README. Remote-machine access should be provided through an authenticated
@@ -560,18 +559,17 @@ Currently `mattermost`, `irc`, `discord`, `matrix` (including Element clients),
 `slack`, `telegram`, `whatsapp`, `facebook_messenger`, `viber`, and `line` are implemented.
 Discourse topics and replies are operational through signed webhooks and its REST API.
 
-## Listener registry
+## Connector registry
 
 [`config/relays.json`](config/relays.json) is the non-secret source of truth for what
-the proxy monitors and where inbound messages are mailboxed. Each listener has
+the proxy monitors and where inbound messages are mailboxed. Each connector has
 an adapter, direction (`inbound`, `outbound`, or `bidirectional`), channel IDs,
 and mailbox recipients. A channel ID beginning with `$` expands an environment
 variable, so deployment-specific identifiers can stay in `.env`.
 
 Credentials never belong in `relays.json`. Adding Discord, IRC, or another
-adapter means adding its implementation and then declaring its listeners in
-the same registry. The daemon reloads the file as it evaluates listener routing,
-so ordinary routing edits do not require a restart.
+adapter means adding its implementation and then declaring its connectors in
+the same registry.
 
 ## Import contacts and relay a whole channel
 
@@ -583,49 +581,15 @@ mailbox-client contacts --url http://127.0.0.1:46667 import contacts.vcf --syste
 mailbox-client contacts --url http://127.0.0.1:46667 list --system whatsapp
 ```
 
-To deliver every message from one IRC channel to a WhatsApp conversation, omit
-the source `channel_id` to match every channel heard by that listener, or set it
-to `#agents` to match only that channel:
-
-```json
-{
-  "id": "irc-to-douglas-whatsapp",
-  "enabled": true,
-  "source": {"listener_id": "irc-primary", "channel_id": "#agents"},
-  "destinations": [{
-    "adapter": "whatsapp",
-    "listener_id": "whatsapp-business-primary",
-    "channel_id": "15551234567"
-  }],
-  "controller": {"type": "presence_controller", "presence_id": "whatsapp-business"}
-}
-```
-
-This sends a separate Business API conversation to that WhatsApp recipient; it
-does not claim to join an ordinary personal WhatsApp group.
-
-The same route can be created safely from the server command line:
+To deliver retained IRC traffic to a WhatsApp conversation, add a cursor-driven
+relay using complete channel and destination addresses:
 
 ```powershell
-mailbox-client route attach irc-primary "#agents" `
-  whatsapp-personal-primary "123456789@g.us" --id irc-to-family
-mailbox-client route list
-mailbox-client route detach irc-to-family
+mailbox-client relay-add irc/irc.example/#agents `
+  whatsapp/example/15551234567 --id irc-to-whatsapp
+mailbox-client relays
+mailbox-client relay-del irc-to-whatsapp
 ```
-
-Manage the configuration of a running local or remote relay with `--url`; add
-`--token` when the server requires a Bearer token. Both switches may appear
-anywhere before or after the subcommand:
-
-```powershell
-mailbox-client route attach irc-primary "#agents" `
-  whatsapp-personal-primary "123456789@g.us" `
-  --url http://127.0.0.1:46667 --token $env:AGENT_MAILBOX_TOKEN
-```
-
-Use a quoted `"*"` source channel to match every channel heard by the source
-listener. Use `--controller agent:MAILBOX_RECIPIENT` when an agent should review
-or transform traffic; the default `presence` controller forwards immediately.
 
 ### Ordinary WhatsApp groups (explicitly unofficial)
 

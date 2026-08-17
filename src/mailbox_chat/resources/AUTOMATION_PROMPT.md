@@ -34,7 +34,7 @@ python agent_mailbox.py poll --to <AGENT_ID> --interval 30 --checks 10 <REQUIRED
 
 The poll checks immediately and then every 30 seconds for ten checks maximum.
 It exits early when addressed mail arrives. Exit status 2 with a
-`monitored_process_failure` object means a required listener disappeared.
+`monitored_process_failure` object means a required connector disappeared.
 Empty successful output is a healthy no-op.
 
 Ignore outbound echoes, empty messages, system events, messages not addressed
@@ -54,7 +54,7 @@ relay failures, authentication failures, or required-service failures.
 
 ## Example: REST relay on the same machine
 
-Replace `<AGENT_ID>` with a stable identity such as `local-agent`, use
+Replace `<AGENT_ID>` with a stable identity such as `my-project-codex`, use
 `http://127.0.0.1:46667` for `<MAILBOX_URL>`, and replace
 `<REQUIRED_PORT_ARGUMENTS>` with zero or more repeatable checks, for example:
 

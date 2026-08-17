@@ -8,7 +8,7 @@ import secrets
 import stat
 from pathlib import Path
 
-from .listener_registry import config_dir
+from .connector_registry import config_dir
 
 
 TOKEN_NAME = "MAILBOX_RELAY_TOKEN"

@@ -12,7 +12,7 @@ import urllib.request
 from .admin_io import load_input, normalize_options, render
 from .agent_mailbox import CHAT_COMMANDS
 from .endpoint_address import parse_endpoint
-from .listener_registry import load_listeners
+from .connector_registry import load_connectors
 from .adapters.irc_adapter import post_relay_command as post_irc_command, protocol_line
 from .adapters.mattermost_adapter import (
     arguments_from_namespace as mattermost_arguments,
@@ -162,10 +162,10 @@ def _remote_irc_list(url: str, token: str) -> dict:
 
 def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
     """List channels from every configured, enabled provider with discovery support."""
-    listeners = [item for item in load_listeners() if item["enabled"]]
+    connectors = [item for item in load_connectors() if item["enabled"]]
     providers: list[dict] = []
     new_entries = 0
-    for adapter in dict.fromkeys(str(item["adapter"]) for item in listeners):
+    for adapter in dict.fromkeys(str(item["adapter"]) for item in connectors):
         try:
             if adapter == "mattermost":
                 response = post_mattermost_command(args.url, token, "list", {"team": None})
