@@ -234,6 +234,17 @@ def test_cursor_initialization_is_create_once_and_remembers_channel(tmp_path: Pa
         agent_mailbox.initialize_cursor("a", cursor="agent-1", start="beginning", root=tmp_path)
 
 
+def test_ensure_cursor_repairs_subscription_without_overwriting_position(tmp_path: Path) -> None:
+    cursor_path = agent_mailbox._cursor_path(tmp_path, "channel:agent-1")
+    agent_mailbox._write_cursor(cursor_path, 42)
+
+    result = agent_mailbox.ensure_cursor("channel", cursor="agent-1", root=tmp_path)
+
+    assert result["offset"] == 42
+    assert result["start"] == "existing"
+    assert agent_mailbox.cursor_subscriptions("agent-1", root=tmp_path) == ["channel"]
+
+
 def test_cursor_listing_reports_every_initialized_channel_and_position(tmp_path: Path, capsys) -> None:
     agent_mailbox.send("private-agent", "before login", root=tmp_path)
     initialized = agent_mailbox.initialize_cursor(

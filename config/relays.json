@@ -134,7 +134,8 @@
       "direction": "bidirectional",
       "channel_ids": [
         "$MM_CHANNEL_ID",
-        "$MM_CHANNEL_IDS"
+        "$MM_CHANNEL_IDS",
+        "81u5jjbjttng8fejorr11xns9h"
       ],
       "bridge_agent": "mattermost-bridge-agent",
       "mailbox_recipients": [],

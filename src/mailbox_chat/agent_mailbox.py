@@ -381,6 +381,25 @@ def initialize_cursor(
     return {"recipient": recipient, "cursor": cursor, "start": start, "offset": offset}
 
 
+def ensure_cursor(
+    recipient: str,
+    *,
+    cursor: str,
+    start: str = "now",
+    root: Path | None = None,
+) -> dict[str, Any]:
+    """Initialize a cursor once, preserving and re-indexing an existing position."""
+    target = root or mailbox_dir()
+    cursor_path = _cursor_path(target, f"{recipient}:{cursor}")
+    if cursor_path.exists():
+        _remember_cursor_subscription(target, cursor, recipient)
+        return {
+            "recipient": recipient, "cursor": cursor, "start": "existing",
+            "offset": _read_cursor(cursor_path),
+        }
+    return initialize_cursor(recipient, cursor=cursor, start=start, root=target)
+
+
 def _safe_attachment_name(path: Path, used_names: set[str]) -> str:
     name = UNSAFE_FILENAME.sub("_", path.name).strip(" .") or "attachment"
     candidate = name
@@ -1772,6 +1791,14 @@ def main(argv: list[str] | None = None) -> int:
                 args.metadata, args.metadata_values, "--metadata",
             )
             from .subscriptions import ensure_channel, set_subscription
+            from .endpoint_address import parse_endpoint
+            endpoint = parse_endpoint(args.channel_id)
+            monitored = None
+            if endpoint:
+                from .connector_registry import add_connector_channel
+                monitored = add_connector_channel(
+                    endpoint.adapter, endpoint.instance, endpoint.identifier,
+                )
             channel = ensure_channel(args.channel_id, metadata=metadata, aliases=args.aliases)
             result = channel
             if args.subscribe_all:
@@ -1779,8 +1806,12 @@ def main(argv: list[str] | None = None) -> int:
                 agent_ids = [agent["agent_id"] for agent in load_agents()]
                 for agent_id in agent_ids:
                     set_subscription(channel["id"], agent_id, enabled=True)
+                    ensure_cursor(
+                        channel["id"], cursor=agent_id, start="now", root=mailbox_root,
+                    )
                 result = {
                     "channel": channel,
+                    **({"connector": monitored} if monitored else {}),
                     "subscribed_agents": agent_ids,
                     "count": len(agent_ids),
                 }
@@ -1879,10 +1910,17 @@ def main(argv: list[str] | None = None) -> int:
         _emit(_render_records(records, args.format), output=args.output, quiet=args.quiet)
     elif args.command == "poll":
         if args.poll_subscriptions:
-            recipients = (list(_rest_request(
+            cursor_recipients = (list(_rest_request(
                 "GET", "/v1/cursors?" + urllib.parse.urlencode({"cursor": args.cursor}),
                 base_url=rest_url,
             ).get("recipients", [])) if use_rest else cursor_subscriptions(args.cursor, root=mailbox_root))
+            configured_recipients = (list(_rest_request(
+                "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.cursor}),
+                base_url=rest_url,
+            ).get("channels", [])) if use_rest else __import__(
+                "mailbox_channels.subscriptions", fromlist=["subscriptions"]
+            ).subscriptions(args.cursor))
+            recipients = list(dict.fromkeys([*configured_recipients, *cursor_recipients]))
             if not recipients:
                 build_parser().error(f"cursor {args.cursor!r} has no polling subscriptions")
         else:

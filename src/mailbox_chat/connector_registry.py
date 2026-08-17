@@ -405,6 +405,47 @@ def connectors_for(adapter: str, *, direction: str | None = None) -> list[dict[s
     return matches
 
 
+def add_connector_channel(adapter: str, instance: str, channel_id: str,
+                          *, path: Path | None = None) -> dict[str, Any]:
+    """Persist one externally monitored channel on a selected connector."""
+    adapter, instance, channel_id = adapter.strip(), instance.strip(), channel_id.strip()
+    if not adapter or not instance or not channel_id:
+        raise ValueError("adapter, instance, and channel_id are required")
+    target = path or relays_file()
+    with _REGISTRY_WRITE_LOCK:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        raw_matches = [
+            item for item in payload.get("connectors") or []
+            if str(item.get("adapter") or "").strip().lower() == adapter.lower()
+            and str(item.get("direction") or "bidirectional") in {"inbound", "bidirectional"}
+            and bool(item.get("enabled", True))
+        ]
+        if instance.isdigit():
+            index = int(instance)
+            if index >= len(raw_matches):
+                raise ValueError(f"no {adapter} connector at index {instance}")
+            record = raw_matches[index]
+        else:
+            normalized = load_connectors(target)
+            ids = {
+                item["id"] for item in normalized
+                if item["adapter"] == adapter.lower()
+                and str(item.get("instance") or item.get("base_url") or "").rstrip("/")
+                   .removeprefix("https://").removeprefix("http://") == instance
+            }
+            matches = [item for item in raw_matches if str(item.get("id") or "") in ids]
+            if len(matches) != 1:
+                raise ValueError(f"could not uniquely select {adapter} connector {instance}")
+            record = matches[0]
+        channel_ids = list(record.get("channel_ids") or [])
+        if channel_id not in channel_ids:
+            channel_ids.append(channel_id)
+            record["channel_ids"] = channel_ids
+            _write_registry(target, payload)
+    return {"connector_id": str(record.get("id") or ""), "channel_id": channel_id,
+            "monitored": True}
+
+
 def _write_registry(target: Path, payload: dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")

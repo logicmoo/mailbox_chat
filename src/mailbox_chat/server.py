@@ -549,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
                             and bool(arguments.get("subscribe_all"))):
                         from .adapters.mattermost_adapter import resolve_address
                         from .connector_registry import load_agents
+                        from .connector_registry import add_connector_channel
                         from .endpoint_address import channel_resource_id, endpoint_instance
                         from .subscriptions import ensure_channel, set_subscription
 
@@ -557,6 +558,7 @@ def main(argv: list[str] | None = None) -> int:
                             base_url=relay.base_url,
                         )
                         channel_id = address.rsplit("/", 1)[-1]
+                        add_connector_channel("mattermost", "0", channel_id)
                         identity = relay._mattermost_channel_identity(channel_id)
                         instance = endpoint_instance("mattermost", relay.connector)
                         resource_id = channel_resource_id(
@@ -572,6 +574,9 @@ def main(argv: list[str] | None = None) -> int:
                         agent_ids = [agent["agent_id"] for agent in load_agents()]
                         for agent_id in agent_ids:
                             set_subscription(resource_id, agent_id, enabled=True)
+                            agent_mailbox.ensure_cursor(
+                                resource_id, cursor=agent_id, start="now",
+                            )
                         subscription_result = {
                             "channel": resource_id,
                             "subscribed_agents": agent_ids,
