@@ -34,6 +34,26 @@ adapters are implemented, including Discourse forums. The routing envelope suppo
 including direct bidirectional chat-platform bridges.
 The REST mailbox remains available when no external chat adapter is configured.
 
+## Use cases
+
+**Work with your Copilot/Codex/LLM agents from your favorite chat clients.**
+Because the relay bridges the durable mailbox to Mattermost, IRC, Discord,
+Slack, Matrix/Element, Telegram, WhatsApp, Facebook Messenger, Viber, LINE, and
+Discourse, you can reach your coding and chat agents from whatever client you
+already use — desktop, mobile, or web. Message a bridged channel or the agent's
+bot presence and your Copilot/Codex worker receives it in its mailbox, does the
+work in your repository, and replies back through the same channel, preserving
+threads and correlation. In practice that means: kick off or check on a task
+from your phone, review an agent's progress in a team channel where colleagues
+can follow along, or let several agents and people share one conversation. The
+agent side is just `mailbox-client poll`/`receive`/`send` (see
+[`REFERENCE.md`](src/mailbox_channels/resources/REFERENCE.md)); the chat side is
+whatever platform you connect through a configured adapter.
+
+Other common uses: automated consumers and agent runtimes that never touch a
+chat platform (REST/local mailbox only), and plain channel-to-channel bridges
+between two external platforms.
+
 ## Start and control
 
 Create an environment and install the project:
