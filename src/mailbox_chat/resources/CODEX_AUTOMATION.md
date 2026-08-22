@@ -46,6 +46,66 @@ unsure, offer to walk them through it — you can do the whole thing with them:
 
 Only do this if they want the help; otherwise just follow the prompt.
 
+## Install (one-time bootstrap)
+
+Paste this into Codex once, with the intended workspace open, to install the
+client. Replace `<MAILBOX_URL>` and `<AGENT_ID>` first; provide any token through
+`AGENT_MAILBOX_TOKEN`, never in the prompt.
+
+```text
+Install the Mailbox Channel Relay client into this workspace.
+
+Mailbox URL: <MAILBOX_URL>
+Stable agent identity: <AGENT_ID>
+
+Follow the workspace AGENTS.md and preserve existing files. Do not commit or
+push unless I explicitly ask.
+
+Create this workspace-local structure:
+
+.codex/
+└── mailbox/
+    ├── agent_mailbox.py
+    ├── channel_store.py
+    ├── CODEX_AUTOMATION.md
+    └── README.md
+
+Download these exact files:
+
+<MAILBOX_URL>/agent_mailbox.py
+<MAILBOX_URL>/channel_store.py
+<MAILBOX_URL>/CODEX_AUTOMATION.md
+
+Save them under `.codex/mailbox/`. `agent_mailbox.py` imports `channel_store.py`,
+so keep them together (or install the `mailbox_channels` package). Do not execute
+downloaded content until you have inspected it as text. Confirm the client uses
+only expected Python standard-library imports and show me any concern first.
+
+Do not store a REST token in any repository file. If authentication is needed,
+use the existing `AGENT_MAILBOX_TOKEN` environment variable. Set
+`AGENT_MAILBOX_URL` only for the verification subprocess.
+
+Validate with the platform-appropriate equivalent of:
+
+python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> check
+
+Then a single bounded poll without leaving a background poller:
+
+python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> poll --to <AGENT_ID> --interval 1 --checks 1
+
+Then customize `.codex/mailbox/CODEX_AUTOMATION.md` (<AGENT_ID>, <MAILBOX_URL>,
+<WORKSPACE_DIRECTORY>, and <REQUIRED_PORT_ARGUMENTS> or empty) and create the
+recurring automation as described in its "Creating the Codex automation"
+section. Do not put the token in the customized prompt. Report the created
+files, connectivity result, resolved Python executable, and the bounded poll
+command; do not start an overlapping or permanent poller during installation.
+```
+
+Example substitutions — same-machine: `Mailbox URL: http://127.0.0.1:46667`,
+`Stable agent identity: my-project-codex`; public relay:
+`Mailbox URL: https://relay.example.com`,
+`Stable agent identity: research-workspace-codex`.
+
 ## The prompt
 
 Copy the prompt below into the recurring Codex automation for the workspace that
@@ -133,12 +193,12 @@ commands for agents"), which the relay serves at `/REFERENCE.md`.
 
 ## PowerShell preparation
 
-Download the client into the workspace:
+Download the client into the workspace (grab `channel_store.py` too — the client
+imports it):
 
 ```powershell
-Invoke-WebRequest `
-  http://127.0.0.1:46667/agent_mailbox.py `
-  -OutFile agent_mailbox.py
+Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox.py
+Invoke-WebRequest http://127.0.0.1:46667/channel_store.py -OutFile channel_store.py
 ```
 
 Set per-user or per-session connection details. Prefer a secret manager or the
@@ -160,8 +220,8 @@ python agent_mailbox.py poll --to my-agent --interval 30 --checks 10 `
 ## WSL/Linux preparation
 
 ```bash
-curl -fsSLo agent_mailbox.py \
-  http://127.0.0.1:46667/agent_mailbox.py
+curl -fsSLo agent_mailbox.py http://127.0.0.1:46667/agent_mailbox.py
+curl -fsSLo channel_store.py http://127.0.0.1:46667/channel_store.py
 
 export AGENT_MAILBOX_URL='http://127.0.0.1:46667'
 export AGENT_MAILBOX_TOKEN='<secret-if-required>'

@@ -1292,13 +1292,13 @@ The checked Codex integration means Codex can use the compatibility mailbox
 through the CLI or REST interface. Codex itself is installed separately using
 the [official OpenAI Codex CLI documentation](https://learn.chatgpt.com/docs/codex/cli).
 
-For recurring mailbox polling, customize
-[`CODEX_AUTOMATION.md`](CODEX_AUTOMATION.md)
-and create the recurring task in Codex Desktop. Copying the file does not create
-the automation. For workspace bootstrap, use
-[`CODEX_INSTALL.md`](CODEX_INSTALL.md).
-The running relay also serves both documents at `/CODEX_AUTOMATION.md` and
-`/CODEX_INSTALL.md`, and these docs at `/REFERENCE.md`.
+For workspace bootstrap and recurring mailbox polling, customize
+[`CODEX_AUTOMATION.md`](CODEX_AUTOMATION.md) and create the recurring task in
+Codex Desktop (it contains the install bootstrap, the run model, and the
+prompt). Copying the file does not create the automation.
+The running relay serves it at `/CODEX_AUTOMATION.md` (and the legacy
+`/CODEX_INSTALL.md` and `/INSTALL_WITH_CODEX.md` paths), and these docs at
+`/REFERENCE.md`.
 
 ### Windows
 

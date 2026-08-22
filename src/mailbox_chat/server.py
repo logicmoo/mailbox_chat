@@ -316,7 +316,9 @@ def main(argv: list[str] | None = None) -> int:
                 self._file(RESOURCE_ROOT / "CODEX_AUTOMATION.md", "text/markdown; charset=utf-8")
                 return
             if parsed.path in {"/CODEX_INSTALL.md", "/INSTALL_WITH_CODEX.md"}:
-                self._file(RESOURCE_ROOT / "CODEX_INSTALL.md", "text/markdown; charset=utf-8")
+                # Install is consolidated into CODEX_AUTOMATION.md; keep these
+                # paths as backward-compatible aliases.
+                self._file(RESOURCE_ROOT / "CODEX_AUTOMATION.md", "text/markdown; charset=utf-8")
                 return
             if parsed.path.endswith(".md") and parsed.path.count("/") == 1:
                 name = parsed.path[1:]
