@@ -461,7 +461,7 @@ All adapters use the same `TYPE/INSTANCE/SOURCE_OR_DESTINATION` form. Canonical
 types are `wa`, `wab`, `viber`, `mm`, `discord`, `discourse`, `irc`, `slack`,
 `matrix`, `telegram`, `facebook`, and `line`. `wa` means personal WhatsApp;
 `wab` means WhatsApp Business. The full address table is in
-`src/mailbox_channels/resources/INSTRUCTIONS.md`.
+`src/mailbox_channels/resources/REFERENCE.md`.
 
 ## Client commands
 
@@ -488,7 +488,7 @@ mailbox-console --as operator --on mm/chat.singularitynet.io
 Client installation, repository-local launchers, `mailbox-client`, named
 mailboxes, command documents, cursor behavior, Trusted Speaker, REST, the local
 JSON store, WebSocket, and platform setup are consolidated in
-[`docs/INSTRUCTIONS.md`](src/mailbox_channels/resources/INSTRUCTIONS.md).
+[`REFERENCE.md`](src/mailbox_channels/resources/REFERENCE.md).
 
 ## Public attachment links
 
@@ -705,7 +705,7 @@ Resolution requests are keyed by source system, identifier, and resolver. An
 already-pending request is not issued again unless `--force` is supplied. The
 same commands work interactively as `/registry ...` in `mailbox-console`.
 
-See [`INSTRUCTIONS.md`](src/mailbox_channels/resources/INSTRUCTIONS.md) for the implementation checklist,
+See [`REFERENCE.md`](src/mailbox_channels/resources/REFERENCE.md) for the implementation checklist,
 complete operational contract; platform-side application, bot, token,
 permission, channel/room ID, and installation steps; and Mattermost, Discord,
 Slack, IRC, Matrix/Element, Discourse, WhatsApp, Viber, Telegram, LINE, REST,

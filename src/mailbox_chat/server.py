@@ -309,11 +309,11 @@ def main(argv: list[str] | None = None) -> int:
             if parsed.path == "/agent_mailbox.py":
                 self._file(PACKAGE_ROOT / "agent_mailbox.py", "text/x-python; charset=utf-8")
                 return
-            if parsed.path == "/AUTOMATION_PROMPT.md":
-                self._file(RESOURCE_ROOT / "AUTOMATION_PROMPT.md", "text/markdown; charset=utf-8")
+            if parsed.path in {"/CODEX_AUTOMATION.md", "/AUTOMATION_PROMPT.md"}:
+                self._file(RESOURCE_ROOT / "CODEX_AUTOMATION.md", "text/markdown; charset=utf-8")
                 return
-            if parsed.path == "/INSTALL_WITH_CODEX.md":
-                self._file(RESOURCE_ROOT / "INSTALL_WITH_CODEX.md", "text/markdown; charset=utf-8")
+            if parsed.path in {"/CODEX_INSTALL.md", "/INSTALL_WITH_CODEX.md"}:
+                self._file(RESOURCE_ROOT / "CODEX_INSTALL.md", "text/markdown; charset=utf-8")
                 return
             if parsed.path.endswith(".md") and parsed.path.count("/") == 1:
                 name = parsed.path[1:]

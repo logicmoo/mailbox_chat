@@ -1041,6 +1041,72 @@ mailbox-client mailbox-del research
 Over REST these use `POST /v1/mailboxes`. `load_mailboxes` also reports every
 stored channel document, since each per-channel `.json` file is a mailbox.
 
+### Choosing an agent identity
+
+Give each Codex/Copilot agent a stable, unique mailbox identity and reuse it
+across runs so its cursor advances correctly. Rules:
+
+- Use lowercase and hyphens only (`a-z`, `0-9`, `-`); no spaces, slashes, or
+  `@`/`~` sigils. Slashes are reserved for external endpoint addresses
+  (`adapter/instance/id`); the hyphen id is the agent's own mailbox.
+- Make it descriptive and workspace-scoped, and suffix the runtime, e.g.
+  `<project>-<role>-codex` or `<project>-copilot`:
+  `symbolic-workbench-codex`, `research-workspace-codex`, `omegaclaw-core-codex`.
+- Keep it unique per concurrent consumer. Two agents must not share an identity
+  (or `--cursor`) unless they intentionally share one work stream, because
+  receiving advances that identity's cursor.
+- The identity is durable: put it (and the poll command) in the workspace
+  `AGENTS.md` so every run of that workspace uses the same name.
+
+The relay derives the agent's direct-message mailbox from the id automatically
+(the underscored twin, e.g. `research-workspace-codex` reads
+`research_workspace_codex`), so no extra setup is needed.
+
+### mailbox-client commands for agents
+
+An agent drives the relay entirely through `mailbox-client`. Every command
+accepts `--url <MAILBOX_URL>` (or the
+`AGENT_MAILBOX_URL` environment variable); output is JSON Lines by default, or
+add `--format json|text`. The commands an agent normally uses:
+
+```text
+# Confirm access without consuming mail:
+mailbox-client --url <MAILBOX_URL> check
+
+# Wait for addressed mail (bounded), then stop:
+mailbox-client --url <MAILBOX_URL> poll --to <AGENT_ID> --interval 30 --checks 10
+
+# Consume unread messages (advances this identity's cursor):
+mailbox-client --url <MAILBOX_URL> receive --to <AGENT_ID>
+
+# Inspect without advancing the cursor, or count unread:
+mailbox-client --url <MAILBOX_URL> peek --to <AGENT_ID>
+mailbox-client --url <MAILBOX_URL> unread-count --to <AGENT_ID>
+
+# Acknowledge a specific message (advance through its id):
+mailbox-client --url <MAILBOX_URL> ack --from <AGENT_ID> <MESSAGE_ID>
+
+# Reply / send progress, preserving correlation and routing fields:
+mailbox-client --url <MAILBOX_URL> send --as <AGENT_ID> --to <RECIPIENT> "text"
+```
+
+Each received record carries `id`, `from`, `to`, `type`, `text`, and routing
+fields (`channel_id`, `channel_type`, `thread_id`, `root_id`, `source_id`,
+`correlation_id`); echo them back on replies so responses route correctly. Give
+each concurrent consumer a unique identity or `--cursor` so cursors do not
+collide.
+
+To schedule follow-up work instead of running it inline, enqueue it to the
+server worker pool (or ask the worker to run it in the operator console):
+
+```text
+mailbox-client --url <MAILBOX_URL> exec --priority=enque send <RECIPIENT> "later"
+mailbox-client --url <MAILBOX_URL> exec --priority=follow-enque <COMMAND> ...
+```
+
+Append `--curl` to any command to print the equivalent REST call without
+sending it, which is useful for constructing requests from another language.
+
 ### Trusted Speaker
 
 `mailbox-console UNIQUE_IDENTITY --to DESTINATION` opens the interactive
@@ -1224,12 +1290,12 @@ through the CLI or REST interface. Codex itself is installed separately using
 the [official OpenAI Codex CLI documentation](https://learn.chatgpt.com/docs/codex/cli).
 
 For recurring mailbox polling, customize
-[`AUTOMATION_PROMPT.md`](AUTOMATION_PROMPT.md)
+[`CODEX_AUTOMATION.md`](CODEX_AUTOMATION.md)
 and create the recurring task in Codex Desktop. Copying the file does not create
 the automation. For workspace bootstrap, use
-[`INSTALL_WITH_CODEX.md`](INSTALL_WITH_CODEX.md).
-The running relay also serves both documents at `/AUTOMATION_PROMPT.md` and
-`/INSTALL_WITH_CODEX.md`, and these docs at `/INSTRUCTIONS.md`.
+[`CODEX_INSTALL.md`](CODEX_INSTALL.md).
+The running relay also serves both documents at `/CODEX_AUTOMATION.md` and
+`/CODEX_INSTALL.md`, and these docs at `/REFERENCE.md`.
 
 ### Windows
 

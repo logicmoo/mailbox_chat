@@ -12,7 +12,8 @@ def test_demo_page_links_to_live_relay_resources() -> None:
         "/v1/identifiers",
         "/v1/identifier-resolution-requests",
         "/agent_mailbox.py",
-        "/INSTALL_WITH_CODEX.md",
-        "/AUTOMATION_PROMPT.md",
+        "/CODEX_INSTALL.md",
+        "/CODEX_AUTOMATION.md",
+        "/REFERENCE.md",
     ):
         assert f'href="{path}"' in page
