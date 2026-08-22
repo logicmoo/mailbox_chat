@@ -1,7 +1,10 @@
 from pathlib import Path
 
 
-INSTRUCTIONS = Path(__file__).parents[1] / "docs" / "INSTRUCTIONS.md"
+INSTRUCTIONS = (Path(__file__).parents[1] / "src" / "mailbox_channels" /
+                "resources" / "docs" / "INSTRUCTIONS.md")
+RESOURCES = INSTRUCTIONS.parents[1]
+REPO_ROOT = INSTRUCTIONS.parents[4]
 
 
 def test_every_platform_entry_starts_with_setup() -> None:
@@ -45,7 +48,7 @@ def test_wsl_instructions_use_supported_root_launchers() -> None:
 
 
 def test_repository_docs_do_not_invoke_removed_python_entrypoints() -> None:
-    root = INSTRUCTIONS.parents[1]
+    root = REPO_ROOT
     instructions = INSTRUCTIONS.read_text(encoding="utf-8")
     readme = (root / "README.md").read_text(encoding="utf-8")
     combined = instructions + readme
@@ -58,9 +61,7 @@ def test_repository_docs_do_not_invoke_removed_python_entrypoints() -> None:
 
 
 def test_standalone_client_docs_avoid_cross_wsl_direct_store() -> None:
-    prompt = (INSTRUCTIONS.parents[1] / "src" /
-              "mailbox_channels" / "resources" /
-              "AUTOMATION_PROMPT.md").read_text(encoding="utf-8")
+    prompt = (RESOURCES / "AUTOMATION_PROMPT.md").read_text(encoding="utf-8")
 
     assert "AGENT_MAILBOX_DIR='/mnt/c" not in prompt
     assert "Use the relay's REST URL across the Windows/WSL boundary" in prompt
