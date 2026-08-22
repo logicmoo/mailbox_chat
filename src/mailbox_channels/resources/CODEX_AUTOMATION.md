@@ -1,13 +1,64 @@
 # Codex mailbox automation prompt
 
-Copy the prompt below into a recurring Codex automation for the workspace that
+This file explains everything needed to run a Codex/Copilot agent against the
+mailbox — for the human setting it up and for the agent that runs each wake.
+
+## How it works (for the operator)
+
+- You create one recurring Codex automation that fires every **30 seconds** as a
+  liveness **heartbeat**.
+- The heartbeat does not do the polling itself. It checks whether a bounded
+  polling session for this agent identity is already alive. If it is, the
+  heartbeat does nothing (so sessions never overlap). If it is not — because it
+  died or because it exited early after handling a task — the heartbeat restarts
+  it.
+- A restarted session **sits and polls for up to a 5-minute timeout** (checks
+  immediately, then every 30 seconds, up to ten checks) and exits early the
+  moment addressed mail arrives so the agent can act. After the agent finishes a
+  quick task, the next 30-second heartbeat brings polling back within 30 seconds
+  — no multi-minute blackout.
+- Each heartbeat first **refreshes the client to the latest code**: it downloads
+  `<MAILBOX_URL>/agent_mailbox.py` (and `<MAILBOX_URL>/channel_store.py` beside
+  it, which it imports) before starting a new session, so the agent always runs
+  current code.
+
+Give the agent a stable, unique, hyphens-only identity (see "Choosing an agent
+identity" in `REFERENCE.md`). Put the identity and this automation in the
+workspace `AGENTS.md` so it is durable.
+
+## For the agent reading this
+
+The section above is what the user needs to know to set you up. If they seem
+unsure, offer to walk them through it — you can do the whole thing with them:
+
+1. Help them pick a stable, unique, hyphens-only agent identity.
+2. Explain the 30-second heartbeat / restart-on-death / 5-minute bounded-poll
+   model in plain language (recovery within 30 seconds after a quick task, no
+   overlapping sessions).
+3. Refresh the client to the latest code by downloading
+   `<MAILBOX_URL>/agent_mailbox.py` and `<MAILBOX_URL>/channel_store.py`, and
+   inspect them as text before running.
+4. Create the recurring automation, paste the prompt below, and provide
+   `AGENT_MAILBOX_TOKEN` through the automation environment (never in the prompt
+   or a repo file).
+5. Run one manual check (`agent_mailbox.py --url <MAILBOX_URL> check`) and a
+   single bounded poll to confirm connectivity before leaving it unattended.
+
+Only do this if they want the help; otherwise just follow the prompt.
+
+## The prompt
+
+Copy the prompt below into the recurring Codex automation for the workspace that
 should receive mailbox work. Replace every `<PLACEHOLDER>` before enabling it.
 
-Schedule the Codex automation approximately every five minutes. Each wake runs
-one bounded polling session that checks immediately and then every 30 seconds,
-for at most ten checks. Do **not** schedule a new Codex task every 30 seconds;
-the bounded client command performs those checks and prevents overlapping
-polling sessions.
+Run the Codex automation as a liveness heartbeat every 30 seconds. Each wake
+checks whether this identity's polling session is already alive: if it is, do
+nothing and never start an overlapping session; if it is not (it died, or exited
+early after handling work), restart it. The restarted session sits and polls for
+up to a 5-minute timeout — it checks immediately, then every 30 seconds for at
+most ten checks, and exits early when addressed mail arrives so the agent can
+act. This keeps recovery within 30 seconds after a quick task while the bounded
+poll does the actual checking and prevents overlapping sessions.
 
 ```text
 Mailbox identity: <AGENT_ID>
@@ -15,13 +66,18 @@ Mailbox REST URL: <MAILBOX_URL>
 Mailbox token environment variable: AGENT_MAILBOX_TOKEN
 Workspace directory: <WORKSPACE_DIRECTORY>
 
-From the workspace directory, first inspect running processes and reuse or
-await any active `agent_mailbox.py poll --to <AGENT_ID>` subprocess. Never start an
-overlapping polling session for this identity.
+This wake is a 30-second liveness heartbeat. From the workspace directory, first
+inspect running processes and reuse or await any active
+`agent_mailbox.py poll --to <AGENT_ID>` subprocess. Never start an overlapping
+polling session for this identity; only (re)start one when none is alive.
 
 Set AGENT_MAILBOX_URL to <MAILBOX_URL>. If the relay requires authentication,
 read the secret from AGENT_MAILBOX_TOKEN. Never print, log, echo, or place that
 token on the command line. Do not put secrets in repository files.
+
+Before starting a new polling session, refresh the client so it runs the latest
+code: download <MAILBOX_URL>/agent_mailbox.py (and <MAILBOX_URL>/channel_store.py
+next to it) and overwrite the local copies. Inspect them as text before running.
 
 Locate `agent_mailbox.py` in the workspace. On Windows PowerShell, prefer the
 workspace virtual-environment Python when present, otherwise use `py -3` or
@@ -32,10 +88,11 @@ When no prior polling session is running, execute the platform-equivalent of:
 
 python agent_mailbox.py poll --to <AGENT_ID> --interval 30 --checks 10 <REQUIRED_PORT_ARGUMENTS>
 
-The poll checks immediately and then every 30 seconds for ten checks maximum.
-It exits early when addressed mail arrives. Exit status 2 with a
-`monitored_process_failure` object means a required connector disappeared.
-Empty successful output is a healthy no-op.
+The poll checks immediately and then every 30 seconds for ten checks maximum
+(up to a 5-minute timeout). It exits early when addressed mail arrives; the next
+30-second heartbeat restarts it. Exit status 2 with a `monitored_process_failure`
+object means a required connector disappeared. Empty successful output is a
+healthy no-op.
 
 Ignore outbound echoes, empty messages, system events, messages not addressed
 to <AGENT_ID>, and already-handled message IDs. For genuine new requests:
@@ -154,7 +211,9 @@ for independent consumers.
 
 1. Open the intended workspace in Codex Desktop.
 2. Create a recurring automation for that workspace.
-3. Choose an interval near five minutes.
+3. Choose a 30-second interval (a liveness heartbeat). The bounded poll it
+   (re)starts runs up to a 5-minute timeout and the heartbeat only restarts it
+   when no session is alive, so heartbeats never overlap pollers.
 4. Paste the customized prompt from this file.
 5. Provide `AGENT_MAILBOX_TOKEN` through the automation environment when the
    server requires it; do not paste the token into the prompt.
