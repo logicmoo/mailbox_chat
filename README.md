@@ -87,11 +87,32 @@ GET  /v1/registry
 GET  /v1/cursors?cursor=AGENT_ID
 GET  /v1/messages?recipient=IDENTITY
 POST /v1/agents
+POST /v1/connectors
+POST /v1/channels
+POST /v1/relays
 POST /v1/cursors
 POST /v1/messages
+POST /api/restart
+POST /api/shutdown
 GET  /page-demo
 GET  /cmd-client/?args=ARGUMENTS
 ```
+
+Every `mailbox-client` action has a REST equivalent, so a remote client (`--url`)
+can do everything a local one can. The registry-mutating commands map to
+`POST /v1/connectors`, `POST /v1/channels`, and `POST /v1/relays` (each accepts
+`{"action":"delete", …}` to remove); they edit the server's own configuration
+rather than the caller's disk.
+
+`/api/restart` and `/api/shutdown` (both accept GET or POST, and honour the REST
+token when one is configured) let you — or an assistant working with you —
+control the server remotely. `/api/restart` makes the process exit so that
+`mailbox-server-loop` relaunches it with your newly edited code; `/api/shutdown`
+returns exit code 42 so the loop quits instead of relaunching. The bundled
+`mailbox-restart.cmd` and `mailbox-stop.cmd` are one-line wrappers for them.
+Whoever starts `mailbox-server-loop` shares this control: the loop owner can use
+the console keys (R/Enter to restart, Ctrl+C to quit) and both parties can use
+the endpoints.
 
 `/cmd-client/` is a persistent browser console for the bundled
 `mailbox-client`. It automatically targets the relay serving the page, retains
@@ -136,8 +157,9 @@ mailbox-client --url http://127.0.0.1:46667 subscriptions --all
 
 That mailbox identity is the stable **agent ID**, not a particular connection.
 One agent may have several simultaneous presences (commonly three or four),
-such as a Codex task, console client, mailbox poller, and Mattermost bot. Define
-them once in `config/relays.json`; connectors bind a platform connection to one
+such as a Codex task, console client, mailbox poller, and Mattermost bot. Register
+them through the registry API; they persist in the `server_registry_agents`
+document under the mailbox root. Connectors bind a platform connection to one
 of those presences. All inbound traffic for the bound presence is delivered to
 the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
 
@@ -153,7 +175,7 @@ the owning `agent_id`, so the agent keeps one durable mailbox and cursor:
     ]
   }],
   "connectors": [{
-    "id": "mattermost-primary",
+    "id": "mattermost-chat-singularitynet-io",
     "adapter": "mattermost",
     "agent_id": "symbolic-workbench-codex",
     "presence_id": "symbolic-mm"
@@ -208,6 +230,7 @@ at a caller-selected position, and poll every saved source in one command:
 
 ```powershell
 mailbox-client --url http://127.0.0.1:46667 channels
+mailbox-client --url http://127.0.0.1:46667 mailboxes
 mailbox-client --url http://127.0.0.1:46667 agents
 mailbox-client --url http://127.0.0.1:46667 agent-add review-agent `
   --presence review-agent-app
@@ -224,8 +247,11 @@ mailbox-client --url http://127.0.0.1:46667 --as symbolic-workbench-codex `
   poll --subscriptions --interval 30 --checks 11
 ```
 
-`channels` is a global catalog: it includes monitored external channels,
-server/audit channels, and every registered agent mailbox. `agents` lists
+`channels` lists external channels we hold a presence on and are handling
+(IRC/Mattermost/etc.). `mailboxes` is the full local catalog of cursor-consumed
+streams: agent inboxes, server/audit streams, and the local mailbox view of
+external channels. To discover channels we are *not* on, use the chat `list`
+command. `agents` lists
 all registered messageable agents, including their presences. Each entry also
 includes its private `agent_mailbox` and a flat
 `subscriptions` list. Every subscription is the saved cursor state for one channel
@@ -264,8 +290,8 @@ mailbox-client poll --to symbolic-workbench-codex `
   --subscribed server_events,mm/chat.snt/MATTERMOST_CHANNEL_ID
 ```
 
-These memberships are saved by the server in `config/relays.json` under
-`subscriptions[].subscribers` and survive relay restarts.
+These memberships are saved by the server in the `server_registry_channels`
+registry under each channel's `subscribers` and survive relay restarts.
 
 Mattermost messages are retained directly under their canonical address, such
 as `mm/chat.singularitynet.io/opaque-channel-id`. There is no generated alias
@@ -320,20 +346,20 @@ IRC exposes a read-only server/status conversation at `irc/0/status`. Subscribe
 or open `/console irc/0/status` to receive server notices, errors, and numeric
 status replies without confusing that window with a real `#status` channel.
 
-Create a qualified local channel, or a channel on a configured platform whose
-credentials have creation permission:
+Register a known channel locally (and optionally subscribe every agent) with
+`channel-add`; for IRC and Mattermost, `join` joins the bot presence and creates
+the channel when your credentials allow:
 
 ```powershell
-mailbox-client channels create debug-console --title "Debug console"
-mailbox-client channels create irc/0/testing
-mailbox-client channels create slack/0/agent-testing --topic "Agent testing"
-mailbox-client channels create discord/0/agent-testing --container GUILD_ID
-mailbox-client channels create mm/0/agent-testing --container TEAM_ID
-mailbox-client channels create matrix/0/agent-testing
+mailbox-client channel-add debug-console --set title="Debug console"
+mailbox-client channel-add mm/0/agent-testing --subscribe-all
+mailbox-client join #testing
+mailbox-client join mm/INSTANCE/agent-testing --subscribe-all
 ```
 
-The same family works as `/channels create ...` in the console. Telegram and
-WhatsApp Business bot APIs do not expose arbitrary group creation, so those
+`channel-add` registers/monitors a channel in the local registry; `join` (also
+`/join ...` in the console) performs the platform-side join-or-create. Telegram
+and WhatsApp Business bot APIs do not expose arbitrary group creation, so those
 adapters report the operation as unsupported.
 
 Standard IRC operations are top-level `mailbox-client` commands and are all
@@ -488,8 +514,8 @@ The byte-based environment equivalents are
 `MAILBOX_RELAY_MAX_ATTACHMENT_STORAGE_BYTES`. New local attachments and
 inbound platform downloads are rejected before either limit is exceeded.
 
-The other durable stores are bounded independently: `messages.jsonl` defaults
-to 5 GiB and each relay-owned SQLite database defaults to 1 GiB. Configure
+The other durable stores are bounded independently: the JSON message store
+defaults to 5 GiB and each relay-owned SQLite database defaults to 1 GiB. Configure
 these with `--max-jsonl-mb` and `--max-sqlite-mb`, or the byte-valued
 `MAILBOX_RELAY_MAX_JSONL_BYTES` and `MAILBOX_RELAY_MAX_SQLITE_BYTES`
 environment variables.
@@ -545,12 +571,13 @@ transit.
 
 ## Configuration and security
 
-The daemon binds only `127.0.0.1`. Put the non-secret Mattermost connection
-and channel configuration in `config/relays.json`:
+The daemon binds only `127.0.0.1`. Register the non-secret Mattermost connection
+and channel configuration as a connector (stored in `server_registry_connectors`
+under the mailbox root):
 
 ```json
 {
-  "id": "mattermost-primary",
+  "id": "mattermost-chat-singularitynet-io",
   "adapter": "mattermost",
   "instance": "chat.singularitynet.io",
   "base_url": "https://chat.singularitynet.io",
@@ -584,13 +611,14 @@ Discourse topics and replies are operational through signed webhooks and its RES
 
 ## Connector registry
 
-[`config/relays.json`](config/relays.json) is the non-secret source of truth for what
+The connector registry (`server_registry_connectors` under the mailbox root) is
+the non-secret source of truth for what
 the proxy monitors and where inbound messages are mailboxed. Each connector has
 an adapter, direction (`inbound`, `outbound`, or `bidirectional`), channel IDs,
 and mailbox recipients. A channel ID beginning with `$` expands an environment
 variable, so deployment-specific identifiers can stay in `.env`.
 
-Credentials never belong in `relays.json`. Adding Discord, IRC, or another
+Credentials never belong in the connector registry. Adding Discord, IRC, or another
 adapter means adding its implementation and then declaring its connectors in
 the same registry.
 
@@ -634,8 +662,8 @@ $env:WHATSAPP_PERSONAL_RELAY_URL = "http://127.0.0.1:46667"
 ```
 
 Scan the terminal QR code with Linked Devices. Session state stays in
-`companions/whatsapp-personal/.session/` and is ignored by Git. Enable
-`whatsapp-personal-primary` in `relays.json`, using the same two secrets for the
+`companions/whatsapp-personal/.session/` and is ignored by Git. Enable the
+`whatsapp-personal` connector in the registry, using the same two secrets for the
 relay server and companion. Run only one companion per saved session.
 
 Opaque identifier dictionaries are durable across runs. They are stored in

@@ -35,12 +35,29 @@ class IrcAdapter:
             "channels": [],
         }
 
-    def configure(self) -> bool:
-        configured = connectors_for("irc")
-        self.connector = configured[0] if configured else None
+    def configure(self, connector: dict[str, Any] | None = None) -> bool:
+        if connector is None:
+            configured = connectors_for("irc")
+            connector = configured[0] if configured else None
+        self.connector = connector
         self.status["enabled"] = self.connector is not None
         self.status["channels"] = list(self.connector.get("channel_ids", [])) if self.connector else []
+        if self.connector is not None:
+            self.status["connector_id"] = self.connector_id
+            self.status["instance"] = self.irc_instance
         return bool(self.connector)
+
+    @property
+    def connector_id(self) -> str:
+        return str((self.connector or {}).get("id") or "")
+
+    @property
+    def irc_instance(self) -> str:
+        """Stable server instance used to route outbound messages to this server."""
+        if not self.connector:
+            return ""
+        from ..endpoint_address import endpoint_instance
+        return endpoint_instance("irc", self.connector)
 
     def connect(self) -> None:
         if not self.connector:

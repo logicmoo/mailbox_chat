@@ -70,6 +70,13 @@ def parser() -> argparse.ArgumentParser:
         "list", help="list channels across all providers, or one selected with --on",
     )
     listing.add_argument("--team", help="limit Mattermost results to a team ID or name")
+    listing.add_argument(
+        "--bot", nargs="?", const="", metavar="BOTNICK",
+        help="list Mattermost channels the bot (or BOTNICK) has joined instead of discovering all",
+    )
+    listing.add_argument("--page", type=int, help="Mattermost discovery start page (default 0; discovery pages to the end)")
+    listing.add_argument("--per-page", "--per_page", dest="per_page", type=int,
+                         help="Mattermost channels per discovery page (default 100)")
     names = commands.add_parser(
         "names", help="list channel users by registered name, ID, address, or platform URL",
     )
@@ -169,10 +176,16 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
     connectors = [item for item in load_connectors() if item["enabled"]]
     providers: list[dict] = []
     new_entries = 0
+    mm_arguments = {
+        "team": getattr(args, "team", None),
+        "bot": getattr(args, "bot", None),
+        "page": getattr(args, "page", None),
+        "per_page": getattr(args, "per_page", None),
+    }
     for adapter in dict.fromkeys(str(item["adapter"]) for item in connectors):
         try:
             if adapter == "mattermost":
-                response = post_mattermost_command(args.url, token, "list", {"team": None})
+                response = post_mattermost_command(args.url, token, "list", mm_arguments)
                 registry = response.get("registry") if isinstance(response, dict) else None
                 if isinstance(registry, dict):
                     new_entries += int(registry.get("new_entries") or 0)

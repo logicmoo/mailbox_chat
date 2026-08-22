@@ -1,4 +1,4 @@
-"""Minimal append-only JSONL mailbox shared by local agents."""
+﻿"""Minimal append-only JSONL mailbox shared by local agents."""
 
 from __future__ import annotations
 
@@ -43,6 +43,11 @@ except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, destination)
 
+try:
+    from . import channel_store
+except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
+    import channel_store  # type: ignore[no-redef]
+
 
 DEFAULT_SENDER = "console-default-agent"
 MAILBOX_ENV = "AGENT_MAILBOX_DIR"
@@ -56,8 +61,8 @@ REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
 MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
 DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
-SERVER_AGENT_TO_AGENT_CHANNEL = "agent_to_agent"
-SERVER_AGENT_TO_CHANNEL_CHANNEL = "agent_to_channel"
+SERVER_AGENT_TO_AGENT_CHANNEL = "server_outbound_relay_agent_to_agent"
+SERVER_AGENT_TO_CHANNEL_CHANNEL = "server_outbound_relay_agent_to_channel"
 SERVER_AUDIT_CHANNELS = {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}
 IRC_COMMANDS = ("ping", "list", "names", "join", "part", "topic", "nick", "whois",
                 "mode", "invite", "kick", "message", "notice", "raw")
@@ -99,6 +104,7 @@ COMMAND_POSITIONALS = {
     "cursor-init": ("recipients",),
     "cursors": (),
     "agents": (),
+    "mailboxes": (),
     "agent-add": ("agent_id",),
     "agent-del": ("agent_id",),
     "follow": ("recipient",),
@@ -120,60 +126,60 @@ def mailbox_dir() -> Path:
     return Path(configured).expanduser().resolve() if configured else default_mailbox_dir()
 
 
-def _cursor_path(root: Path, recipient: str) -> Path:
-    digest = hashlib.sha256(recipient.encode("utf-8")).hexdigest()[:16]
-    return root / "cursors" / f"{digest}.cursor"
+def _cursor_owner(recipient: str, cursor: str | None, root: Path | None = None) -> str:
+    """Cursors live in server_registry_agents keyed by owner, then channel.
 
-
-def _read_cursor(path: Path) -> int:
+    A named cursor is its own owner. Otherwise the owner is the registered
+    agent whose mailbox is the recipient channel, falling back to the
+    recipient itself.
+    """
+    if cursor:
+        return cursor
     try:
-        return max(0, int(path.read_text(encoding="ascii").strip()))
-    except (FileNotFoundError, ValueError):
-        return 0
+        for record in channel_store.registry_entries(
+                root or mailbox_dir(), channel_store.AGENTS_REGISTRY):
+            payload = record.get("payload") or {}
+            agent_id = str(payload.get("agent_id") or record.get("id") or "")
+            mailbox = str(payload.get("mailbox") or "").strip() or agent_id.replace("-", "_")
+            if mailbox == recipient or agent_id == recipient:
+                return agent_id
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    return recipient
 
 
-def _write_cursor(path: Path, offset: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(str(offset), encoding="ascii")
-    os.replace(temporary, path)
+def _cursor_next_index(root: Path, owner: str, channel_id: str) -> int | None:
+    state = channel_store.get_cursor(root, owner, channel_id)
+    if not state:
+        return None
+    try:
+        return channel_store.entry_index(str(state.get("next")))
+    except ValueError:
+        return None
 
 
 def cursor_subscriptions(cursor: str, *, root: Path | None = None) -> list[str]:
-    target = (root or mailbox_dir()) / "cursor_subscriptions.json"
-    try:
-        document = json.loads(target.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-    return list(dict.fromkeys(str(item) for item in document.get("cursors", {}).get(cursor, [])))
+    target = root or mailbox_dir()
+    record = channel_store.get_entry(target, channel_store.AGENTS_REGISTRY, cursor)
+    cursors = (record or {}).get("cursors")
+    return list(cursors.keys()) if isinstance(cursors, dict) else []
 
 
 def cursor_positions(cursor: str, *, root: Path | None = None) -> list[dict[str, Any]]:
-    """List every retained channel initialized for a cursor and its byte position."""
+    """List every retained channel initialized for a cursor and its position."""
     target = root or mailbox_dir()
+    record = channel_store.get_entry(target, channel_store.AGENTS_REGISTRY, cursor)
+    cursors = (record or {}).get("cursors")
+    if not isinstance(cursors, dict):
+        return []
     return [
         {
-            "recipient": recipient,
+            "recipient": channel_id,
             "cursor": cursor,
-            "offset": _read_cursor(_cursor_path(target, f"{recipient}:{cursor}")),
+            "offset": int(state.get("consumed") or 0),
         }
-        for recipient in cursor_subscriptions(cursor, root=target)
+        for channel_id, state in cursors.items() if isinstance(state, dict)
     ]
-
-
-def _remember_cursor_subscription(root: Path, cursor: str, recipient: str) -> None:
-    target = root / "cursor_subscriptions.json"
-    try:
-        document = json.loads(target.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        document = {"version": 1, "cursors": {}}
-    members = document.setdefault("cursors", {}).setdefault(cursor, [])
-    if recipient not in members:
-        members.append(recipient)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, target)
 
 
 def purge_agent_data(
@@ -190,134 +196,63 @@ def purge_agent_data(
     private_recipients = set(presence_ids)
     if remove_agent:
         private_recipients.update({agent_id, agent_mailbox})
-    messages_path = target / "messages.jsonl"
-    removed_records = 0
-    retained_bytes = 0
+    cursor_owners = set(private_recipients)
+    if remove_agent:
+        cursor_owners.add(agent_id)
 
-    def should_remove(record: Any) -> bool:
-        return bool(
-            isinstance(record, dict)
-            and (
-                str(record.get("to") or "") in private_recipients
-                or (
-                    not remove_agent
-                    and str(record.get("to") or "") == agent_mailbox
-                    and str(record.get("audit_recipient") or "") in presence_ids
-                )
-            )
-        )
+    removed_records = 0
+    doomed_channels: list[str] = []
+    for recipient in sorted(private_recipients):
+        path = channel_store.channel_path(target, recipient)
+        if not path.exists():
+            continue
+        document = channel_store.load_channel(target, recipient)
+        if document.get("sub_kind") == "ordered_id_channel":
+            continue  # Never purge a registry.
+        removed_records += len(document.get("messages") or {})
+        doomed_channels.append(recipient)
+
+    # Presence-targeted copies retained inside a surviving agent mailbox.
+    partial_keys: list[str] = []
+    if not remove_agent and presence_ids and agent_mailbox not in doomed_channels:
+        document = channel_store.load_channel(target, agent_mailbox)
+        for key, record in (document.get("messages") or {}).items():
+            if str(record.get("audit_recipient") or "") in presence_ids:
+                partial_keys.append(key)
+        removed_records += len(partial_keys)
+
+    cursor_files = 0
+    for owner, cursors in channel_store.cursor_table(target).items():
+        if owner in cursor_owners:
+            cursor_files += len(cursors)
+        else:
+            cursor_files += len([channel for channel in cursors if channel in private_recipients])
 
     if dry_run:
-        if messages_path.exists():
-            with messages_path.open("rb") as source:
-                for line in source:
-                    try:
-                        record = json.loads(line.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        continue
-                    removed_records += int(should_remove(record))
-        cursor_candidates = {
-            _cursor_path(target, recipient) for recipient in private_recipients
-        }
-        try:
-            subscriptions = json.loads(
-                (target / "cursor_subscriptions.json").read_text(encoding="utf-8")
-            )
-        except (FileNotFoundError, json.JSONDecodeError):
-            subscriptions = {}
-        cursors = subscriptions.get("cursors") if isinstance(subscriptions, dict) else {}
-        if isinstance(cursors, dict):
-            for cursor, recipients in cursors.items():
-                if not isinstance(recipients, list):
-                    continue
-                for recipient in recipients:
-                    if str(recipient) in private_recipients or (remove_agent and cursor == agent_id):
-                        cursor_candidates.add(_cursor_path(target, f"{recipient}:{cursor}"))
         return {
             "purged": False,
             "dry_run": True,
             "would_purge_channels": sorted(private_recipients),
             "would_purge_records": removed_records,
-            "would_purge_cursor_files": len([path for path in cursor_candidates if path.exists()]),
+            "would_purge_cursor_files": cursor_files,
         }
 
-    with _MESSAGE_WRITE_LOCK:
-        cursor_offsets: dict[Path, int] = {
-            path: _read_cursor(path) for path in (target / "cursors").glob("*.cursor")
-        } if (target / "cursors").is_dir() else {}
-        mapped_offsets: dict[Path, int] = {}
-        if messages_path.exists():
-            temporary = messages_path.with_name(
-                f".{messages_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
-            )
-            old_position = 0
-            with messages_path.open("rb") as source, temporary.open("wb") as destination:
-                for line in source:
-                    line_start = old_position
-                    line_end = line_start + len(line)
-                    try:
-                        record = json.loads(line.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        record = None
-                    remove = should_remove(record)
-                    for path, offset in cursor_offsets.items():
-                        if path in mapped_offsets or offset > line_end:
-                            continue
-                        if offset <= line_start or remove:
-                            mapped_offsets[path] = retained_bytes
-                        else:
-                            mapped_offsets[path] = retained_bytes + offset - line_start
-                    if remove:
-                        removed_records += 1
-                    else:
-                        destination.write(line)
-                        retained_bytes += len(line)
-                    old_position = line_end
-            os.replace(temporary, messages_path)
-            for path, offset in cursor_offsets.items():
-                _write_cursor(path, mapped_offsets.get(path, retained_bytes))
-
-        subscriptions_path = target / "cursor_subscriptions.json"
-        try:
-            subscriptions = json.loads(subscriptions_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            subscriptions = None
-        removed_cursor_files: set[Path] = set()
-        if isinstance(subscriptions, dict):
-            cursors = subscriptions.get("cursors")
-            if isinstance(cursors, dict):
-                for cursor, recipients in list(cursors.items()):
-                    if not isinstance(recipients, list):
-                        continue
-                    if remove_agent and cursor == agent_id:
-                        for recipient in recipients:
-                            removed_cursor_files.add(_cursor_path(target, f"{recipient}:{cursor}"))
-                        del cursors[cursor]
-                        continue
-                    retained = [item for item in recipients if str(item) not in private_recipients]
-                    for recipient in set(map(str, recipients)) - set(map(str, retained)):
-                        removed_cursor_files.add(_cursor_path(target, f"{recipient}:{cursor}"))
-                    cursors[cursor] = retained
-                subscriptions_path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = subscriptions_path.with_suffix(
-                    f".{os.getpid()}.{uuid.uuid4().hex}.tmp"
-                )
-                temporary.write_text(
-                    json.dumps(subscriptions, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-                os.replace(temporary, subscriptions_path)
-        for recipient in private_recipients:
-            removed_cursor_files.add(_cursor_path(target, recipient))
-        existing_cursor_files = {path for path in removed_cursor_files if path.exists()}
-        for path in existing_cursor_files:
-            path.unlink(missing_ok=True)
+    with channel_store.STORE_LOCK:
+        for recipient in doomed_channels:
+            channel_store.channel_path(target, recipient).unlink(missing_ok=True)
+        if partial_keys:
+            document = channel_store.load_channel(target, agent_mailbox)
+            for key in partial_keys:
+                document["messages"].pop(key, None)
+            channel_store.save_channel(target, document)
+        channel_store.delete_cursors(target, owners=cursor_owners,
+                                     channels=private_recipients)
 
     return {
         "purged": True,
         "purged_channels": sorted(private_recipients),
         "purged_records": removed_records,
-        "purged_cursor_files": len(existing_cursor_files),
+        "purged_cursor_files": cursor_files,
     }
 
 
@@ -343,42 +278,24 @@ def initialize_cursor(
     if not cursor.strip():
         raise ValueError("cursor name is required")
     target = root or mailbox_dir()
-    messages_path = target / "messages.jsonl"
-    cursor_path = _cursor_path(target, f"{recipient}:{cursor}")
-    if cursor_path.exists():
+    owner = _cursor_owner(recipient, cursor, target)
+    if channel_store.get_cursor(target, owner, recipient) is not None:
         raise ValueError(f"cursor {cursor!r} is already initialized for {recipient!r}")
+    document = channel_store.load_channel(target, recipient)
+    count = int(document.get("count") or 0)
     normalized = start.strip().lower()
     if normalized in {"beginning", "start"}:
         offset = 0
+    elif normalized == "now":
+        offset = count
     else:
-        try:
-            file_size = messages_path.stat().st_size
-        except FileNotFoundError:
-            file_size = 0
-        if normalized == "now":
-            offset = file_size
-        else:
-            boundary = _time_boundary(start)
-            offset = file_size
-            try:
-                with messages_path.open("rb") as stream:
-                    while True:
-                        line_start = stream.tell()
-                        line = stream.readline()
-                        if not line:
-                            break
-                        try:
-                            record = json.loads(line.decode("utf-8"))
-                        except (UnicodeDecodeError, json.JSONDecodeError):
-                            continue
-                        if (isinstance(record, dict) and record.get("to") == recipient
-                                and str(record.get("timestamp", "")) >= boundary):
-                            offset = line_start
-                            break
-            except FileNotFoundError:
-                pass
-    _write_cursor(cursor_path, offset)
-    _remember_cursor_subscription(target, cursor, recipient)
+        boundary = _time_boundary(start)
+        offset = count
+        for key, record in channel_store.ordered_messages(document):
+            if str(record.get("timestamp", "")) >= boundary:
+                offset = channel_store.entry_index(key)
+                break
+    channel_store.set_cursor(target, owner, recipient, offset)
     return {"recipient": recipient, "cursor": cursor, "start": start, "offset": offset}
 
 
@@ -389,14 +306,14 @@ def ensure_cursor(
     start: str = "now",
     root: Path | None = None,
 ) -> dict[str, Any]:
-    """Initialize a cursor once, preserving and re-indexing an existing position."""
+    """Initialize a cursor once, preserving an existing position."""
     target = root or mailbox_dir()
-    cursor_path = _cursor_path(target, f"{recipient}:{cursor}")
-    if cursor_path.exists():
-        _remember_cursor_subscription(target, cursor, recipient)
+    owner = _cursor_owner(recipient, cursor, target)
+    existing = channel_store.get_cursor(target, owner, recipient)
+    if existing is not None:
         return {
             "recipient": recipient, "cursor": cursor, "start": "existing",
-            "offset": _read_cursor(cursor_path),
+            "offset": int(existing.get("consumed") or 0),
         }
     return initialize_cursor(recipient, cursor=cursor, start=start, root=target)
 
@@ -404,7 +321,7 @@ def ensure_cursor(
 def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = None,
                   channels: set[str] | None = None,
                   root: Path | None = None) -> dict[str, Any]:
-    """Trim all or selected channels by age/size while remapping durable cursors."""
+    """Trim all or selected channels by age/size; entry numbering stays stable."""
     if cutoff is None and max_bytes is None:
         raise ValueError("trim requires cutoff or max_bytes")
     if cutoff is not None and cutoff.tzinfo is None:
@@ -412,73 +329,71 @@ def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = Non
     if max_bytes is not None and max_bytes < 0:
         raise ValueError("max_bytes must be non-negative")
     target = root or mailbox_dir()
-    messages_path = target / "messages.jsonl"
-    if not messages_path.exists():
-        return {"removed_records": 0, "retained_records": 0, "backup": ""}
     cutoff_utc = cutoff.astimezone(timezone.utc) if cutoff else None
     selected_channels = {item.strip() for item in channels or set() if item.strip()}
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_path = messages_path.with_name(f"{messages_path.name}.pre-trim-{stamp}.bak")
-    temporary = messages_path.with_name(f".{messages_path.name}.{os.getpid()}.trim.tmp")
-    with _MESSAGE_WRITE_LOCK:
-        shutil.copy2(messages_path, backup_path)
-        lines = messages_path.read_bytes().splitlines(keepends=True)
-        parsed: list[tuple[dict[str, Any] | None, datetime | None]] = []
-        removed_indexes: set[int] = set()
-        for index, line in enumerate(lines):
-            try:
-                record = json.loads(line.decode("utf-8"))
-                timestamp = datetime.fromisoformat(
-                    str(record.get("timestamp") or "").replace("Z", "+00:00")
-                ).astimezone(timezone.utc)
-            except (AttributeError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
-                record, timestamp = None, None
-            parsed.append((record, timestamp))
-            selected = bool(record) and (
-                not selected_channels or str(record.get("to") or "") in selected_channels
-            )
-            if selected and cutoff_utc and timestamp and timestamp < cutoff_utc:
-                removed_indexes.add(index)
+    removed = retained = retained_bytes = 0
+    backups: list[str] = []
+
+    def record_size(record: dict[str, Any]) -> int:
+        return len(json.dumps(record, ensure_ascii=False).encode("utf-8"))
+
+    def record_time(record: dict[str, Any]) -> datetime | None:
+        try:
+            return datetime.fromisoformat(
+                str(record.get("timestamp") or "").replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    with channel_store.STORE_LOCK:
+        documents: dict[str, dict[str, Any]] = {}
+        for channel_id in channel_store.channel_ids(target):
+            if selected_channels and channel_id not in selected_channels:
+                continue
+            document = channel_store.load_channel(target, channel_id)
+            if "messages" not in document:
+                continue  # Registries are never trimmed.
+            documents[channel_id] = document
+
+        doomed: dict[str, set[str]] = {channel: set() for channel in documents}
+        if cutoff_utc:
+            for channel_id, document in documents.items():
+                for key, record in (document.get("messages") or {}).items():
+                    timestamp = record_time(record)
+                    if timestamp and timestamp < cutoff_utc:
+                        doomed[channel_id].add(key)
         if max_bytes is not None:
             candidates = [
-                index for index, (record, _timestamp) in enumerate(parsed)
-                if index not in removed_indexes and record and (
-                    not selected_channels or str(record.get("to") or "") in selected_channels
-                )
+                (record_time(record) or datetime.max.replace(tzinfo=timezone.utc),
+                 channel_store.entry_index(key), channel_id, key, record_size(record))
+                for channel_id, document in documents.items()
+                for key, record in (document.get("messages") or {}).items()
+                if key not in doomed[channel_id]
             ]
-            selected_bytes = sum(len(lines[index]) for index in candidates)
-            candidates.sort(key=lambda index: (parsed[index][1] or datetime.max.replace(
-                tzinfo=timezone.utc), index))
-            for index in candidates:
+            selected_bytes = sum(item[4] for item in candidates)
+            for timestamp, _index, channel_id, key, size in sorted(candidates):
                 if selected_bytes <= max_bytes:
                     break
-                removed_indexes.add(index)
-                selected_bytes -= len(lines[index])
-        cursor_offsets = {
-            path: _read_cursor(path) for path in (target / "cursors").glob("*.cursor")
-        } if (target / "cursors").is_dir() else {}
-        mapped: dict[Path, int] = {}
-        old_position = retained_bytes = removed = retained = 0
-        with temporary.open("wb") as destination:
-            for index, line in enumerate(lines):
-                line_start, line_end = old_position, old_position + len(line)
-                keep = index not in removed_indexes
-                for path, offset in cursor_offsets.items():
-                    if path in mapped or offset > line_end:
-                        continue
-                    mapped[path] = retained_bytes + (
-                        max(0, offset - line_start) if keep and offset > line_start else 0
-                    )
-                if keep:
-                    destination.write(line)
-                    retained_bytes += len(line)
-                    retained += 1
-                else:
-                    removed += 1
-                old_position = line_end
-        os.replace(temporary, messages_path)
-        for path, offset in cursor_offsets.items():
-            _write_cursor(path, mapped.get(path, retained_bytes))
+                doomed[channel_id].add(key)
+                selected_bytes -= size
+
+        for channel_id, document in documents.items():
+            keys = doomed[channel_id]
+            if keys:
+                path = channel_store.channel_path(target, channel_id)
+                backup_path = path.with_name(f"{path.name}.pre-trim-{stamp}.bak")
+                shutil.copy2(path, backup_path)
+                backups.append(str(backup_path))
+                for key in keys:
+                    document["messages"].pop(key, None)
+                channel_store.save_channel(target, document)
+            removed += len(keys)
+            retained += len(document.get("messages") or {})
+            retained_bytes += sum(
+                record_size(record) for record in (document.get("messages") or {}).values()
+            )
+
     return {
         "cutoff": cutoff_utc.isoformat().replace("+00:00", "Z") if cutoff_utc else None,
         "max_bytes": max_bytes,
@@ -486,7 +401,8 @@ def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = Non
         "removed_records": removed,
         "retained_records": retained,
         "retained_bytes": retained_bytes,
-        "backup": str(backup_path),
+        "backup": backups[0] if backups else "",
+        "backups": backups,
     }
 
 
@@ -545,6 +461,17 @@ def _copy_attachments(target: Path, message_id: str, paths: list[Path]) -> list[
     return attachments
 
 
+def _channel_sub_kind(channel_id: str) -> str:
+    """Best-effort sub_kind for channels created on first write."""
+    if channel_id in SERVER_AUDIT_CHANNELS:
+        return "relay_outbox"
+    if channel_id == "server_events_log":
+        return "event_log"
+    if channel_id == "server_worker_queue":
+        return "work_queue"
+    return "channel"
+
+
 def send(
     recipient: str,
     text: str,
@@ -589,6 +516,7 @@ def send(
     if copied_attachments:
         record["attachments"] = copied_attachments
     records = [record]
+    delivered_sub_kinds = {record["to"]: _channel_sub_kind(recipient)}
     if recipient not in SERVER_AUDIT_CHANNELS:
         audit_recipients = [SERVER_AGENT_TO_CHANNEL_CHANNEL]
         resolved_agent_id = ""
@@ -598,9 +526,13 @@ def send(
                 from .connector_registry import agent_mailbox_address, load_agents
             except ImportError:
                 from mailbox_channels.connector_registry import agent_mailbox_address, load_agents
-            agents = load_agents()
+            agents = load_agents(target)
             if recipient in {item["agent_id"] for item in agents}:
                 resolved_agent_id = recipient
+                # Agents are hyphens-only names; their direct-message mailbox is
+                # the registry-declared (or underscored-twin) channel. Deliver there.
+                record["to"] = agent_mailbox_address(resolved_agent_id, target)
+                delivered_sub_kinds[record["to"]] = "agent_inbox"
             else:
                 resolved_agent_id = next((
                     str(item["agent_id"])
@@ -611,7 +543,8 @@ def send(
             if resolved_agent_id:
                 audit_recipients.append(SERVER_AGENT_TO_AGENT_CHANNEL)
                 if addressed_presence_id:
-                    audit_recipients.append(agent_mailbox_address(resolved_agent_id))
+                    audit_recipients.append(agent_mailbox_address(resolved_agent_id, target))
+                    delivered_sub_kinds[audit_recipients[-1]] = "agent_inbox"
         except (ImportError, OSError, ValueError, json.JSONDecodeError):
             pass
         for audit_recipient in audit_recipients:
@@ -628,27 +561,30 @@ def send(
             if addressed_presence_id:
                 audit_record["addressed_presence_id"] = addressed_presence_id
             records.append(audit_record)
-    payload = b"".join(
-        (json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
-        for item in records
+    payload_size = sum(
+        len(json.dumps(item, ensure_ascii=False).encode("utf-8")) for item in records
     )
-    messages_path = target / "messages.jsonl"
     maximum = int(os.environ.get(MAX_JSONL_ENV, DEFAULT_MAX_JSONL_BYTES))
     if maximum < 1:
-        raise ValueError("JSONL mailbox size limit must be positive")
-    with _MESSAGE_WRITE_LOCK:
-        current = messages_path.stat().st_size if messages_path.exists() else 0
-        if current + len(payload) > maximum:
+        raise ValueError("mailbox size limit must be positive")
+    with channel_store.STORE_LOCK:
+        current = sum(
+            path.stat().st_size for path in target.glob("*.json") if path.is_file()
+        )
+        if current + payload_size > maximum:
             if copied_attachments:
                 shutil.rmtree(target / "attachments" / message_id, ignore_errors=True)
             raise ValueError(
-                f"JSONL mailbox quota exceeded: {current} + {len(payload)} bytes is greater than {maximum} bytes"
+                f"mailbox quota exceeded: {current} + {payload_size} bytes is greater than {maximum} bytes"
             )
-        fd = os.open(messages_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-        try:
-            os.write(fd, payload)
-        finally:
-            os.close(fd)
+        for item in records:
+            stored = channel_store.append_message(
+                target, str(item["to"]), item,
+                sub_kind=delivered_sub_kinds.get(str(item["to"]),
+                                                 _channel_sub_kind(str(item["to"]))),
+            )
+            if item is record:
+                record = stored
     return record
 
 
@@ -660,38 +596,20 @@ def receive(
     cursor: str | None = None,
 ) -> list[dict[str, Any]]:
     target = root or mailbox_dir()
-    messages_path = target / "messages.jsonl"
-    cursor_path = _cursor_path(target, f"{recipient}:{cursor}" if cursor else recipient)
-    start = _read_cursor(cursor_path)
-    try:
-        file_size = messages_path.stat().st_size
-    except FileNotFoundError:
-        return []
-    if start > file_size:
-        start = 0
-
-    found: list[dict[str, Any]] = []
-    committed_offset = start
-    with messages_path.open("rb") as stream:
-        stream.seek(start)
-        while True:
-            line_start = stream.tell()
-            line = stream.readline()
-            if not line:
-                break
-            if not line.endswith(b"\n"):
-                committed_offset = line_start
-                break
-            committed_offset = stream.tell()
-            try:
-                record = json.loads(line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                continue
-            if isinstance(record, dict) and record.get("to") == recipient:
-                found.append(record)
-
-    if advance and (committed_offset != start or not cursor_path.exists()):
-        _write_cursor(cursor_path, committed_offset)
+    owner = _cursor_owner(recipient, cursor, target)
+    with channel_store.STORE_LOCK:
+        document = channel_store.load_channel(target, recipient)
+        if "messages" not in document:
+            return []
+        count = int(document.get("count") or 0)
+        start = _cursor_next_index(target, owner, recipient)
+        had_cursor = start is not None
+        if start is None or start > count:
+            start = 0 if start is None else start
+        found = [record for _key, record in
+                 channel_store.ordered_messages(document, start_index=start)]
+        if advance and (count != start or not had_cursor):
+            channel_store.set_cursor(target, owner, recipient, count)
     return found
 
 
@@ -703,20 +621,14 @@ def peek(recipient: str, *, root: Path | None = None, cursor: str | None = None)
 def acknowledge(recipient: str, message_id: str, *, root: Path | None = None,
                 cursor: str | None = None) -> bool:
     target = root or mailbox_dir()
-    messages_path = target / "messages.jsonl"
-    try:
-        with messages_path.open("rb") as stream:
-            while line := stream.readline():
-                try:
-                    record = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if record.get("to") == recipient and record.get("id") == message_id:
-                    key = f"{recipient}:{cursor}" if cursor else recipient
-                    _write_cursor(_cursor_path(target, key), stream.tell())
-                    return True
-    except FileNotFoundError:
-        pass
+    owner = _cursor_owner(recipient, cursor, target)
+    with channel_store.STORE_LOCK:
+        document = channel_store.load_channel(target, recipient)
+        for key, record in channel_store.ordered_messages(document):
+            if str(record.get("id") or "") == message_id:
+                channel_store.set_cursor(target, owner, recipient,
+                                         channel_store.entry_index(key) + 1)
+                return True
     return False
 
 
@@ -758,7 +670,9 @@ def poll(
 
 def status(*, root: Path | None = None) -> dict[str, Any]:
     target = root or mailbox_dir()
-    path = target / "messages.jsonl"
+    store_bytes = sum(
+        path.stat().st_size for path in target.glob("*.json") if path.is_file()
+    ) if target.is_dir() else 0
     agents: list[dict[str, Any]] = []
     connectors: list[dict[str, Any]] = []
     channels: list[dict[str, Any]] = []
@@ -781,9 +695,9 @@ def status(*, root: Path | None = None) -> dict[str, Any]:
                     for position in cursor_positions(agent["agent_id"], root=target)
                 ],
             }
-            for agent in load_agents()
+            for agent in load_agents(target)
         ]
-        configured_connectors = [item for item in load_connectors() if item["enabled"]]
+        configured_connectors = [item for item in load_connectors(target) if item["enabled"]]
         connectors = []
         for connector in configured_connectors:
             connectors.append({
@@ -795,19 +709,19 @@ def status(*, root: Path | None = None) -> dict[str, Any]:
                 "can_send": connector["direction"] in {"outbound", "bidirectional"},
                 "channel_ids": connector["channel_ids"],
             })
-        channels = available_sources()
-        relays = [item for item in load_relays() if item["enabled"]]
+        channels = available_sources(target)
+        relays = [item for item in load_relays(target) if item["enabled"]]
     except ImportError:
         # A downloaded /agent_mailbox.py can run without the server package.
         pass
     return {
         "directory": str(target),
-        "messages_file": str(path),
-        "size_bytes": path.stat().st_size if path.exists() else 0,
+        "messages_file": str(target),
+        "size_bytes": store_bytes,
         "default_sender": DEFAULT_SENDER,
         "agents": agents,
         "connectors": connectors,
-        "channels": channels,
+        "mailboxes": channels,
         "relays": relays,
     }
 
@@ -897,6 +811,56 @@ def unregister_agent_rest(agent_id: str, *, presence_id: str = "", purge: bool =
 
 def status_rest(*, base_url: str | None = None) -> dict[str, Any]:
     return dict(_rest_request("GET", "/v1/status", base_url=base_url))
+
+
+def register_connector_rest(connector_id: str, kind: str, *, direction: str = "bidirectional",
+                            instance: str = "", channel_ids: list[str] | None = None,
+                            config: dict[str, Any] | None = None, dry_run: bool = False,
+                            base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/connectors", {
+        "connector_id": connector_id, "kind": kind, "direction": direction,
+        "instance": instance, "channel_ids": list(channel_ids or []),
+        "config": dict(config or {}), "dry_run": dry_run,
+    }, base_url=base_url))
+
+
+def unregister_connector_rest(connector_id: str, *, dry_run: bool = False,
+                              base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/connectors", {
+        "action": "delete", "connector_id": connector_id, "dry_run": dry_run,
+    }, base_url=base_url))
+
+
+def add_channel_rest(channel_id: str, *, metadata: dict[str, Any] | None = None,
+                     aliases: list[str] | None = None, subscribe_all: bool = False,
+                     base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/channels", {
+        "channel_id": channel_id, "metadata": dict(metadata or {}),
+        "aliases": list(aliases or []), "subscribe_all": subscribe_all,
+    }, base_url=base_url))
+
+
+def delete_channel_rest(channel_id: str, *, force: bool = False,
+                        base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/channels", {
+        "action": "delete", "channel_id": channel_id, "force": force,
+    }, base_url=base_url))
+
+
+def add_relay_rest(source_channel: str, destination: str, *, relay_id: str = "",
+                   start: str = "now", dry_run: bool = False,
+                   base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/relays", {
+        "source_channel": source_channel, "destination": destination,
+        "relay_id": relay_id, "start": start, "dry_run": dry_run,
+    }, base_url=base_url))
+
+
+def delete_relay_rest(relay_id: str, *, dry_run: bool = False,
+                      base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/relays", {
+        "action": "delete", "relay_id": relay_id, "dry_run": dry_run,
+    }, base_url=base_url))
 
 
 def default_config_path() -> Path:
@@ -1275,9 +1239,17 @@ def build_parser() -> argparse.ArgumentParser:
     connector_del.add_argument("--dry-run", action="store_true", help="preview without deleting")
 
     commands.add_parser(
-        "channels", help="list configured and discovered retained channels",
-        description="List every retained channel available to agents and relays.",
+        "channels", help="list external channels we hold a presence on and handle",
+        description="List external channels (IRC/Mattermost/etc.) where we have a bot presence "
+                    "and are handling messages. Use 'mailboxes' for local streams and the chat "
+                    "'list' command to discover channels we are not on.",
         epilog="Example: mailbox-client channels",
+    )
+    commands.add_parser(
+        "mailboxes", help="list local cursor-consumed mailboxes (inboxes, system/audit streams)",
+        description="List every local cursor-consumed stream: agent inboxes, the server "
+                    "event/audit streams, and the local mailbox view of external channels.",
+        epilog="Example: mailbox-client mailboxes",
     )
     channel_add = commands.add_parser(
         "channel-add", help="register a retained channel",
@@ -1356,13 +1328,13 @@ def build_parser() -> argparse.ArgumentParser:
     subscribe_parser = commands.add_parser(
         "subscribe", help="subscribe an identity to a qualified conversation address",
         description="Durably subscribe one mailbox identity to a TYPE/INSTANCE/IDENTIFIER address.",
-        epilog="Example: mailbox-client subscribe server_events --to symbolic-workbench-codex",
+        epilog="Example: mailbox-client subscribe server_events_log --to symbolic-workbench-codex",
     )
     subscribe_parser.add_argument("channel", help="TYPE/INSTANCE/IDENTIFIER conversation address")
     unsubscribe_parser = commands.add_parser(
         "unsubscribe", help="remove an identity from a conversation address",
         description="Remove one mailbox identity's durable conversation subscription.",
-        epilog="Example: mailbox-client unsubscribe server_events --to symbolic-workbench-codex",
+        epilog="Example: mailbox-client unsubscribe server_events_log --to symbolic-workbench-codex",
     )
     unsubscribe_parser.add_argument("channel", help="TYPE/INSTANCE/IDENTIFIER conversation address")
     subscriptions_parser = commands.add_parser(
@@ -1690,9 +1662,9 @@ def main(argv: list[str] | None = None) -> int:
             args.channel_type = destination_endpoint.adapter
             args.channel_id = destination_endpoint.identifier
             if args.global_recipient:
-                args.global_recipient = "outbound_delivery"
+                args.global_recipient = SERVER_AGENT_TO_CHANNEL_CHANNEL
             else:
-                args.recipient = "outbound_delivery"
+                args.recipient = SERVER_AGENT_TO_CHANNEL_CHANNEL
         if args.global_recipient and args.recipient:
             if args.text is not None:
                 build_parser().error("send accepts either positional recipient or --to, not both")
@@ -1786,7 +1758,7 @@ def main(argv: list[str] | None = None) -> int:
                     base_url=os.environ.get("MM_URL", ""),
                 )
             from .subscriptions import set_subscription
-            set_subscription(channel, subscription_identity, enabled=True)
+            set_subscription(channel, subscription_identity, enabled=True, path=mailbox_root)
     if args.curl:
         if not use_rest:
             build_parser().error("--curl requires a REST transport selected by --url, --mailbox, or AGENT_MAILBOX_URL")
@@ -1795,11 +1767,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.verbose:
         target = rest_url if use_rest else str(mailbox_root or mailbox_dir())
         print(f"agent_mailbox transport={'REST' if use_rest else 'JSONL'} target={target}", file=sys.stderr)
-    if args.command in {"agents", "connectors", "channels", "relays"}:
+    if args.command in {"agents", "connectors", "channels", "mailboxes", "relays"}:
         registry = (_rest_request("GET", "/v1/registry", base_url=rest_url)
                     if use_rest else __import__(
                         "mailbox_channels.connector_registry", fromlist=["public_registry"]
-                    ).public_registry())
+                    ).public_registry(mailbox_root))
         if args.command == "agents":
             enriched_agents = []
             for agent in registry.get("agents", []):
@@ -1825,6 +1797,18 @@ def main(argv: list[str] | None = None) -> int:
                     "subscriptions": subscriptions,
                 })
             result = {"agents": enriched_agents}
+        elif args.command == "mailboxes":
+            # Every cursor-consumed local stream (agent inboxes, system/audit streams,
+            # and the local view of external channels).
+            result = {"mailboxes": registry.get("mailboxes", [])}
+        elif args.command == "channels":
+            # External places we hold a presence on and handle: mailboxes whose channel_type
+            # is an external adapter (not a local system/audit/agent-direct stream).
+            local_types = {"system", "audit", "agent_direct", "local"}
+            result = {"channels": [
+                item for item in registry.get("mailboxes", [])
+                if str(item.get("channel_type") or "") not in local_types
+            ]}
         else:
             result = {args.command: registry.get(args.command, [])}
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
@@ -1848,7 +1832,7 @@ def main(argv: list[str] | None = None) -> int:
             from .connector_registry import register_agent
             result = register_agent(
                 args.agent_id, presence_id=args.presence_id or "",
-                dry_run=args.dry_run, mailbox_root=mailbox_root,
+                dry_run=args.dry_run, path=mailbox_root, mailbox_root=mailbox_root,
             )
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
     elif args.command == "agent-del":
@@ -1863,28 +1847,40 @@ def main(argv: list[str] | None = None) -> int:
             from .connector_registry import unregister_agent
             result = unregister_agent(
                 args.agent_id, presence_id=args.presence_id or "", purge=args.purge,
-                dry_run=args.dry_run, mailbox_root=mailbox_root,
+                dry_run=args.dry_run, path=mailbox_root, mailbox_root=mailbox_root,
             )
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
-    elif args.command in {
-        "connector-add", "connector-del", "channel-add", "channel-del", "relay-add", "relay-del",
-    }:
+    elif args.command == "connector-add":
+        config = _json_object_with_assignments(args.config, args.config_values, "--config")
         if use_rest:
-            build_parser().error(f"{args.command} currently requires direct local configuration access")
-        if args.command == "connector-add":
-            config = _json_object_with_assignments(args.config, args.config_values, "--config")
+            result = register_connector_rest(
+                args.connector_id, args.kind, direction=args.direction, instance=args.instance,
+                channel_ids=args.channel_ids, config=config, dry_run=args.dry_run, base_url=rest_url,
+            )
+        else:
             from .connector_registry import register_connector
             result = register_connector(
                 args.connector_id, args.kind, direction=args.direction, instance=args.instance,
                 channel_ids=args.channel_ids, config=config, dry_run=args.dry_run,
             )
-        elif args.command == "connector-del":
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "connector-del":
+        if use_rest:
+            result = unregister_connector_rest(args.connector_id, dry_run=args.dry_run, base_url=rest_url)
+        else:
             from .connector_registry import unregister_connector
             result = unregister_connector(args.connector_id, dry_run=args.dry_run)
-        elif args.command == "channel-add":
-            metadata = _json_object_with_assignments(
-                args.metadata, args.metadata_values, "--metadata",
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "channel-add":
+        metadata = _json_object_with_assignments(
+            args.metadata, args.metadata_values, "--metadata",
+        )
+        if use_rest:
+            result = add_channel_rest(
+                args.channel_id, metadata=metadata, aliases=args.aliases,
+                subscribe_all=args.subscribe_all, base_url=rest_url,
             )
+        else:
             from .subscriptions import ensure_channel, set_subscription
             from .endpoint_address import parse_endpoint
             endpoint = parse_endpoint(args.channel_id)
@@ -1893,14 +1889,16 @@ def main(argv: list[str] | None = None) -> int:
                 from .connector_registry import add_connector_channel
                 monitored = add_connector_channel(
                     endpoint.adapter, endpoint.instance, endpoint.identifier,
+                    path=mailbox_root,
                 )
-            channel = ensure_channel(args.channel_id, metadata=metadata, aliases=args.aliases)
+            channel = ensure_channel(args.channel_id, metadata=metadata, aliases=args.aliases,
+                                     path=mailbox_root)
             result = channel
             if args.subscribe_all:
                 from .connector_registry import load_agents
-                agent_ids = [agent["agent_id"] for agent in load_agents()]
+                agent_ids = [agent["agent_id"] for agent in load_agents(mailbox_root)]
                 for agent_id in agent_ids:
-                    set_subscription(channel["id"], agent_id, enabled=True)
+                    set_subscription(channel["id"], agent_id, enabled=True, path=mailbox_root)
                     ensure_cursor(
                         channel["id"], cursor=agent_id, start="now", root=mailbox_root,
                     )
@@ -1910,15 +1908,30 @@ def main(argv: list[str] | None = None) -> int:
                     "subscribed_agents": agent_ids,
                     "count": len(agent_ids),
                 }
-        elif args.command == "channel-del":
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "channel-del":
+        if use_rest:
+            result = delete_channel_rest(args.channel_id, force=args.force, base_url=rest_url)
+        else:
             from .subscriptions import delete_channel
-            result = delete_channel(args.channel_id, force=args.force)
-        elif args.command == "relay-add":
+            result = delete_channel(args.channel_id, force=args.force, path=mailbox_root)
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "relay-add":
+        if use_rest:
+            result = add_relay_rest(
+                args.source_channel, args.destination, relay_id=args.relay_id,
+                start=args.start, dry_run=args.dry_run, base_url=rest_url,
+            )
+        else:
             from .retained_relay import add_relay
             result = add_relay(
                 args.source_channel, args.destination, relay_id=args.relay_id,
                 start=args.start, mailbox_root=mailbox_root, dry_run=args.dry_run,
             )
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "relay-del":
+        if use_rest:
+            result = delete_relay_rest(args.relay_id, dry_run=args.dry_run, base_url=rest_url)
         else:
             from .retained_relay import delete_relay
             result = delete_relay(args.relay_id, dry_run=args.dry_run)
@@ -1933,7 +1946,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 else:
                     from .subscriptions import channels
-                    configured = channels()
+                    configured = channels(mailbox_root)
                 by_identity: dict[str, list[str]] = {}
                 for subscription in configured:
                     for identity in subscription.get("subscribers") or []:
@@ -1947,7 +1960,7 @@ def main(argv: list[str] | None = None) -> int:
                     "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.global_recipient}),
                     base_url=rest_url,
                 ) if use_rest else {"identity": args.global_recipient,
-                                    "channels": subscriptions(args.global_recipient)})
+                                    "channels": subscriptions(args.global_recipient, mailbox_root)})
         else:
             enabled = args.command == "subscribe"
             channel = args.channel
@@ -1962,7 +1975,8 @@ def main(argv: list[str] | None = None) -> int:
                 "POST", "/v1/subscriptions",
                 {"channel": channel, "identity": args.global_recipient, "subscribed": enabled},
                 base_url=rest_url,
-            ) if use_rest else set_subscription(channel, args.global_recipient, enabled=enabled))
+            ) if use_rest else set_subscription(channel, args.global_recipient, enabled=enabled,
+                                                path=mailbox_root))
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
     elif args.command == "send":
         record = (
@@ -2014,7 +2028,7 @@ def main(argv: list[str] | None = None) -> int:
                 base_url=rest_url,
             ).get("channels", [])) if use_rest else __import__(
                 "mailbox_channels.subscriptions", fromlist=["subscriptions"]
-            ).subscriptions(args.cursor))
+            ).subscriptions(args.cursor, mailbox_root))
             recipients = list(dict.fromkeys([*configured_recipients, *cursor_recipients]))
             if not recipients:
                 build_parser().error(f"cursor {args.cursor!r} has no polling subscriptions")

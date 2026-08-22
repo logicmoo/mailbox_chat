@@ -52,16 +52,13 @@ def test_every_platform_endpoint_type_round_trips() -> None:
 
 
 def test_remote_from_subscribes_as_local_identity(tmp_path, monkeypatch, capsys) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text('{"version":1,"connectors":[]}', encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
     assert agent_mailbox.main([
-        "--dir", str(tmp_path / "mailbox"), "poll", "--as", "symbolic-workbench-codex",
+        "--dir", str(mailbox), "poll", "--as", "symbolic-workbench-codex",
         "--from", "mm/chat.snt/channel-1", "--checks", "1",
     ]) == 0
     capsys.readouterr()
-    assert subscriptions("symbolic-workbench-codex") == ["mm-chat-snt-channel-1"]
+    assert subscriptions("symbolic-workbench-codex", mailbox) == ["mm-chat-snt-channel-1"]
 
 
 def test_remote_to_becomes_channel_relay_request(tmp_path, capsys) -> None:
@@ -71,7 +68,7 @@ def test_remote_to_becomes_channel_relay_request(tmp_path, capsys) -> None:
     ]) == 0
     sent = json.loads(capsys.readouterr().out)
     assert sent["from"] == "symbolic-workbench-codex"
-    assert sent["to"] == "outbound_delivery"
+    assert sent["to"] == "server_outbound_relay_agent_to_channel"
     assert sent["channel_type"] == "mattermost"
     assert sent["channel_id"] == "person-1"
     assert sent["endpoint_address"] == "mm/chat.snt/person-1"

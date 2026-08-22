@@ -198,8 +198,8 @@ def test_console_can_emulate_external_channel_presence(monkeypatch, tmp_path) ->
     assert run("agent-one", "unused", "unused", directory=tmp_path) == 0
     assert "irc-0-agents" in __import__(
         "mailbox_channels.subscriptions", fromlist=["subscriptions"],
-    ).subscriptions("agent-one")
-    relayed = agent_mailbox.receive("outbound_delivery", root=tmp_path)[0]
+    ).subscriptions("agent-one", tmp_path)
+    relayed = agent_mailbox.receive("server_outbound_relay_agent_to_channel", root=tmp_path)[0]
     assert relayed["from"] == "agent-one"
     assert relayed["endpoint_address"] == "irc/0/%23agents"
 
@@ -218,6 +218,6 @@ def test_temporary_console_switch_unsubscribes_previous_view(monkeypatch, tmp_pa
     assert run("agent-one", "unused", "unused", directory=tmp_path) == 0
     subscriptions = __import__(
         "mailbox_channels.subscriptions", fromlist=["subscriptions"],
-    ).subscriptions("agent-one")
+    ).subscriptions("agent-one", tmp_path)
     assert "irc-0-one" not in subscriptions
     assert "irc-0-two" in subscriptions

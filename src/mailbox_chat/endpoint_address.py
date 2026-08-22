@@ -30,12 +30,46 @@ ADAPTER_ALIASES.update({
     "whatsapp-personal": "whatsapp_personal",
 })
 RESOURCE_ID_PART = re.compile(r"[^a-zA-Z0-9_-]+")
+# IRC channel prefixes are significant: #prolog and ##prolog are DIFFERENT channels.
+# The slug would otherwise strip both to "prolog". Encode the leading sigil run so distinct
+# prefixes yield distinct ids. The common single "#" channel stays clean (no token);
+# other/repeated sigils get a compact token prefix.
+IRC_SIGIL_TOKENS = {"#": "h", "&": "s", "+": "p", "!": "x"}
+
+
+def _encode_irc_identifier(identifier: str) -> str:
+    text = str(identifier)
+    index = 0
+    while index < len(text) and text[index] in IRC_SIGIL_TOKENS:
+        index += 1
+    sigils, name = text[:index], text[index:]
+    if not sigils:
+        return text
+    token = "".join(IRC_SIGIL_TOKENS[char] for char in sigils)
+    return name if token == "h" else f"{token}-{name}"
 
 
 def channel_resource_id(adapter: str, instance: str, identifier: str, *, scope: str = "") -> str:
-    """Build a stable non-address channel resource ID."""
-    adapter_name = CANONICAL_TYPES.get(ADAPTER_ALIASES.get(adapter, adapter), adapter)
-    parts = [adapter_name, instance, scope, identifier]
+    """Build a stable non-address channel resource ID.
+
+    If the instance host's leading label duplicates the adapter slug or canonical
+    name (e.g. ``irc.quakenet.org`` for ``irc``, or ``mm.snet`` for ``mm``), that
+    label is popped so the id reads ``irc-quakenet-org-…`` / ``mm-snet-…`` instead
+    of ``irc-irc-…`` / ``mm-mm-…``. A non-duplicating host (``chat.singularitynet.io``)
+    is kept verbatim (``mm-chat-singularitynet-io-…``). IRC channel sigils are encoded so
+    ``#prolog`` (=> ``…-prolog``) and ``##prolog`` (=> ``…-hh-prolog``) never collide.
+    """
+    canonical = ADAPTER_ALIASES.get(adapter, adapter)
+    adapter_name = CANONICAL_TYPES.get(canonical, adapter)
+    instance_part = str(instance).strip()
+    lowered = instance_part.lower()
+    for label in (adapter_name, canonical):
+        if label and lowered.startswith(f"{label}."):
+            instance_part = instance_part[len(label) + 1:]
+            break
+    if canonical == "irc":
+        identifier = _encode_irc_identifier(identifier)
+    parts = [adapter_name, instance_part, scope, identifier]
     return "-".join(
         RESOURCE_ID_PART.sub("-", str(part).strip()).strip("-").lower()
         for part in parts if str(part).strip()
