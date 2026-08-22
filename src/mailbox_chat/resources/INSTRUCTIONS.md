@@ -1224,12 +1224,12 @@ through the CLI or REST interface. Codex itself is installed separately using
 the [official OpenAI Codex CLI documentation](https://learn.chatgpt.com/docs/codex/cli).
 
 For recurring mailbox polling, customize
-[`AUTOMATION_PROMPT.md`](../AUTOMATION_PROMPT.md)
+[`AUTOMATION_PROMPT.md`](AUTOMATION_PROMPT.md)
 and create the recurring task in Codex Desktop. Copying the file does not create
 the automation. For workspace bootstrap, use
-[`INSTALL_WITH_CODEX.md`](../INSTALL_WITH_CODEX.md).
+[`INSTALL_WITH_CODEX.md`](INSTALL_WITH_CODEX.md).
 The running relay also serves both documents at `/AUTOMATION_PROMPT.md` and
-`/INSTALL_WITH_CODEX.md`, and these docs at `/docs/INSTRUCTIONS.md`.
+`/INSTALL_WITH_CODEX.md`, and these docs at `/INSTRUCTIONS.md`.
 
 ### Windows
 

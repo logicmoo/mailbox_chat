@@ -2,9 +2,9 @@ from pathlib import Path
 
 
 INSTRUCTIONS = (Path(__file__).parents[1] / "src" / "mailbox_channels" /
-                "resources" / "docs" / "INSTRUCTIONS.md")
-RESOURCES = INSTRUCTIONS.parents[1]
-REPO_ROOT = INSTRUCTIONS.parents[4]
+                "resources" / "INSTRUCTIONS.md")
+RESOURCES = INSTRUCTIONS.parents[0]
+REPO_ROOT = INSTRUCTIONS.parents[3]
 
 
 def test_every_platform_entry_starts_with_setup() -> None:
