@@ -65,6 +65,7 @@ def test_every_agent_command_has_comprehensive_help() -> None:
                 "registry", "discover", "channels", "mailboxes", "poll-many", "history", "cursor-init",
                 "cursors", "agents", "agent-add", "agent-del", "connectors", "connector-add",
                 "connector-del", "channel-add", "channel-del", "relays", "relay-add", "relay-del",
+                "mailbox-add", "mailbox-del", "exec",
                 *CHAT_COMMANDS}
     commands = _agent_commands()
     assert set(commands) == expected

@@ -57,7 +57,7 @@ def test_repository_docs_do_not_invoke_removed_python_entrypoints() -> None:
     assert "mailbox_channels.console_client" not in instructions
 
 
-def test_standalone_client_docs_avoid_cross_wsl_jsonl() -> None:
+def test_standalone_client_docs_avoid_cross_wsl_direct_store() -> None:
     prompt = (INSTRUCTIONS.parents[1] / "src" /
               "mailbox_channels" / "resources" /
               "AUTOMATION_PROMPT.md").read_text(encoding="utf-8")

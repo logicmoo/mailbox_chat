@@ -44,7 +44,7 @@ Mattermost example is
   - [CLI versus REST capabilities](#mailbox-client-cli-versus-direct-rest)
   - [REST](#rest-mailbox--implemented)
   - [WebSocket chat](#websocket-chat--implemented)
-  - [JSONL](#jsonl-mailbox--implemented)
+  - [Local JSON store](#local-json-mailbox--implemented)
 - [OpenAI Codex integration](#openai-codex-installation-and-mailbox-integration--implemented)
 - [Compatible agent runtimes](#compatible-agent-runtimes)
 - [Channel-to-channel bridges](#channel-to-channel-bridges)
@@ -249,7 +249,7 @@ travel as plaintext.
 
 ## Implementation checklist
 
-- [x] JSONL mailbox
+- [x] Local JSON mailbox store
 - [x] REST mailbox
 - [x] WebSocket chat mailbox
 - [x] Mattermost
@@ -291,9 +291,9 @@ Everything crosses the durable mailbox. The mailbox envelope—not Mattermost,
 IRC, Codex, or any agent framework—is the compatibility layer:
 
 ```text
-external channel <-> adapter <-> endpoint agent <-> JSONL/REST mailbox
+external channel <-> adapter <-> endpoint agent <-> JSON/REST mailbox
                                                <->
-JSONL/REST mailbox <-> endpoint agent <-> adapter <-> external channel
+JSON/REST mailbox <-> endpoint agent <-> adapter <-> external channel
 ```
 
 Adapters never call other adapters directly. Agents never need platform SDKs
@@ -920,7 +920,7 @@ so their channel ID is the final address component. [Discord's channel model](ht
 defines guild channels, DMs, group DMs, and thread channels; Slack replies use
 the conversation plus [`thread_ts`](https://api.slack.com/methods/chat.postMessage).
 
-The CLI works through the REST server or directly against a JSONL mailbox:
+The CLI works through the REST server or directly against a local JSON mailbox:
 
 ```powershell
 mailbox-client --url http://127.0.0.1:46667 status
@@ -948,8 +948,10 @@ The client supports:
 - `--token` or `AGENT_MAILBOX_TOKEN` for REST authentication;
 - `--curl` anywhere before `--` to print a token-redacted equivalent REST call
   without sending it; it covers every REST-backed command (messages, cursors,
-  agents, connectors, channels, relays, subscriptions, and registry listings) and
-  errors for commands that have no REST equivalent;
+  agents, connectors, channels, relays, subscriptions, and registry listings),
+  the chat/platform commands (`/v1/mm/command`, `/v1/irc/command`), and
+  discovery (`/v1/discovery/*`), and errors for commands that have no REST
+  equivalent;
 - `--input PATH` for UTF-8 message text and repeatable `--attach PATH`;
 - `--to` anywhere before `--`, or a positional recipient;
 - `--format jsonl|json|text`, `--output`, `--quiet`, `--verbose`, and
@@ -1056,10 +1058,10 @@ available as `/discover users ...` inside `mailbox-console`.
 | Attachment upload from a remote client | Limited | Limited | CLI currently sends local paths; this only works when the server can access the same filesystem. A binary or multipart upload endpoint is still needed. |
 | Read message text from a local file | Yes | Client must implement | `--input PATH` reads UTF-8 text on the CLI machine before sending. |
 | Monitor a required TCP port | Yes | No | `--require-port` checks the CLI machine, not the remote relay host. |
-| Operate without a running server | Yes, with `--dir` | No | Direct JSONL mode lacks live adapter, connector, route, and connection-state APIs. |
+| Operate without a running server | Yes, with `--dir` | No | Direct file mode lacks live adapter, connector, route, and connection-state APIs. |
 
 Prefer REST when several processes or machines share one relay: the server
-centralizes storage and cursor changes. Direct JSONL mode is useful for a local,
+centralizes storage and cursor changes. Direct file mode is useful for a local,
 serverless mailbox, but concurrent programs must not make unsafe independent
 writes to its files.
 
@@ -1092,7 +1094,7 @@ ws://127.0.0.1:46667/v1/chat/ws?recipient=UNIQUE_IDENTITY
 
 The server first sends `{"type":"hello","protocol":"mailbox-chat.v1"}`.
 Unread mailbox records arrive as `{"type":"message","message":{...}}` and
-advance the same durable recipient cursor used by REST/JSONL receive. Send a
+advance the same durable recipient cursor used by REST and local receive. Send a
 message through the mailbox with:
 
 ```json
@@ -1107,7 +1109,7 @@ message through the mailbox with:
 Use `{"action":"ping"}` for an application-level health check. Client frames
 must be masked JSON text frames and are limited to 1 MiB. Only one active
 consumer should use a recipient identity, regardless of whether it connects by
-WebSocket, REST, or JSONL.
+WebSocket, REST, or the local JSON store.
 
 ### Mailbox console client
 
@@ -1142,7 +1144,7 @@ With the daemon running, open `http://127.0.0.1:46667/page-demo`. The page is se
 by the proxy and connects to the same-origin mailbox WebSocket endpoint. It is
 a demonstration client; it does not bypass or replace the mailbox.
 
-## JSONL mailbox — implemented
+## Local JSON mailbox — implemented
 
 Filesystem clients use the same envelope without a connector entry:
 
@@ -1232,7 +1234,7 @@ host address from WSL with `ip route show default`, and use
 `http://<windows-host-address>:46667`. Restrict the Windows firewall rule to
 the local/WSL network; binding to `0.0.0.0` otherwise exposes the relay on
 every Windows interface. Prefer REST across the Windows/WSL boundary instead
-of writing relay JSONL files through `/mnt/c`.
+of writing relay JSON files through `/mnt/c`.
 
 ## Compatible agent runtimes
 
@@ -1275,13 +1277,13 @@ not extra human-facing agent runtimes: bridge agents mediate a configured
 platform connector, while `channel-relay` is the deterministic outbound routing
 address.
 
-Applications with JSONL or HTTP clients can use stable, transport-neutral
+Applications with local-store or HTTP clients can use stable, transport-neutral
 mailbox recipient names. OmegaClaw-compatible deployments commonly use
 identities such as `omegaclaw-core` and `omegaclaw-min`; MeTTaClaw-compatible
 deployments may use a deployment-specific `mettaclaw-*` identity. These are
 consumer conventions, not identities built into the relay.
 
-Poll through REST with `mailbox-client --url URL ...`. Direct JSONL access is
+Poll through REST with `mailbox-client --url URL ...`. Direct file access is
 only appropriate when the consumer and relay intentionally share the same
 native filesystem and mailbox directory; do not use it across Windows/WSL
 mounts or network shares.

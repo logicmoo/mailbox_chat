@@ -28,7 +28,7 @@ making any of those systems part of the daemon's identity. It
 owns loopback port `46667`. If `GET /health` answers, another instance must not
 be started on that machine.
 
-The durable JSONL/REST mailbox and the Mattermost, IRC, Discord, Slack,
+The durable JSON/REST mailbox and the Mattermost, IRC, Discord, Slack,
 Matrix/Element, Telegram, WhatsApp Business, Facebook Messenger, Viber, and LINE
 adapters are implemented, including Discourse forums. The routing envelope supports other adapters,
 including direct bidirectional chat-platform bridges.
@@ -381,7 +381,7 @@ every agent, and initializes their cursors at the current mailbox end. A later
 `poll --subscriptions --as AGENT` dynamically includes those subscriptions and
 returns as soon as an ingested channel message arrives.
 
-Mailbox JSONL maintenance is exposed through authenticated server endpoints.
+Mailbox JSON store maintenance is exposed through authenticated server endpoints.
 Pause first with `POST /v1/maintenance/pause`, then use
 `POST /v1/maintenance/trim-before` with `before` or `older_than_seconds`, or
 `POST /v1/maintenance/trim-to-size` with `max_bytes`. Omit `channels` to trim
@@ -486,8 +486,8 @@ mailbox-console --as operator --on mm/chat.singularitynet.io
 ```
 
 Client installation, repository-local launchers, `mailbox-client`, named
-mailboxes, command documents, cursor behavior, Trusted Speaker, REST, JSONL,
-WebSocket, and platform setup are consolidated in
+mailboxes, command documents, cursor behavior, Trusted Speaker, REST, the local
+JSON store, WebSocket, and platform setup are consolidated in
 [`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md).
 
 ## Public attachment links
@@ -709,7 +709,7 @@ See [`INSTRUCTIONS.md`](docs/INSTRUCTIONS.md) for the implementation checklist,
 complete operational contract; platform-side application, bot, token,
 permission, channel/room ID, and installation steps; and Mattermost, Discord,
 Slack, IRC, Matrix/Element, Discourse, WhatsApp, Viber, Telegram, LINE, REST,
-JSONL, and generic future-adapter examples.
+local JSON store, and generic future-adapter examples.
 
 ## Message envelope
 

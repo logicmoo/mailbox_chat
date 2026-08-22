@@ -115,7 +115,7 @@ python3 agent_mailbox.py poll --to my-agent \
 Modern WSL commonly reaches a Windows-hosted loopback service directly. If it
 does not, use the Windows host address or the relay's LAN/public HTTPS name.
 
-## Direct JSONL alternative
+## Direct local-store alternative
 
 For processes on the same native filesystem, replace the REST environment with
 a direct directory. `AGENT_MAILBOX_DIR` takes precedence over
@@ -137,7 +137,7 @@ unset AGENT_MAILBOX_URL
 python3 agent_mailbox.py check
 ```
 
-Do not use direct JSONL through `/mnt/c` to share a Windows relay mailbox with
+Do not use direct file access through `/mnt/c` to share a Windows relay mailbox with
 WSL. Use the relay's REST URL across the Windows/WSL boundary instead.
 
 Do not let two consumers share the same recipient and cursor unless they are

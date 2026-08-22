@@ -30,6 +30,7 @@ CHANNELS_REGISTRY = "server_registry_channels"
 CONNECTORS_REGISTRY = "server_registry_connectors"
 IDENTIFIERS_REGISTRY = "server_registry_identifiers"
 RELAYS_REGISTRY = "server_registry_relays"
+MAILBOXES_REGISTRY = "server_registry_mailboxes"
 
 _SAFE_CHANNEL = re.compile(r"[^A-Za-z0-9_.-]")
 _ENTRY_KEY = re.compile(r"^entry_(\d+)$")
