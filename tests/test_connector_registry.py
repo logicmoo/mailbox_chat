@@ -7,8 +7,8 @@ from conftest import seed_store
 
 from mailbox_channels import channel_store
 from mailbox_channels.connector_registry import (
-    agent_for_presence, config_dir, connectors_file, load_agents, load_connectors, register_agent,
-    relays_file, unregister_agent,
+    agent_for_presence, config_dir, load_agents, load_connectors, register_agent,
+    unregister_agent,
 )
 from mailbox_channels.agent_mailbox import peek
 
@@ -41,15 +41,6 @@ def test_connector_registry_rejects_duplicate_ids(tmp_path: Path) -> None:
 def test_config_directory_environment_selects_connector_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(tmp_path))
     assert config_dir() == tmp_path.resolve()
-    assert relays_file() == tmp_path.resolve() / "relays.json"
-    assert connectors_file() == tmp_path.resolve() / "relays.json"
-
-
-def test_registry_falls_back_to_legacy_connectors_file(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(tmp_path))
-    legacy = tmp_path / "connectors.json"
-    legacy.write_text('{"version": 1, "connectors": []}', encoding="utf-8")
-    assert relays_file() == legacy
 
 
 def test_agent_can_own_multiple_presences_and_connector_delivers_to_agent(tmp_path: Path) -> None:

@@ -66,18 +66,6 @@ def config_dir() -> Path:
     return local.resolve() if local.is_dir() else PROJECT_ROOT / "config"
 
 
-def relays_file() -> Path:
-    """Return the canonical registry, falling back to its legacy filename."""
-    canonical = config_dir() / "relays.json"
-    legacy = config_dir() / "connectors.json"
-    return legacy if not canonical.exists() and legacy.exists() else canonical
-
-
-def connectors_file() -> Path:
-    """Compatibility alias for callers using the former helper name."""
-    return relays_file()
-
-
 def _expand_channel_ids(value: str) -> list[str]:
     if value.startswith("$"):
         value = os.environ.get(value[1:], "")
