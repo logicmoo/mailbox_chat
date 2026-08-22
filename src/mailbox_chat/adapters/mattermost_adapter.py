@@ -507,6 +507,21 @@ def _instance(base_url: str) -> str:
     return (urlsplit(base_url).hostname or "mattermost").lower()
 
 
+def _split_mm_sigil(value: str) -> tuple[str, str]:
+    """Split a leading @ (user) or ~ (channel) sigil off a Mattermost identifier.
+
+    Mirrors Mattermost markdown, where ``@name`` mentions a user and ``~name`` links
+    a channel. Returns ``(kind, name)`` with kind ``"user"``, ``"channel"``, or ``""``
+    (no sigil, caller's kind stands). Channel names and usernames never legitimately
+    begin with these characters, so a leading sigil is unambiguous.
+    """
+    if value.startswith("@"):
+        return "user", value[1:]
+    if value.startswith("~"):
+        return "channel", value[1:]
+    return "", value
+
+
 def _id(value: str, *, directory: IdentifierDirectory | None = None,
         base_url: str = "", kind: str = "") -> str:
     parsed_url = urlsplit(value)
@@ -529,6 +544,9 @@ def _id(value: str, *, directory: IdentifierDirectory | None = None,
         if endpoint.adapter != "mattermost":
             raise ValueError(f"expected an mm address, received {value}")
         value = endpoint.identifier
+    sigil_kind, value = _split_mm_sigil(value)
+    if sigil_kind:
+        kind = sigil_kind
     if directory and not (len(value) == 26 and value.isalnum()):
         # mm/0 is a routing alias, not a second registry namespace. Resolve it
         # against the canonical instance derived from the active base URL.
@@ -548,7 +566,11 @@ def resolve_address(value: str, directory: IdentifierDirectory, *, base_url: str
     endpoint = parse_endpoint(value)
     if endpoint is None or endpoint.adapter != "mattermost":
         return value
-    identifier = _id(value, directory=directory, base_url=base_url, kind="channel")
+    sigil_kind, _ = _split_mm_sigil(endpoint.identifier)
+    identifier = _id(value, directory=directory, base_url=base_url, kind=sigil_kind or "channel")
+    if sigil_kind == "user":
+        # Preserve the user marker so the resolved address stays self-describing.
+        return f"mm/{endpoint.instance}/@{identifier}"
     return f"mm/{endpoint.instance}/{identifier}"
 
 
@@ -665,6 +687,16 @@ def _user_id(session: requests.Session, base_url: str, value: str,
     if len(value) == 26 and value.isalnum():
         return value
     return str(_request(session, base_url, "GET", f"/api/v4/users/username/{value}")["id"])
+
+
+def _direct_channel_id(session: requests.Session, base_url: str, me_id: str, user_id: str) -> str:
+    """Get-or-create the direct-message channel between the bot and a user.
+
+    In Mattermost a DM is itself a channel (type ``"D"``); POST /channels/direct is
+    idempotent and returns the existing DM channel when one already exists.
+    """
+    channel = _request(session, base_url, "POST", "/api/v4/channels/direct", [me_id, user_id])
+    return str(channel["id"])
 
 
 def execute(command: str, arguments: dict[str, Any], *, session: requests.Session,
@@ -792,8 +824,18 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                             {"roles": roles})
         raise ValueError("Mattermost mode supports public, private, +o, and -o")
     if command in {"message", "notice"}:
-        channel = _id(str(arguments["target"]), directory=directory,
-                      base_url=base_url, kind="channel")
+        target = str(arguments["target"])
+        endpoint = parse_endpoint(target)
+        raw_identifier = (endpoint.identifier
+                          if endpoint and endpoint.adapter == "mattermost" else target)
+        target_kind, _ = _split_mm_sigil(raw_identifier)
+        if target_kind == "user":
+            # @user addresses a person: resolve the user and post to their DM channel.
+            user_id = _user_id(session, base_url, target, directory)
+            channel = _direct_channel_id(session, base_url, me_id, user_id)
+        else:
+            channel = _id(target, directory=directory,
+                          base_url=base_url, kind="channel")
         body: dict[str, Any] = {"channel_id": channel, "message": arguments["text"]}
         if command == "notice":
             body["props"] = {"mailbox_notice": True}

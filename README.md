@@ -298,6 +298,11 @@ as `mm/chat.singularitynet.io/opaque-channel-id`. There is no generated alias
 or separate mapping. The immutable channel ID keeps the address stable if its
 display name changes.
 
+A Mattermost name can be a channel or a user, so addresses may carry Mattermost's
+own markdown sigils to disambiguate: `mm/INSTANCE/@name` targets a user (the bot
+opens or reuses a direct-message channel), while `mm/INSTANCE/~name` or a bare
+`mm/INSTANCE/name` targets a channel. Opaque 26-character IDs are used verbatim.
+
 Every inbound Mattermost JSONL event also carries `workspace_id` (the original
 Mattermost `team_id`), `team_id`, `workspace_name`, and `channel_name`. The
 event is therefore self-describing even when it is read without access to the

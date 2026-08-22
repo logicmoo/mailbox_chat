@@ -87,6 +87,42 @@ def test_mm_message_accepts_qualified_address() -> None:
     )
 
 
+class DirectSession(Session):
+    def request(self, method, url, json=None, timeout=0):
+        self.calls.append((method, url, json, timeout))
+        if url.endswith("/api/v4/users/me"):
+            return Response({"id": "a" * 26})
+        if url.endswith("/api/v4/users/username/bob"):
+            return Response({"id": "b" * 26, "username": "bob"})
+        if url.endswith("/api/v4/channels/direct"):
+            return Response({"id": "d" * 26, "type": "D"})
+        return Response({"ok": True})
+
+
+def test_mm_message_to_user_sigil_posts_to_direct_channel() -> None:
+    session = DirectSession()
+    execute("message", {"target": "mm/0/@bob", "text": "hi"},
+            session=session, base_url="https://chat.example")
+    # A @user target opens (or reuses) the DM channel between the bot and the user.
+    assert ("POST", "https://chat.example/api/v4/channels/direct",
+            ["a" * 26, "b" * 26]) in [call[:3] for call in session.calls]
+    # The post lands in the resulting direct channel, not on a bogus channel id.
+    assert session.calls[-1][:3] == (
+        "POST", "https://chat.example/api/v4/posts",
+        {"channel_id": "d" * 26, "message": "hi"},
+    )
+
+
+def test_mm_message_to_channel_sigil_posts_to_channel() -> None:
+    session = Session()
+    execute("message", {"target": "mm/0/~general", "text": "hi"},
+            session=session, base_url="https://chat.example")
+    assert session.calls[-1][:3] == (
+        "POST", "https://chat.example/api/v4/posts",
+        {"channel_id": "general", "message": "hi"},
+    )
+
+
 def test_mm_join_adds_authenticated_bot() -> None:
     session = Session()
     execute("join", {"channel": "mm/0/channel-id"}, session=session,
