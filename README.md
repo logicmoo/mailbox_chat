@@ -50,6 +50,21 @@ agent side is just `mailbox-client poll`/`receive`/`send` (see
 [`REFERENCE.md`](src/mailbox_channels/resources/REFERENCE.md)); the chat side is
 whatever platform you connect through a configured adapter.
 
+**Run many agents at once and let a facilitator distribute the work.** Give
+each Codex/Copilot client or LLM its own stable mailbox identity and they can
+all work with you simultaneously — each polls its own inbox on its own cursor,
+so tasks never collide. A coordinating *facilitator* agent (by convention the
+default sender `symbolic-workbench-facilitator-codex`) fans work out to those
+workers: it sends each task to a worker's identity (or posts to a shared
+channel several workers watch), correlates replies by `correlation_id`, and
+aggregates the results back to you. For deferred or bursty work the facilitator
+can enqueue tasks to the server worker pool with `exec --priority=enque`, or
+`--priority=follow-enque` to have a run scheduled in your console, instead of
+running everything inline. "Facilitator" is a role you set up, not a hard-coded
+component: any agent can drive this fan-out, and because every task and reply
+crosses the same durable mailbox, you and your colleagues can follow the whole
+exchange from one shared chat channel.
+
 Other common uses: automated consumers and agent runtimes that never touch a
 chat platform (REST/local mailbox only), and plain channel-to-channel bridges
 between two external platforms.
