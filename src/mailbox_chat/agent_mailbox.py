@@ -978,9 +978,18 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
     base = base_url.rstrip("/")
     method = "GET"
     payload: dict[str, Any] | None = None
-    if args.command in {"status", "check"}:
+    command = args.command
+
+    def _first_recipient() -> str:
+        recipient = getattr(args, "recipient", None)
+        if not recipient:
+            recipients = getattr(args, "recipients", None) or []
+            recipient = recipients[0] if recipients else ""
+        return recipient or ""
+
+    if command in {"status", "check"}:
         url = f"{base}/v1/status"
-    elif args.command == "send":
+    elif command == "send":
         url = f"{base}/v1/messages"
         method = "POST"
         payload = {
@@ -990,31 +999,80 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
             "channel_id": args.channel_id, "channel_type": args.channel_type,
             "source_id": args.source_id, "thread_id": args.thread_id, "root_id": args.root_id,
         }
-    elif args.command == "ack" or (args.command == "receive" and args.ack):
+    elif command == "ack" or (command == "receive" and args.ack):
         url = f"{base}/v1/ack"
         method = "POST"
         payload = {"recipient": args.recipient,
-                   "message_id": args.message_id if args.command == "ack" else args.ack,
+                   "message_id": args.message_id if command == "ack" else args.ack,
                    "cursor": args.cursor}
-    elif args.command == "agent-add":
+    elif command == "cursor-init":
+        url = f"{base}/v1/cursors"
+        method = "POST"
+        payload = {"recipient": _first_recipient(), "cursor": args.cursor, "start": args.start}
+    elif command == "cursors":
+        url = f"{base}/v1/cursors?" + urllib.parse.urlencode({"cursor": args.cursor})
+    elif command == "agent-add":
         url = f"{base}/v1/agents"
         method = "POST"
-        payload = {
-            "agent_id": args.agent_id, "presence_id": args.presence_id,
-            "dry_run": args.dry_run,
-        }
-    elif args.command == "agent-del":
+        payload = {"agent_id": args.agent_id, "presence_id": args.presence_id or "",
+                   "dry_run": args.dry_run}
+    elif command == "agent-del":
         url = f"{base}/v1/agents"
         method = "POST"
-        payload = {
-            "action": "delete", "agent_id": args.agent_id, "presence_id": args.presence_id,
-            "purge": args.purge, "dry_run": args.dry_run,
-        }
-    else:
-        advance = args.command not in {"peek", "unread-count"} and not getattr(args, "no_advance", False)
-        query = urllib.parse.urlencode({"recipient": args.recipient, "advance": str(advance).lower(),
+        payload = {"action": "delete", "agent_id": args.agent_id,
+                   "presence_id": args.presence_id or "", "purge": args.purge,
+                   "dry_run": args.dry_run}
+    elif command == "connector-add":
+        url = f"{base}/v1/connectors"
+        method = "POST"
+        payload = {"connector_id": args.connector_id, "kind": args.kind,
+                   "direction": args.direction, "instance": args.instance,
+                   "channel_ids": list(args.channel_ids),
+                   "config": _json_object_with_assignments(args.config, args.config_values, "--config"),
+                   "dry_run": args.dry_run}
+    elif command == "connector-del":
+        url = f"{base}/v1/connectors"
+        method = "POST"
+        payload = {"action": "delete", "connector_id": args.connector_id, "dry_run": args.dry_run}
+    elif command == "channel-add":
+        url = f"{base}/v1/channels"
+        method = "POST"
+        payload = {"channel_id": args.channel_id,
+                   "metadata": _json_object_with_assignments(args.metadata, args.metadata_values, "--metadata"),
+                   "aliases": list(args.aliases), "subscribe_all": args.subscribe_all}
+    elif command == "channel-del":
+        url = f"{base}/v1/channels"
+        method = "POST"
+        payload = {"action": "delete", "channel_id": args.channel_id, "force": args.force}
+    elif command == "relay-add":
+        url = f"{base}/v1/relays"
+        method = "POST"
+        payload = {"source_channel": args.source_channel, "destination": args.destination,
+                   "relay_id": args.relay_id, "start": args.start, "dry_run": args.dry_run}
+    elif command == "relay-del":
+        url = f"{base}/v1/relays"
+        method = "POST"
+        payload = {"action": "delete", "relay_id": args.relay_id, "dry_run": args.dry_run}
+    elif command in {"subscribe", "unsubscribe"}:
+        url = f"{base}/v1/subscriptions"
+        method = "POST"
+        payload = {"channel": args.channel, "identity": args.global_recipient,
+                   "subscribed": command == "subscribe"}
+    elif command == "subscriptions":
+        if getattr(args, "all_subscriptions", False):
+            url = f"{base}/v1/registry"
+        else:
+            url = f"{base}/v1/subscriptions?" + urllib.parse.urlencode(
+                {"identity": args.global_recipient})
+    elif command in {"agents", "connectors", "channels", "mailboxes", "relays"}:
+        url = f"{base}/v1/registry"
+    elif command in {"receive", "peek", "poll", "poll-many", "history", "follow", "unread-count"}:
+        advance = command not in {"peek", "unread-count"} and not getattr(args, "no_advance", False)
+        query = urllib.parse.urlencode({"recipient": _first_recipient(), "advance": str(advance).lower(),
                                         "cursor": getattr(args, "cursor", None) or ""})
         url = f"{base}/v1/messages?{query}"
+    else:
+        build_parser().error(f"--curl has no REST equivalent for the {command!r} command")
     parts = ["curl", "-sS", "-X", method]
     if token:
         parts.extend(["-H", "Authorization: Bearer <REDACTED_TOKEN>"])

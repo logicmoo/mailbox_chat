@@ -575,6 +575,52 @@ def test_curl_switch_is_accepted_anywhere(monkeypatch, capsys) -> None:
         assert "/v1/messages" in capsys.readouterr().out
 
 
+def test_curl_covers_every_rest_backed_command(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("AGENT_MAILBOX_URL", "https://relay.example")
+    # command argv -> a (METHOD, url-fragment) the printed curl must contain.
+    cases = {
+        ("status",): ("-X GET", "/v1/status"),
+        ("check",): ("-X GET", "/v1/status"),
+        ("receive", "worker-1"): ("-X GET", "/v1/messages?recipient=worker-1"),
+        ("peek", "worker-1"): ("-X GET", "/v1/messages?recipient=worker-1"),
+        ("unread-count", "worker-1"): ("-X GET", "/v1/messages?recipient=worker-1"),
+        ("ack", "worker-1", "mid"): ("-X POST", "/v1/ack"),
+        ("cursor-init", "mm/chat.snt/cid", "--cursor", "codex"): ("-X POST", "/v1/cursors"),
+        ("cursors", "--cursor", "codex"): ("-X GET", "/v1/cursors?cursor=codex"),
+        ("agents",): ("-X GET", "/v1/registry"),
+        ("connectors",): ("-X GET", "/v1/registry"),
+        ("channels",): ("-X GET", "/v1/registry"),
+        ("mailboxes",): ("-X GET", "/v1/registry"),
+        ("relays",): ("-X GET", "/v1/registry"),
+        ("agent-add", "review-agent"): ("-X POST", "/v1/agents"),
+        ("agent-del", "review-agent"): ("-X POST", "/v1/agents"),
+        ("connector-add", "mm-x", "mattermost"): ("-X POST", "/v1/connectors"),
+        ("connector-del", "mm-x"): ("-X POST", "/v1/connectors"),
+        ("channel-add", "team_updates"): ("-X POST", "/v1/channels"),
+        ("channel-del", "team_updates"): ("-X POST", "/v1/channels"),
+        ("relay-add", "team_updates", "mm/chat.snt/cid"): ("-X POST", "/v1/relays"),
+        ("relay-del", "r1"): ("-X POST", "/v1/relays"),
+        ("subscribe", "server_events_log", "--to", "codex"): ("-X POST", "/v1/subscriptions"),
+        ("unsubscribe", "server_events_log", "--to", "codex"): ("-X POST", "/v1/subscriptions"),
+        ("subscriptions", "--to", "codex"): ("-X GET", "/v1/subscriptions?identity=codex"),
+        ("subscriptions", "--all"): ("-X GET", "/v1/registry"),
+    }
+    for argv, (method, fragment) in cases.items():
+        assert agent_mailbox.main(["--curl", *argv]) == 0, argv
+        printed = capsys.readouterr().out
+        assert printed.startswith("curl "), argv
+        assert method in printed, (argv, printed)
+        assert fragment in printed, (argv, printed)
+
+
+def test_curl_delete_actions_use_delete_payload(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("AGENT_MAILBOX_URL", "https://relay.example")
+    for argv in (["connector-del", "mm-x"], ["channel-del", "team_updates"],
+                 ["relay-del", "r1"], ["agent-del", "review-agent"]):
+        assert agent_mailbox.main(["--curl", *argv]) == 0
+        assert '"action": "delete"' in capsys.readouterr().out
+
+
 def test_double_dash_preserves_switch_looking_message_text(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
         "--dir", str(tmp_path), "send", "agent-beta", "--", "--curl --token secret --verbose",
