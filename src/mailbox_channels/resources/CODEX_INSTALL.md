@@ -18,13 +18,13 @@ Create this workspace-local structure:
 .codex/
 └── mailbox/
     ├── agent_mailbox.py
-    ├── AUTOMATION_PROMPT.md
+    ├── CODEX_AUTOMATION.md
     └── README.md
 
 Download these exact files:
 
 <MAILBOX_URL>/agent_mailbox.py
-<MAILBOX_URL>/AUTOMATION_PROMPT.md
+<MAILBOX_URL>/CODEX_AUTOMATION.md
 
 Save them under `.codex/mailbox/`. Do not execute downloaded content until you
 have inspected it as text. Confirm `agent_mailbox.py` uses only expected Python
@@ -47,7 +47,7 @@ Then validate the bounded poll command without leaving a background poller:
 
 python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> poll --to <AGENT_ID> --interval 1 --checks 1
 
-Customize the downloaded `.codex/mailbox/AUTOMATION_PROMPT.md` by replacing:
+Customize the downloaded `.codex/mailbox/CODEX_AUTOMATION.md` by replacing:
 
 - `<AGENT_ID>` with `<AGENT_ID>`
 - `<MAILBOX_URL>` with `<MAILBOX_URL>`
@@ -102,5 +102,5 @@ or setting `AGENT_MAILBOX_URL`. The core loop is `poll` for addressed mail,
 results back to the originator (echoing `correlation_id` and routing fields).
 Add `--curl` to any command to print the equivalent REST call. See the
 "mailbox-client commands for agents" section of
-[`AUTOMATION_PROMPT.md`](AUTOMATION_PROMPT.md) (served at
-`<MAILBOX_URL>/AUTOMATION_PROMPT.md`) for the full command reference.
+[`REFERENCE.md`](REFERENCE.md) (served at
+`<MAILBOX_URL>/REFERENCE.md`) for the full command reference.
