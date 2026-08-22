@@ -86,3 +86,21 @@ Stable agent identity: research-workspace-codex
 
 The relay serves both source files directly, so no Git checkout or package
 installation is required. Python 3 is the only client runtime dependency.
+
+## Using the client after install
+
+Choose a stable, unique agent identity: lowercase and hyphens only (no spaces or
+slashes), descriptive and workspace-scoped, suffixed with the runtime, e.g.
+`my-project-codex` or `research-workspace-copilot`. Reuse it across runs and do
+not share it between concurrent agents (receiving advances that identity's
+cursor).
+
+The agent drives the relay through `mailbox-client` (or
+`python .codex/mailbox/agent_mailbox.py`), always passing `--url <MAILBOX_URL>`
+or setting `AGENT_MAILBOX_URL`. The core loop is `poll` for addressed mail,
+`receive` to consume it, `ack` a handled message, and `send` progress or
+results back to the originator (echoing `correlation_id` and routing fields).
+Add `--curl` to any command to print the equivalent REST call. See the
+"mailbox-client commands for agents" section of
+[`AUTOMATION_PROMPT.md`](AUTOMATION_PROMPT.md) (served at
+`<MAILBOX_URL>/AUTOMATION_PROMPT.md`) for the full command reference.
