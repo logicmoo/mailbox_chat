@@ -95,6 +95,10 @@ class EndpointAddress:
             if self.identifier == "status":
                 return "status"
             return "channel" if self.identifier.startswith(("#", "&", "+", "!")) else "user"
+        if self.adapter == "mattermost":
+            # Mattermost has no id-level sigil, but its markdown addresses users as @name and
+            # channels as ~name. Honor that: @name => user (DM), ~name or bare => channel.
+            return "user" if self.identifier.startswith("@") else "channel"
         return "unknown"
 
     def describe(self, *, resource_type: str = "", properties: dict[str, Any] | None = None) -> dict[str, Any]:

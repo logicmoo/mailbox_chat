@@ -27,6 +27,17 @@ def test_zero_instance_is_canonical_default_instance(monkeypatch) -> None:
     ) == ["specific-agent"]
 
 
+def test_mattermost_address_infers_user_and_channel_by_sigil() -> None:
+    user = parse_endpoint("mm/chat.snt/@alice")
+    assert user is not None and user.inferred_type == "user"
+    assert user.canonical == "mm/chat.snt/@alice"
+    channel = parse_endpoint("mm/chat.snt/~general")
+    assert channel is not None and channel.inferred_type == "channel"
+    assert channel.canonical == "mm/chat.snt/~general"
+    bare = parse_endpoint("mm/chat.snt/general")
+    assert bare is not None and bare.inferred_type == "channel"
+
+
 def test_endpoint_descriptions_have_common_typed_properties() -> None:
     status = parse_endpoint("irc/0/status")
     assert status is not None and status.describe()["type"] == "status"

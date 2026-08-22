@@ -869,7 +869,11 @@ The final component is opaque and keeps the platform's native ID:
 
 Quote addresses containing shell metacharacters. For IRC, percent-encode `#`
 as `%23`; the relay treats the decoded/native destination as the adapter's
-channel ID. An instance distinguishes accounts, workspaces, homeservers,
+channel ID. For Mattermost, a name can be a channel or a user, so an address may
+carry Mattermost's markdown sigils to disambiguate: `mm/INSTANCE/@name` targets a
+user (resolved to the bot/user direct-message channel) and `mm/INSTANCE/~name` or
+a bare `mm/INSTANCE/name` targets a channel; opaque 26-character IDs are used
+verbatim. An instance distinguishes accounts, workspaces, homeservers,
 networks, pages, bots, or forum servers when several connectors of one platform
 are configured. The server retains the complete canonical address in its
 subscription set.
