@@ -957,7 +957,11 @@ The client supports:
 - `--format jsonl|json|text`, `--output`, `--quiet`, `--verbose`, and
   `--nobuffer`;
 - `--` to stop option processing so message text may contain switch-like text;
-- `--run command.json` to execute a complete JSON command document.
+- `--run command.json` to execute a complete JSON command document;
+- `exec` to run a command now, enqueue it to the server worker pool, or ask the
+  server to run a program locally (see "Running and enqueuing commands" below);
+- `mailbox-add NAME LOCATION` and `mailbox-del NAME` to register or remove a
+  named mailbox (see "Named mailboxes" below).
 
 Example command document:
 
@@ -983,6 +987,59 @@ Download the matching standalone client from a running relay:
 ```powershell
 Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox.py
 ```
+
+### Running and enqueuing commands
+
+`exec` wraps another mailbox-client command and chooses where and when it runs:
+
+```powershell
+# Identical to running the inner command directly, in this client process:
+mailbox-client exec --priority=now status
+mailbox-client exec status
+
+# Append the command to the server worker pool (the server_worker_queue mailbox)
+# for the mechanical worker to run later:
+mailbox-client --url http://127.0.0.1:46667 exec --priority=enque send worker-1 'do it'
+
+# Enqueue for the worker to schedule the run in the operator's console:
+mailbox-client --url http://127.0.0.1:46667 exec --priority=follow-enque status
+
+# Ask the server to run a program locally and return its output:
+mailbox-client --url http://127.0.0.1:46667 exec --program mailbox-client status
+```
+
+Options:
+
+- `--priority now|enque|follow-enque` (default `now`). `now` runs immediately;
+  `enque` and `follow-enque` append a `work_item` to `server_worker_queue`.
+- `--program NAME` runs the program on the server (currently `mailbox-client`)
+  and returns `{returncode, output}`; requires a REST transport.
+- `--env-vars KEY=VALUE` (repeatable) sets environment variables for the run;
+  the client also forwards a non-secret default set (`AGENT_MAILBOX_URL`,
+  `AGENT_MAILBOX_DIR`). Pass secrets like `AGENT_MAILBOX_TOKEN` explicitly.
+- `--cwd DIR` sets the working directory for the run.
+- Place exec options before the command; everything after is the inner command
+  (its own flags are preserved). `exec -h` shows exec help, while
+  `exec COMMAND -h` shows the inner command's help, and `--curl` renders the
+  inner command's (or `/v1/exec`) request without sending it.
+
+The server exposes `POST /v1/exec` for both the server-run and enqueue paths.
+
+### Named mailboxes
+
+`mailbox-add NAME LOCATION` registers a named mailbox in the
+`server_registry_mailboxes` registry and adds a matching alias to the local
+`config/mailboxes.json` (used by `--mailbox NAME`). An `http(s)://` LOCATION is
+stored as a URL; anything else as a directory. `mailbox-del NAME` removes both.
+
+```powershell
+mailbox-client mailbox-add research http://127.0.0.1:46667
+mailbox-client --mailbox research status
+mailbox-client mailbox-del research
+```
+
+Over REST these use `POST /v1/mailboxes`. `load_mailboxes` also reports every
+stored channel document, since each per-channel `.json` file is a mailbox.
 
 ### Trusted Speaker
 
@@ -1025,6 +1082,8 @@ surfaces that the CLI does not currently wrap.
 | Connector inspection | No | Yes | Use `GET /v1/connectors`. |
 | Identifier/UUID directory | No | Yes | Use `GET/POST /v1/identifiers`. |
 | Identifier-resolution requests | No | Yes | Use `GET/POST /v1/identifier-resolution-requests`. |
+| Named mailbox registry | `mailbox-add`/`mailbox-del` | Yes | Use `POST /v1/mailboxes` (add or `action:delete`). |
+| Run or enqueue a command | `exec` | Yes | Use `POST /v1/exec` (`priority` now/enque/follow-enque; `program` runs on the server). |
 
 The equivalent client and console command family is `mailbox-client registry`
 or `/registry`. It supports `remember`, `alias`, `find`, `request`, and
