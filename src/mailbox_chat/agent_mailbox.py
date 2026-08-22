@@ -1146,7 +1146,7 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
         payload = {"action": "delete", "mailbox_id": args.mailbox_id, "dry_run": args.dry_run}
     elif command == "exec":
         inner = _exec_inner(args.exec_argv)
-        if args.priority != "enque" and not args.program:
+        if args.priority == "now" and not args.program:
             build_parser().error(
                 "--curl has no REST equivalent for exec --priority=now without --program")
         url = f"{base}/v1/exec"
@@ -1445,8 +1445,11 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Example: mailbox-client exec --priority=enque send worker-1 'do it'; "
                "mailbox-client --url http://127.0.0.1:46667 exec --program mailbox-client status",
     )
-    exec_parser.add_argument("--priority", choices=("now", "enque"), default="now",
-                             help="run now (default) or append to the server worker pool")
+    exec_parser.add_argument("--priority", choices=("now", "enque", "follow-enque"),
+                             default="now",
+                             help="run now (default), append to the server worker pool "
+                                  "(enque), or enqueue for the worker to schedule in your "
+                                  "console (follow-enque)")
     exec_parser.add_argument("--program", default="",
                              help="run this program on the server locally (e.g. mailbox-client); "
                                   "omit to run the command in this client process")
@@ -1770,6 +1773,10 @@ def _normalize_exec_dispatch(argv: list[str]) -> list[str]:
         else:
             break
     inner = tail[position:]
+    if inner and inner[0] in {"-h", "--help"}:
+        # exec's own help: let argparse render it instead of the REMAINDER
+        # capturing -h. `exec <command> -h` still re-dispatches to that command.
+        return [*head, "exec", *options, *inner]
     return [*head, "exec", *options, "--", *inner]
 
 
@@ -2059,7 +2066,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             from .subscriptions import set_subscription
             set_subscription(channel, subscription_identity, enabled=True, path=mailbox_root)
-    if args.curl:
+    if args.curl and args.command != "exec":
         if not use_rest:
             build_parser().error("--curl requires a REST transport selected by --url, --mailbox, or AGENT_MAILBOX_URL")
         print(curl_command(args, str(rest_url), token=bool(REST_TOKEN)))
@@ -2266,15 +2273,24 @@ def main(argv: list[str] | None = None) -> int:
             build_parser().error("exec requires a command to run")
         env = _exec_env(args.env_vars)
         program = args.program or "mailbox-client"
-        if args.priority == "enque":
+        if args.curl:
+            if args.priority == "now" and not args.program:
+                # now-in-process: identical to running the inner command with --curl
+                return main(_forwarded_globals(args) + ["--curl", *inner])
+            if not use_rest:
+                build_parser().error(
+                    "--curl requires a REST transport selected by --url, --mailbox, or AGENT_MAILBOX_URL")
+            print(curl_command(args, str(rest_url), token=bool(REST_TOKEN)))
+            return 0
+        if args.priority in {"enque", "follow-enque"}:
             if use_rest:
-                result = exec_rest(program, inner, priority="enque", env=env, cwd=args.cwd,
+                result = exec_rest(program, inner, priority=args.priority, env=env, cwd=args.cwd,
                                    timeout=args.timeout, base_url=rest_url)
             else:
                 message = send(SERVER_WORKER_QUEUE, shlex.join(inner),
                                message_type="work_item",
                                extra_fields={"program": program, "argv": inner,
-                                             "priority": "enque",
+                                             "priority": args.priority,
                                              **({"env": env} if env else {}),
                                              **({"cwd": args.cwd} if args.cwd else {})},
                                root=mailbox_root)

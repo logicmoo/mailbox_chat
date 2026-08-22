@@ -61,6 +61,19 @@ def test_exec_enque_local_records_env_and_cwd(tmp_path: Path, capsys) -> None:
     assert item["cwd"] == str(tmp_path)
 
 
+def test_exec_follow_enque_records_priority(tmp_path: Path, capsys) -> None:
+    store = tmp_path / "store"
+    assert agent_mailbox.main([
+        "--dir", str(store), "exec", "--priority=follow-enque", "send", "worker-1", "go",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["enqueued"] is True
+    item = _queue_messages(store)[0]
+    assert item["type"] == "work_item"
+    assert item["priority"] == "follow-enque"
+    assert item["argv"] == ["send", "worker-1", "go"]
+
+
 def test_exec_program_without_server_errors(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         agent_mailbox.main([
@@ -89,10 +102,34 @@ def test_exec_curl_enque_and_program(monkeypatch, capsys) -> None:
     assert "/v1/exec" in program and '"program": "mailbox-client"' in program
 
 
-def test_exec_curl_now_local_has_no_rest_equivalent(monkeypatch) -> None:
+def test_exec_curl_now_local_shows_inner_command_curl(monkeypatch, capsys) -> None:
     monkeypatch.setenv("AGENT_MAILBOX_URL", "https://relay.example")
+    monkeypatch.delenv("AGENT_MAILBOX_DIR", raising=False)
+    assert agent_mailbox.main(["--curl", "exec", "status"]) == 0
+    printed = capsys.readouterr().out
+    assert printed.startswith("curl ") and "-X GET" in printed and "/v1/status" in printed
+
+
+def test_exec_curl_now_local_requires_rest(tmp_path) -> None:
+    # Without a REST transport the inner command's --curl has nothing to render.
     with pytest.raises(SystemExit):
-        agent_mailbox.main(["--curl", "exec", "status"])
+        agent_mailbox.main(["--dir", str(tmp_path), "exec", "--curl", "status"])
+
+
+def test_exec_has_its_own_help(capsys) -> None:
+    with pytest.raises(SystemExit) as caught:
+        agent_mailbox.main(["exec", "-h"])
+    assert caught.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "mailbox-client exec" in help_text
+    assert "--priority" in help_text and "--program" in help_text
+
+
+def test_exec_inner_command_help_is_redispatched(capsys) -> None:
+    with pytest.raises(SystemExit) as caught:
+        agent_mailbox.main(["exec", "send", "-h"])
+    assert caught.value.code == 0
+    assert "mailbox-client send" in capsys.readouterr().out
 
 
 def test_run_mailbox_client_argv_runs_and_captures_output() -> None:

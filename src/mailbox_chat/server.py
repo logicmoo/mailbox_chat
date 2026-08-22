@@ -881,7 +881,7 @@ def main(argv: list[str] | None = None) -> int:
                     exec_env = {str(key): str(value)
                                 for key, value in (payload.get("env") or {}).items()}
                     exec_cwd = str(payload.get("cwd") or "")
-                    if priority == "enque":
+                    if priority in {"enque", "follow-enque"}:
                         record = agent_mailbox.send(
                             agent_mailbox.SERVER_WORKER_QUEUE,
                             shlex.join(argv), message_type="work_item",
