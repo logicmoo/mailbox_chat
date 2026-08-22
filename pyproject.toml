@@ -30,7 +30,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-mailbox_channels = ["resources/*", "resources/docs/*"]
+mailbox_channels = ["resources/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

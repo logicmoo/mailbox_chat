@@ -315,11 +315,10 @@ def main(argv: list[str] | None = None) -> int:
             if parsed.path == "/INSTALL_WITH_CODEX.md":
                 self._file(RESOURCE_ROOT / "INSTALL_WITH_CODEX.md", "text/markdown; charset=utf-8")
                 return
-            if parsed.path.startswith("/docs/") and parsed.path.endswith(".md"):
-                name = parsed.path[len("/docs/"):]
-                candidate = (RESOURCE_ROOT / "docs" / name).resolve()
-                docs_root = (RESOURCE_ROOT / "docs").resolve()
-                if candidate.parent == docs_root and candidate.is_file():
+            if parsed.path.endswith(".md") and parsed.path.count("/") == 1:
+                name = parsed.path[1:]
+                candidate = (RESOURCE_ROOT / name).resolve()
+                if candidate.parent == RESOURCE_ROOT.resolve() and candidate.is_file():
                     self._file(candidate, "text/markdown; charset=utf-8")
                 else:
                     self._json(404, {"error": "not found"})
