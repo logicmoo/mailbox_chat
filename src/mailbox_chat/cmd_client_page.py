@@ -71,6 +71,25 @@ def start_mailbox_client(arguments: str, *, relay_url: str, token: str = "") -> 
                      name=f"mailbox-client-{session.session_id[:8]}").start()
     return session
 
+def run_mailbox_client_argv(arguments: list[str], *, relay_url: str, token: str = "",
+                            env: dict[str, str] | None = None, cwd: str | None = None,
+                            timeout: float | None = None) -> dict[str, object]:
+    """Run mailbox-client on the server, wait for completion, and return its output."""
+    argv = [sys.executable, "-m", "mailbox_channels.agent_mailbox", "--url", relay_url,
+            *[str(item) for item in arguments]]
+    environment = os.environ.copy()
+    if token:
+        environment["AGENT_MAILBOX_TOKEN"] = token
+    if env:
+        environment.update({str(key): str(value) for key, value in env.items()})
+    completed = subprocess.run(
+        argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+        text=True, encoding="utf-8", errors="replace", env=environment, cwd=cwd or None,
+        timeout=timeout,
+    )
+    return {"program": "mailbox-client", "argv": ["--url", relay_url, *arguments],
+            "returncode": completed.returncode, "output": completed.stdout}
+
 def command_status(session_id: str) -> dict[str, object] | None:
     with _sessions_lock:
         session = _sessions.get(session_id)

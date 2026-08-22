@@ -3,8 +3,21 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Any
+
+
+def curl_command(method: str, url: str, *, token: str = "", payload: Any = None) -> str:
+    """Render a token-redacted curl command equivalent to a relay REST request."""
+    parts = ["curl", "-sS", "-X", method]
+    if token:
+        parts.extend(["-H", "Authorization: ******"])
+    if payload is not None:
+        parts.extend(["-H", "Content-Type: application/json",
+                      "--data", json.dumps(payload, ensure_ascii=False)])
+    parts.append(url)
+    return " ".join(shlex.quote(part) for part in parts)
 
 
 def normalize_options(argv: list[str]) -> list[str]:

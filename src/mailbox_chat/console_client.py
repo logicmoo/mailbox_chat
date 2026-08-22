@@ -1,4 +1,4 @@
-"""Trusted Speaker interactive client for REST/WebSocket or local JSONL mailboxes."""
+"""Trusted Speaker interactive client for REST/WebSocket or local JSON mailboxes."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _split_command(value: str) -> list[str]:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="mailbox-console",
-        description="Trusted Speaker console client for relay WebSocket or local JSONL chat",
+        description="Trusted Speaker console client for relay WebSocket or local JSON mailbox chat",
     )
     result.add_argument("identity", nargs="?",
                         help="unique stable agent ID; alternatively use --as")
@@ -48,7 +48,7 @@ def parser() -> argparse.ArgumentParser:
                            help="relay HTTP(S) base URL or full WebSocket endpoint "
                                 "(default: http://127.0.0.1:46667)")
     transport.add_argument("--dir", type=Path,
-                           help="use this local JSONL mailbox directory instead of WebSocket")
+                           help="use this local JSON mailbox directory instead of WebSocket")
     result.add_argument("--interval", type=float, default=0.5,
                         help="local mailbox polling interval in seconds (default: 0.5)")
     return result

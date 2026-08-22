@@ -14,7 +14,7 @@ from .endpoint_address import endpoint_instance
 from .identifier_directory import IdentifierDirectory
 from .adapters.irc_adapter import IrcAdapter
 from .connector_registry import connectors_for
-from .admin_io import render
+from .admin_io import curl_command, render
 
 
 def _irc_connector(instance: str = "") -> dict[str, Any]:
@@ -99,6 +99,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--url", help="ask a running relay server to perform discovery")
     result.add_argument("--format", choices=("jsonl", "json", "text"), default="json",
                         help="output format (default: json)")
+    result.add_argument("--curl", action="store_true",
+                        help="print the equivalent REST curl command without executing it")
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("platforms", help="list platforms with implemented discovery")
     channels = commands.add_parser("channels", help="list visible platform channels")
@@ -110,11 +112,31 @@ def parser() -> argparse.ArgumentParser:
     users.add_argument("--channel", required=True, help="channel address or platform channel ID")
     users.add_argument("--instance", default="", help="IRC server instance to query (default: first)")
     users.add_argument("--timeout", type=float, default=15.0, help="discovery timeout in seconds")
+    for command_parser in commands.choices.values():
+        command_parser.add_argument(
+            "--curl", action="store_true", default=argparse.SUPPRESS,
+            help="print the equivalent REST curl command without executing it",
+        )
     return result
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if getattr(args, "curl", False):
+        if not args.url:
+            raise ValueError("--curl requires --url")
+        if args.command == "platforms":
+            raise ValueError("--curl has no REST equivalent for the platforms command")
+        resource = "channels" if args.command == "channels" else "users"
+        query = urllib.parse.urlencode({
+            "platform": args.platform, "timeout": args.timeout,
+            "channel": getattr(args, "channel", "") if args.command == "users" else "",
+            "instance": args.instance,
+        })
+        token = os.environ.get(agent_mailbox.MAILBOX_TOKEN_ENV, "")
+        print(curl_command("GET", f"{args.url.rstrip('/')}/v1/discovery/{resource}?{query}",
+                           token=token))
+        return 0
     if args.command == "platforms":
         result: Any = {"platforms": [{"id": "irc", "resources": ["channels", "users"]}]}
     else:

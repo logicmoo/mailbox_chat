@@ -1,4 +1,4 @@
-﻿"""Minimal append-only JSONL mailbox shared by local agents."""
+﻿"""Minimal per-channel JSON mailbox store shared by local agents."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
     import channel_store  # type: ignore[no-redef]
 
 
-DEFAULT_SENDER = "console-default-agent"
+DEFAULT_SENDER = "symbolic-workbench-facilitator-codex"
 MAILBOX_ENV = "AGENT_MAILBOX_DIR"
 MAILBOX_URL_ENV = "AGENT_MAILBOX_URL"
 MAILBOX_TOKEN_ENV = "AGENT_MAILBOX_TOKEN"
@@ -64,6 +64,13 @@ DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
 SERVER_AGENT_TO_AGENT_CHANNEL = "server_outbound_relay_agent_to_agent"
 SERVER_AGENT_TO_CHANNEL_CHANNEL = "server_outbound_relay_agent_to_channel"
 SERVER_AUDIT_CHANNELS = {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}
+SERVER_WORKER_QUEUE = "server_worker_queue"
+# Environment variables the client forwards to an exec'd command by default.
+# Values are read from the current environment; --env-vars entries add to or
+# override these. Secrets (e.g. AGENT_MAILBOX_TOKEN) are intentionally excluded
+# so enqueued work items never persist credentials; pass them explicitly with
+# --env-vars when required.
+DEFAULT_EXEC_ENV_VARS = ("AGENT_MAILBOX_URL", "AGENT_MAILBOX_DIR")
 IRC_COMMANDS = ("ping", "list", "names", "join", "part", "topic", "nick", "whois",
                 "mode", "invite", "kick", "message", "notice", "raw")
 MATTERMOST_COMMANDS = ("ping", "teams", "list", "names", "threads", "join", "part",
@@ -107,6 +114,9 @@ COMMAND_POSITIONALS = {
     "mailboxes": (),
     "agent-add": ("agent_id",),
     "agent-del": ("agent_id",),
+    "mailbox-add": ("mailbox_id", "location"),
+    "mailbox-del": ("mailbox_id",),
+    "exec": ("exec_argv",),
     "follow": ("recipient",),
     "unread-count": ("recipient",),
     "ack": ("recipient", "message_id"),
@@ -863,6 +873,33 @@ def delete_relay_rest(relay_id: str, *, dry_run: bool = False,
     }, base_url=base_url))
 
 
+def add_mailbox_rest(mailbox_id: str, location: str, *, dry_run: bool = False,
+                     base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/mailboxes", {
+        "mailbox_id": mailbox_id, "location": location, "dry_run": dry_run,
+    }, base_url=base_url))
+
+
+def delete_mailbox_rest(mailbox_id: str, *, dry_run: bool = False,
+                        base_url: str | None = None) -> dict[str, Any]:
+    return dict(_rest_request("POST", "/v1/mailboxes", {
+        "action": "delete", "mailbox_id": mailbox_id, "dry_run": dry_run,
+    }, base_url=base_url))
+
+
+def exec_rest(program: str, argv: list[str], *, priority: str = "now",
+              env: dict[str, str] | None = None, cwd: str = "",
+              timeout: float | None = None, base_url: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"program": program, "argv": list(argv), "priority": priority}
+    if env:
+        payload["env"] = dict(env)
+    if cwd:
+        payload["cwd"] = cwd
+    if timeout is not None:
+        payload["timeout"] = timeout
+    return dict(_rest_request("POST", "/v1/exec", payload, base_url=base_url))
+
+
 def default_config_path() -> Path:
     return Path.cwd() / "config" / "mailboxes.json"
 
@@ -886,6 +923,51 @@ def named_mailbox(name: str, path: Path | None = None) -> tuple[Path | None, str
     if not directory.is_absolute():
         directory = config_path.parent / directory
     return directory.resolve(), None
+
+
+def write_named_mailbox(name: str, location: str, *,
+                        config_path: Path | None = None) -> dict[str, Any]:
+    """Add or update a named mailbox in the local mailbox config (config/mailboxes.json)."""
+    name, location = name.strip(), location.strip()
+    if not name:
+        raise ValueError("mailbox name is required")
+    path = (config_path or default_config_path()).expanduser()
+    document: dict[str, Any] = {}
+    if path.exists():
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError(f"mailbox config is not valid JSON: {path}") from error
+    if not isinstance(document, dict):
+        raise ValueError(f"mailbox config must be a JSON object: {path}")
+    mailboxes = document.setdefault("mailboxes", {})
+    if not isinstance(mailboxes, dict):
+        raise ValueError(f"mailbox config 'mailboxes' must be a JSON object: {path}")
+    key = "url" if location.startswith(("http://", "https://")) else "dir"
+    mailboxes[name] = {key: location}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8", newline="\n")
+    return {"name": name, key: location, "config": str(path)}
+
+
+def delete_named_mailbox(name: str, *, config_path: Path | None = None) -> dict[str, Any]:
+    """Remove a named mailbox from the local mailbox config, if present."""
+    name = name.strip()
+    path = (config_path or default_config_path()).expanduser()
+    if not path.exists():
+        return {"name": name, "deleted": False, "config": str(path)}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"mailbox config is not valid JSON: {path}") from error
+    mailboxes = document.get("mailboxes") if isinstance(document, dict) else None
+    if not isinstance(mailboxes, dict) or name not in mailboxes:
+        return {"name": name, "deleted": False, "config": str(path)}
+    del mailboxes[name]
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8", newline="\n")
+    return {"name": name, "deleted": True, "config": str(path)}
 
 
 def _where_filters(values: list[str]) -> dict[str, str]:
@@ -1053,6 +1135,29 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
         url = f"{base}/v1/relays"
         method = "POST"
         payload = {"action": "delete", "relay_id": args.relay_id, "dry_run": args.dry_run}
+    elif command == "mailbox-add":
+        url = f"{base}/v1/mailboxes"
+        method = "POST"
+        payload = {"mailbox_id": args.mailbox_id, "location": args.location,
+                   "dry_run": args.dry_run}
+    elif command == "mailbox-del":
+        url = f"{base}/v1/mailboxes"
+        method = "POST"
+        payload = {"action": "delete", "mailbox_id": args.mailbox_id, "dry_run": args.dry_run}
+    elif command == "exec":
+        inner = _exec_inner(args.exec_argv)
+        if args.priority != "enque" and not args.program:
+            build_parser().error(
+                "--curl has no REST equivalent for exec --priority=now without --program")
+        url = f"{base}/v1/exec"
+        method = "POST"
+        payload = {"program": args.program or "mailbox-client", "argv": inner,
+                   "priority": args.priority}
+        env = _exec_env(args.env_vars)
+        if env:
+            payload["env"] = env
+        if args.cwd:
+            payload["cwd"] = args.cwd
     elif command in {"subscribe", "unsubscribe"}:
         url = f"{base}/v1/subscriptions"
         method = "POST"
@@ -1101,8 +1206,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch", type=Path, metavar="COMMANDS.txt",
                         help="run each nonblank line as one mailbox-client command")
     transport = parser.add_mutually_exclusive_group()
-    transport.add_argument("--dir", type=Path, help="use this JSONL mailbox directory")
-    transport.add_argument("--url", help=f"use REST instead of JSONL (default service: {DEFAULT_MAILBOX_URL})")
+    transport.add_argument("--dir", type=Path,
+                           help="use this local mailbox directory (per-channel JSON store)")
+    transport.add_argument("--url",
+                           help=f"use REST instead of a local mailbox directory (default service: {DEFAULT_MAILBOX_URL})")
     transport.add_argument("--mailbox", help="use a named mailbox from the mailbox config")
     parser.add_argument("--config", type=Path, help="mailbox configuration file")
     parser.add_argument("--as", dest="local_identity",
@@ -1309,6 +1416,47 @@ def build_parser() -> argparse.ArgumentParser:
                     "event/audit streams, and the local mailbox view of external channels.",
         epilog="Example: mailbox-client mailboxes",
     )
+    mailbox_add = commands.add_parser(
+        "mailbox-add", help="register a named mailbox",
+        description="Register a named mailbox in the server_registry_mailboxes registry and add "
+                    "the matching alias to the local mailbox config (config/mailboxes.json). "
+                    "An http(s):// location is stored as a URL; anything else as a directory.",
+        epilog="Example: mailbox-client mailbox-add research http://127.0.0.1:46667",
+    )
+    mailbox_add.add_argument("mailbox_id", help="stable mailbox name")
+    mailbox_add.add_argument("location", help="mailbox directory path or REST URL")
+    mailbox_add.add_argument("--dry-run", action="store_true", help="validate without saving")
+    mailbox_del = commands.add_parser(
+        "mailbox-del", help="delete a named mailbox",
+        description="Remove a named mailbox from the server_registry_mailboxes registry and the "
+                    "local mailbox config (config/mailboxes.json).",
+        epilog="Example: mailbox-client mailbox-del research",
+    )
+    mailbox_del.add_argument("mailbox_id", help="mailbox name to delete")
+    mailbox_del.add_argument("--dry-run", action="store_true", help="preview without deleting")
+    exec_parser = commands.add_parser(
+        "exec", help="run a command now, on the server, or enqueue it to the worker pool",
+        description="Run a mailbox-client command. By default (--priority=now, no --program) it "
+                    "runs in this client process, identical to running the command directly. "
+                    "--priority=enque appends it to the server worker pool "
+                    "(server_worker_queue). --program NAME asks the server to run the program "
+                    "locally and returns its output. --env-vars sets environment variables for "
+                    "the executed command.",
+        epilog="Example: mailbox-client exec --priority=enque send worker-1 'do it'; "
+               "mailbox-client --url http://127.0.0.1:46667 exec --program mailbox-client status",
+    )
+    exec_parser.add_argument("--priority", choices=("now", "enque"), default="now",
+                             help="run now (default) or append to the server worker pool")
+    exec_parser.add_argument("--program", default="",
+                             help="run this program on the server locally (e.g. mailbox-client); "
+                                  "omit to run the command in this client process")
+    exec_parser.add_argument("--env-vars", action="append", default=[], dest="env_vars",
+                             metavar="KEY=VALUE",
+                             help="environment variable for the executed command; repeatable")
+    exec_parser.add_argument("--cwd", default="",
+                             help="working directory for the executed command")
+    exec_parser.add_argument("exec_argv", nargs=argparse.REMAINDER,
+                             help="the command and its arguments (place exec options before it)")
     channel_add = commands.add_parser(
         "channel-add", help="register a retained channel",
         description="Add one retained channel with optional metadata.",
@@ -1593,6 +1741,99 @@ def _normalize_chat_dispatch(argv: list[str]) -> list[str]:
     return argv
 
 
+def _normalize_exec_dispatch(argv: list[str]) -> list[str]:
+    """Protect an ``exec`` inner command from global-flag hoisting.
+
+    ``exec`` wraps another mailbox-client command whose arguments may include
+    global-looking flags (``--to``, ``--from`` ...). Insert a ``--`` separator
+    before the inner command so :func:`_normalize_anywhere_flags` leaves it
+    untouched, keeping ``exec ... <command>`` identical to ``<command>``.
+    """
+    if "exec" not in argv:
+        return argv
+    index = argv.index("exec")
+    head, tail = argv[:index], argv[index + 1:]
+    options: list[str] = []
+    position = 0
+    while position < len(tail):
+        item = tail[position]
+        if item in {"--priority", "--program", "--env-vars", "--cwd"}:
+            options.extend(tail[position:position + 2])
+            position += 2
+        elif (item.startswith("--priority=") or item.startswith("--program=")
+              or item.startswith("--env-vars=") or item.startswith("--cwd=")):
+            options.append(item)
+            position += 1
+        elif item == "--":
+            position += 1
+            break
+        else:
+            break
+    inner = tail[position:]
+    return [*head, "exec", *options, "--", *inner]
+
+
+def _exec_inner(exec_argv: list[str]) -> list[str]:
+    """Strip the protective ``--`` separator from an exec REMAINDER."""
+    inner = list(exec_argv)
+    if inner and inner[0] == "--":
+        inner = inner[1:]
+    return inner
+
+
+def _parse_env_assignments(values: list[str]) -> dict[str, str]:
+    env: dict[str, str] = {}
+    for value in values:
+        key, separator, assigned = value.partition("=")
+        if not separator or not key.strip():
+            raise ValueError(f"invalid --env-vars assignment: {value!r}; expected KEY=VALUE")
+        env[key.strip()] = assigned
+    return env
+
+
+def _exec_env(env_var_values: list[str]) -> dict[str, str]:
+    """Default forwarded environment plus explicit --env-vars (which override)."""
+    env: dict[str, str] = {}
+    for name in DEFAULT_EXEC_ENV_VARS:
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    env.update(_parse_env_assignments(env_var_values))
+    return env
+
+
+def _forwarded_globals(args: argparse.Namespace) -> list[str]:
+    """Rebuild the transport/rendering globals so a re-dispatched inner command matches."""
+    prefix: list[str] = []
+    if args.mailbox:
+        prefix += ["--mailbox", args.mailbox]
+    elif args.url:
+        prefix += ["--url", args.url]
+    elif args.dir:
+        prefix += ["--dir", str(args.dir)]
+    if args.config:
+        prefix += ["--config", str(args.config)]
+    if args.token:
+        prefix += ["--token", args.token]
+    if args.format != "jsonl":
+        prefix += ["--format", args.format]
+    if args.output:
+        prefix += ["--output", str(args.output)]
+    if args.timeout != 15.0:
+        prefix += ["--timeout", str(args.timeout)]
+    if args.retry:
+        prefix += ["--retry", str(args.retry)]
+    if args.retry_delay != 1.0:
+        prefix += ["--retry-delay", str(args.retry_delay)]
+    if args.quiet:
+        prefix += ["--quiet"]
+    if args.verbose:
+        prefix += ["--verbose"]
+    if args.nobuffer:
+        prefix += ["--nobuffer"]
+    return prefix
+
+
 def _normalize_anywhere_flags(argv: list[str]) -> list[str]:
     """Move position-independent global options ahead of the subcommand."""
     boundary = argv.index("--") if "--" in argv else len(argv)
@@ -1680,6 +1921,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         build_parser().error(str(error))
     supplied = _normalize_chat_dispatch(supplied)
+    supplied = _normalize_exec_dispatch(supplied)
     if supplied and supplied[0] in {
         "token", "contacts", "registry", "discover", *CHAT_COMMANDS,
     }:
@@ -1824,7 +2066,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.verbose:
         target = rest_url if use_rest else str(mailbox_root or mailbox_dir())
-        print(f"agent_mailbox transport={'REST' if use_rest else 'JSONL'} target={target}", file=sys.stderr)
+        print(f"agent_mailbox transport={'REST' if use_rest else 'local'} target={target}", file=sys.stderr)
     if args.command in {"agents", "connectors", "channels", "mailboxes", "relays"}:
         registry = (_rest_request("GET", "/v1/registry", base_url=rest_url)
                     if use_rest else __import__(
@@ -1994,6 +2236,74 @@ def main(argv: list[str] | None = None) -> int:
             from .retained_relay import delete_relay
             result = delete_relay(args.relay_id, dry_run=args.dry_run)
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "mailbox-add":
+        if use_rest:
+            registry = add_mailbox_rest(args.mailbox_id, args.location,
+                                        dry_run=args.dry_run, base_url=rest_url)
+        else:
+            from .mailbox_registry import register_mailbox
+            registry = register_mailbox(args.mailbox_id, args.location,
+                                        dry_run=args.dry_run, path=mailbox_root)
+        result: dict[str, Any] = {"registry": registry}
+        if not args.dry_run:
+            result["named_mailbox"] = write_named_mailbox(
+                args.mailbox_id, args.location, config_path=args.config)
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "mailbox-del":
+        if use_rest:
+            registry = delete_mailbox_rest(args.mailbox_id, dry_run=args.dry_run, base_url=rest_url)
+        else:
+            from .mailbox_registry import unregister_mailbox
+            registry = unregister_mailbox(args.mailbox_id, dry_run=args.dry_run, path=mailbox_root)
+        result = {"registry": registry}
+        if not args.dry_run:
+            result["named_mailbox"] = delete_named_mailbox(
+                args.mailbox_id, config_path=args.config)
+        _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
+    elif args.command == "exec":
+        inner = _exec_inner(args.exec_argv)
+        if not inner:
+            build_parser().error("exec requires a command to run")
+        env = _exec_env(args.env_vars)
+        program = args.program or "mailbox-client"
+        if args.priority == "enque":
+            if use_rest:
+                result = exec_rest(program, inner, priority="enque", env=env, cwd=args.cwd,
+                                   timeout=args.timeout, base_url=rest_url)
+            else:
+                message = send(SERVER_WORKER_QUEUE, shlex.join(inner),
+                               message_type="work_item",
+                               extra_fields={"program": program, "argv": inner,
+                                             "priority": "enque",
+                                             **({"env": env} if env else {}),
+                                             **({"cwd": args.cwd} if args.cwd else {})},
+                               root=mailbox_root)
+                result = {"enqueued": True, "queue": SERVER_WORKER_QUEUE, "message": message}
+            _emit(json.dumps(result, ensure_ascii=False, indent=2),
+                  output=args.output, quiet=args.quiet)
+        elif args.program:
+            if not use_rest:
+                build_parser().error(
+                    "exec --program requires a REST server (--url or AGENT_MAILBOX_URL)")
+            result = exec_rest(program, inner, priority="now", env=env, cwd=args.cwd,
+                               timeout=args.timeout, base_url=rest_url)
+            _emit(json.dumps(result, ensure_ascii=False, indent=2),
+                  output=args.output, quiet=args.quiet)
+        else:
+            previous_env = {name: os.environ.get(name) for name in env}
+            previous_cwd = os.getcwd()
+            os.environ.update(env)
+            if args.cwd:
+                os.chdir(args.cwd)
+            try:
+                return main(_forwarded_globals(args) + inner)
+            finally:
+                os.chdir(previous_cwd)
+                for name, value in previous_env.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
     elif args.command in {"subscribe", "unsubscribe", "subscriptions"}:
         from .subscriptions import set_subscription, subscriptions
         if args.command == "subscriptions":
@@ -2213,7 +2523,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         result = status_rest(base_url=rest_url) if use_rest else status(root=mailbox_root)
         if args.command == "check":
-            result = {"ok": True, "transport": "rest" if use_rest else "jsonl", **result}
+            result = {"ok": True, "transport": "rest" if use_rest else "local", **result}
         _emit(json.dumps(result, ensure_ascii=False, indent=2), output=args.output, quiet=args.quiet)
     return 0
 

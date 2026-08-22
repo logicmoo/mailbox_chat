@@ -6,8 +6,10 @@ import argparse
 import json
 import mimetypes
 import os
+import shlex
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -638,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
                                      "/v1/identifier-resolution-requests",
                                      "/v1/subscriptions", "/v1/irc/command",
                                      "/v1/mm/command", "/v1/connectors", "/v1/channels",
-                                     "/v1/relays"}:
+                                     "/v1/relays", "/v1/mailboxes", "/v1/exec"}:
                 self._json(404, {"error": "not found"})
                 return
             try:
@@ -856,6 +858,59 @@ def main(argv: list[str] | None = None) -> int:
                             dry_run=bool(payload.get("dry_run", False)),
                         )
                         self._json(200 if payload.get("dry_run") else 201, result)
+                    return
+                if request_path == "/v1/mailboxes":
+                    from .mailbox_registry import register_mailbox, unregister_mailbox
+                    if str(payload.get("action") or "").lower() == "delete":
+                        self._json(200, unregister_mailbox(
+                            str(payload.get("mailbox_id") or ""),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        ))
+                    else:
+                        result = register_mailbox(
+                            str(payload.get("mailbox_id") or ""),
+                            str(payload.get("location") or ""),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        )
+                        self._json(200 if payload.get("dry_run") else 201, result)
+                    return
+                if request_path == "/v1/exec":
+                    program = str(payload.get("program") or "mailbox-client")
+                    argv = [str(item) for item in (payload.get("argv") or [])]
+                    priority = str(payload.get("priority") or "now").lower()
+                    exec_env = {str(key): str(value)
+                                for key, value in (payload.get("env") or {}).items()}
+                    exec_cwd = str(payload.get("cwd") or "")
+                    if priority == "enque":
+                        record = agent_mailbox.send(
+                            agent_mailbox.SERVER_WORKER_QUEUE,
+                            shlex.join(argv), message_type="work_item",
+                            extra_fields={"program": program, "argv": argv, "priority": "enque",
+                                          **({"env": exec_env} if exec_env else {}),
+                                          **({"cwd": exec_cwd} if exec_cwd else {})},
+                        )
+                        self._json(201, {"enqueued": True,
+                                         "queue": agent_mailbox.SERVER_WORKER_QUEUE,
+                                         "message": record})
+                        return
+                    if program != "mailbox-client":
+                        self._json(400, {"error": f"unsupported exec program: {program}"})
+                        return
+                    from .cmd_client_page import run_mailbox_client_argv
+                    try:
+                        result = run_mailbox_client_argv(
+                            argv, relay_url=str(relay.status["publicUrl"]),
+                            token=os.environ.get(TOKEN_ENV, ""), env=exec_env,
+                            cwd=exec_cwd or None,
+                            timeout=float(payload.get("timeout") or 120),
+                        )
+                    except subprocess.TimeoutExpired as error:
+                        self._json(504, {"error": f"exec timed out: {error}"})
+                        return
+                    except (OSError, ValueError) as error:
+                        self._json(400, {"error": f"exec failed: {error}"})
+                        return
+                    self._json(200, result)
                     return
                 recipient = str(payload.get("to") or "").strip()
                 if not recipient:

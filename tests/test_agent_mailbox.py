@@ -98,7 +98,7 @@ def test_chat_command_is_found_after_position_independent_options() -> None:
     ]) == ["list", "--on", "mm/0", "--format=text"]
 
 
-def test_jsonl_send_receive_and_cursor(tmp_path: Path) -> None:
+def test_dir_store_send_receive_and_cursor(tmp_path: Path) -> None:
     sent = agent_mailbox.send("agent-b", "hello", sender="agent-a", root=tmp_path)
     assert agent_mailbox.receive("agent-b", root=tmp_path) == [sent]
     assert agent_mailbox.receive("agent-b", root=tmp_path) == []
@@ -600,6 +600,8 @@ def test_curl_covers_every_rest_backed_command(monkeypatch, capsys) -> None:
         ("channel-del", "team_updates"): ("-X POST", "/v1/channels"),
         ("relay-add", "team_updates", "mm/chat.snt/cid"): ("-X POST", "/v1/relays"),
         ("relay-del", "r1"): ("-X POST", "/v1/relays"),
+        ("mailbox-add", "research", "http://relay.example"): ("-X POST", "/v1/mailboxes"),
+        ("mailbox-del", "research"): ("-X POST", "/v1/mailboxes"),
         ("subscribe", "server_events_log", "--to", "codex"): ("-X POST", "/v1/subscriptions"),
         ("unsubscribe", "server_events_log", "--to", "codex"): ("-X POST", "/v1/subscriptions"),
         ("subscriptions", "--to", "codex"): ("-X GET", "/v1/subscriptions?identity=codex"),
@@ -619,6 +621,42 @@ def test_curl_delete_actions_use_delete_payload(monkeypatch, capsys) -> None:
                  ["relay-del", "r1"], ["agent-del", "review-agent"]):
         assert agent_mailbox.main(["--curl", *argv]) == 0
         assert '"action": "delete"' in capsys.readouterr().out
+
+
+def test_curl_covers_chat_platform_commands(capsys) -> None:
+    # command argv -> (METHOD, url-fragment) the printed curl must contain.
+    cases = {
+        ("ping", "--on", "irc"): ("-X POST", "/v1/irc/command"),
+        ("message", "#chan", "hi", "--on", "irc"): ("-X POST", "/v1/irc/command"),
+        ("message", "mm/chat.snt/CID", "hi"): ("-X POST", "/v1/mm/command"),
+        ("notice", "mm/chat.snt/CID", "heads up"): ("-X POST", "/v1/mm/command"),
+        ("join", "mm/chat.snt/CID"): ("-X POST", "/v1/mm/command"),
+        ("teams", "--on", "mm/example"): ("-X POST", "/v1/mm/command"),
+        ("list", "--on", "irc"): ("-X GET", "/v1/discovery/channels"),
+        ("names", "#chan", "--on", "irc"): ("-X GET", "/v1/discovery/users"),
+    }
+    for argv, (method, fragment) in cases.items():
+        assert agent_mailbox.main([*argv, "--curl"]) == 0, argv
+        printed = capsys.readouterr().out
+        assert printed.startswith("curl "), argv
+        assert method in printed, (argv, printed)
+        assert fragment in printed, (argv, printed)
+
+
+def test_curl_covers_discovery_commands(capsys) -> None:
+    assert agent_mailbox.main([
+        "discover", "--url", "https://relay.example", "channels", "--platform", "irc", "--curl",
+    ]) == 0
+    channels = capsys.readouterr().out
+    assert channels.startswith("curl ") and "-X GET" in channels
+    assert "/v1/discovery/channels" in channels
+
+    assert agent_mailbox.main([
+        "discover", "--url", "https://relay.example", "users",
+        "--platform", "irc", "--channel", "#chan", "--curl",
+    ]) == 0
+    users = capsys.readouterr().out
+    assert "/v1/discovery/users" in users and "channel=%23chan" in users
 
 
 def test_double_dash_preserves_switch_looking_message_text(tmp_path, capsys) -> None:

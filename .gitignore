@@ -13,7 +13,6 @@ runtime/
 *.sqlite3
 *.sqlite3-shm
 *.sqlite3-wal
-messages.jsonl
 mailbox/
 companions/whatsapp-personal/node_modules/
 companions/whatsapp-personal/.session/
