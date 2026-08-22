@@ -309,6 +309,9 @@ def main(argv: list[str] | None = None) -> int:
             if parsed.path == "/agent_mailbox.py":
                 self._file(PACKAGE_ROOT / "agent_mailbox.py", "text/x-python; charset=utf-8")
                 return
+            if parsed.path == "/channel_store.py":
+                self._file(PACKAGE_ROOT / "channel_store.py", "text/x-python; charset=utf-8")
+                return
             if parsed.path in {"/CODEX_AUTOMATION.md", "/AUTOMATION_PROMPT.md"}:
                 self._file(RESOURCE_ROOT / "CODEX_AUTOMATION.md", "text/markdown; charset=utf-8")
                 return

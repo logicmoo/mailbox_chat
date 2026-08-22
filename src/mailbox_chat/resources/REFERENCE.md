@@ -982,10 +982,13 @@ Run it with `mailbox-client --run command.json`. For exact argument control use
 independent consumer; `peek` and `--no-advance` do not persist progress, while
 `ack` advances through a specific message ID.
 
-Download the matching standalone client from a running relay:
+Download the matching standalone client from a running relay. Fetch it fresh
+whenever you want the latest code; grab `channel_store.py` alongside it (the
+client imports it) unless the `mailbox_channels` package is already installed:
 
 ```powershell
 Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox.py
+Invoke-WebRequest http://127.0.0.1:46667/channel_store.py -OutFile channel_store.py
 ```
 
 ### Running and enqueuing commands

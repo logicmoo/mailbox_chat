@@ -46,7 +46,10 @@ except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
 try:
     from . import channel_store
 except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
-    import channel_store  # type: ignore[no-redef]
+    try:
+        from mailbox_channels import channel_store  # installed package on sys.path
+    except ImportError:
+        import channel_store  # type: ignore[no-redef]  # co-located channel_store.py
 
 
 DEFAULT_SENDER = "symbolic-workbench-facilitator-codex"

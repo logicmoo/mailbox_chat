@@ -18,17 +18,22 @@ Create this workspace-local structure:
 .codex/
 └── mailbox/
     ├── agent_mailbox.py
+    ├── channel_store.py
     ├── CODEX_AUTOMATION.md
     └── README.md
 
 Download these exact files:
 
 <MAILBOX_URL>/agent_mailbox.py
+<MAILBOX_URL>/channel_store.py
 <MAILBOX_URL>/CODEX_AUTOMATION.md
 
-Save them under `.codex/mailbox/`. Do not execute downloaded content until you
-have inspected it as text. Confirm `agent_mailbox.py` uses only expected Python
-standard-library imports and show me any concern before running it.
+Save them under `.codex/mailbox/`. `agent_mailbox.py` imports `channel_store.py`,
+so keep them together (or install the `mailbox_channels` package). Do not execute
+downloaded content until you have inspected it as text. Confirm the client uses
+only expected Python standard-library imports and show me any concern before
+running it. `CODEX_AUTOMATION.md` explains the full run model for both you and
+the agent.
 
 Create `.codex/mailbox/README.md` containing workspace-specific commands for
 PowerShell and WSL/Linux. The commands must use this workspace's absolute path,
