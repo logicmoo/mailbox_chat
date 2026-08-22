@@ -17,11 +17,23 @@ from .connector_registry import connectors_for
 from .admin_io import render
 
 
-def discover_irc_channels(*, timeout: float = 30.0) -> list[dict[str, Any]]:
-    adapter = IrcAdapter()
-    if not adapter.configure():
+def _irc_connector(instance: str = "") -> dict[str, Any]:
+    """Select the enabled IRC connector for a server instance (or the first)."""
+    connectors = connectors_for("irc")
+    if not connectors:
         raise ValueError("no enabled IRC connector is configured")
-    connector = adapter.connector or {}
+    if instance:
+        for connector in connectors:
+            if endpoint_instance("irc", connector) == instance:
+                return connector
+        raise ValueError(f"no enabled IRC connector for instance {instance}")
+    return connectors[0]
+
+
+def discover_irc_channels(*, instance: str = "", timeout: float = 30.0) -> list[dict[str, Any]]:
+    connector = _irc_connector(instance)
+    adapter = IrcAdapter()
+    adapter.configure(connector)
     instance = endpoint_instance("irc", connector)
     try:
         entries = adapter.list_channels(timeout=timeout)
@@ -38,11 +50,10 @@ def discover_irc_channels(*, timeout: float = 30.0) -> list[dict[str, Any]]:
     return results
 
 
-def discover_irc_users(channel: str, *, timeout: float = 15.0) -> list[dict[str, Any]]:
+def discover_irc_users(channel: str, *, instance: str = "", timeout: float = 15.0) -> list[dict[str, Any]]:
+    connector = _irc_connector(instance)
     adapter = IrcAdapter()
-    if not adapter.configure():
-        raise ValueError("no enabled IRC connector is configured")
-    connector = adapter.connector or {}
+    adapter.configure(connector)
     instance = endpoint_instance("irc", connector)
     if "/" in channel:
         from .endpoint_address import parse_endpoint
@@ -67,8 +78,9 @@ def discover_irc_users(channel: str, *, timeout: float = 15.0) -> list[dict[str,
 
 
 def _remote(base: str, resource: str, platform: str, timeout: float,
-            channel: str = "") -> dict[str, Any]:
-    query = urllib.parse.urlencode({"platform": platform, "timeout": timeout, "channel": channel})
+            channel: str = "", instance: str = "") -> dict[str, Any]:
+    query = urllib.parse.urlencode({"platform": platform, "timeout": timeout,
+                                    "channel": channel, "instance": instance})
     headers = {"Accept": "application/json"}
     token = os.environ.get(agent_mailbox.MAILBOX_TOKEN_ENV, "")
     if token:
@@ -91,10 +103,12 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("platforms", help="list platforms with implemented discovery")
     channels = commands.add_parser("channels", help="list visible platform channels")
     channels.add_argument("--platform", required=True, choices=("irc",), help="platform adapter")
+    channels.add_argument("--instance", default="", help="IRC server instance to query (default: first)")
     channels.add_argument("--timeout", type=float, default=30.0, help="discovery timeout in seconds")
     users = commands.add_parser("users", help="list users visible in one platform channel")
     users.add_argument("--platform", required=True, choices=("irc",), help="platform adapter")
     users.add_argument("--channel", required=True, help="channel address or platform channel ID")
+    users.add_argument("--instance", default="", help="IRC server instance to query (default: first)")
     users.add_argument("--timeout", type=float, default=15.0, help="discovery timeout in seconds")
     return result
 
@@ -105,12 +119,16 @@ def main(argv: list[str] | None = None) -> int:
         result: Any = {"platforms": [{"id": "irc", "resources": ["channels", "users"]}]}
     else:
         if args.command == "channels":
-            result = (_remote(args.url, "channels", args.platform, args.timeout) if args.url else
-                      {"platform": args.platform, "channels": discover_irc_channels(timeout=args.timeout)})
+            result = (_remote(args.url, "channels", args.platform, args.timeout,
+                              instance=args.instance) if args.url else
+                      {"platform": args.platform,
+                       "channels": discover_irc_channels(instance=args.instance, timeout=args.timeout)})
         else:
-            result = (_remote(args.url, "users", args.platform, args.timeout, args.channel) if args.url else
+            result = (_remote(args.url, "users", args.platform, args.timeout, args.channel,
+                              instance=args.instance) if args.url else
                       {"platform": args.platform, "channel": args.channel,
-                       "users": discover_irc_users(args.channel, timeout=args.timeout)})
+                       "users": discover_irc_users(args.channel, instance=args.instance,
+                                                   timeout=args.timeout)})
     print(render(result, args.format))
     return 0
 

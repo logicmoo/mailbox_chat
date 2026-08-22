@@ -1,9 +1,17 @@
-"""Cursor-driven pumps from retained channels to external endpoints."""
+"""Cursor-driven pumps from retained channels to external endpoints.
+
+Relays live in the ``server_registry_relays`` registry. Two payload shapes are
+tolerated:
+
+* pump-style: ``{source_channel, cursor, destination}`` — actively pumped here.
+* config-style: ``{connector, relay_kind, relay_chat: [...]}`` — descriptive
+  relay wiring whose cursor is owned by the connector's bridge agent. These are
+  returned by :func:`load_relays` but skipped by the pump until the config-style
+  pump is implemented.
+"""
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import uuid
 from pathlib import Path
@@ -11,72 +19,60 @@ from threading import Lock
 from typing import Any
 
 from . import agent_mailbox
+from . import channel_store
 from .endpoint_address import parse_endpoint
-from .connector_registry import relays_file
+from .connector_registry import store_root
 
 
 SAFE_ID = re.compile(r"[^a-zA-Z0-9_.-]+")
 _RELAY_WRITE_LOCK = Lock()
 
 
+def _payload(record: dict[str, Any]) -> dict[str, Any]:
+    payload = record.get("payload")
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def is_pumpable(relay: dict[str, Any]) -> bool:
+    """A relay can be pumped only with explicit source/cursor/destination."""
+    return bool(relay.get("source_channel") and relay.get("cursor")
+                and relay.get("destination"))
+
+
 def load_relays(path: Path | None = None) -> list[dict[str, Any]]:
-    """Load cursor relays without conflating them with legacy connector routes."""
-    target = path or relays_file()
-    if not target.exists():
-        return []
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    records = payload.get("relays") or []
-    if not isinstance(records, list):
-        raise ValueError(f"{target.name} relays must be an array")
+    """Load relay entries, tolerating both pump-style and config-style payloads."""
+    root = store_root(path)
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for index, raw in enumerate(records):
-        if not isinstance(raw, dict):
-            raise ValueError(f"relays[{index}] must be an object")
-        relay_id = str(raw.get("id") or "").strip()
+    for index, record in enumerate(
+            channel_store.registry_entries(root, channel_store.RELAYS_REGISTRY)):
+        raw = _payload(record)
+        relay_id = str(record.get("id") or raw.get("id") or "").strip()
+        if not relay_id or relay_id in seen:
+            raise ValueError(f"relays[{index}].id must be non-empty and unique")
+        seen.add(relay_id)
         source_channel = str(raw.get("source_channel") or "").strip()
         cursor = str(raw.get("cursor") or "").strip()
         destination = str(raw.get("destination") or "").strip()
-        if not relay_id or relay_id in seen:
-            raise ValueError(f"relays[{index}].id must be non-empty and unique")
-        if not source_channel or not cursor or not destination:
-            raise ValueError(
-                f"relays[{index}] requires source_channel, cursor, and destination"
-            )
-        endpoint = parse_endpoint(destination)
-        if endpoint is None or endpoint.adapter == "local":
-            raise ValueError(f"relays[{index}].destination must be an external endpoint")
-        seen.add(relay_id)
-        result.append({
+        entry = {
             **raw,
             "id": relay_id,
             "kind": "relay",
             "enabled": bool(raw.get("enabled", True)),
             "source_channel": source_channel,
             "cursor": cursor,
-            "destination": endpoint.canonical,
-        })
+            "destination": destination,
+        }
+        if source_channel and cursor and destination:
+            endpoint = parse_endpoint(destination)
+            if endpoint is None or endpoint.adapter == "local":
+                raise ValueError(f"relays[{index}].destination must be an external endpoint")
+            entry["destination"] = endpoint.canonical
+            entry["pumpable"] = True
+        else:
+            entry["pumpable"] = False
+        result.append(entry)
     return result
-
-
-def _document(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {"version": 1, "agents": [], "subscriptions": [], "connectors": [],
-                "relays": []}
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("version") != 1:
-        raise ValueError(f"{path.name} must contain version 1")
-    if not isinstance(payload.setdefault("relays", []), list):
-        raise ValueError(f"{path.name} relays must be an array")
-    return payload
-
-
-def _write(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                         encoding="utf-8", newline="\n")
-    os.replace(temporary, path)
 
 
 def add_relay(
@@ -94,8 +90,8 @@ def add_relay(
     endpoint = parse_endpoint(destination)
     if not source_channel:
         raise ValueError("source channel is required")
-    if source_channel == "outbound_delivery":
-        raise ValueError("outbound_delivery cannot pump itself")
+    if source_channel == "server_outbound_relay_agent_to_channel":
+        raise ValueError("server_outbound_relay_agent_to_channel cannot pump itself")
     if endpoint is None or endpoint.adapter == "local":
         raise ValueError("destination must be an external TYPE/INSTANCE/IDENTIFIER endpoint")
     clean_id = SAFE_ID.sub("-", relay_id.strip()) if relay_id else SAFE_ID.sub(
@@ -114,24 +110,19 @@ def add_relay(
         "destination": endpoint.canonical,
         "created_by": "mailbox-client relay",
     }
-    target = path or relays_file()
+    root = store_root(path)
     with _RELAY_WRITE_LOCK:
-        payload = _document(target)
-        if any(str(item.get("id") or "") == clean_id for item in payload["relays"]):
+        if channel_store.get_entry(root, channel_store.RELAYS_REGISTRY, clean_id):
             raise ValueError(f"relay id is already registered: {clean_id}")
         if dry_run:
             return {**record, "dry_run": True, "cursor_start": start}
-        payload["relays"].append(record)
-        _write(target, payload)
+        channel_store.put_entry(root, channel_store.RELAYS_REGISTRY, clean_id, record)
         try:
             cursor_state = agent_mailbox.initialize_cursor(
-                source_channel, cursor=cursor, start=start, root=mailbox_root,
+                source_channel, cursor=cursor, start=start, root=mailbox_root or root,
             )
         except Exception:
-            payload["relays"] = [
-                item for item in payload["relays"] if str(item.get("id") or "") != clean_id
-            ]
-            _write(target, payload)
+            channel_store.delete_entry(root, channel_store.RELAYS_REGISTRY, clean_id)
             raise
     return {**record, "subscription": {
         "channel": source_channel, "cursor": cursor, "offset": cursor_state["offset"],
@@ -142,26 +133,27 @@ def delete_relay(relay_id: str, *, path: Path | None = None,
                  dry_run: bool = False) -> dict[str, Any]:
     """Remove relay configuration while deliberately retaining its cursor history."""
     relay_id = relay_id.strip()
-    target = path or relays_file()
+    root = store_root(path)
     with _RELAY_WRITE_LOCK:
-        payload = _document(target)
-        record = next(
-            (item for item in payload["relays"] if str(item.get("id") or "") == relay_id),
-            None,
-        )
+        record = channel_store.get_entry(root, channel_store.RELAYS_REGISTRY, relay_id)
         if record is None:
             return {"id": relay_id, "deleted": False, "dry_run": dry_run}
         if dry_run:
             return {"id": relay_id, "deleted": False, "dry_run": True,
-                    "would_delete": record, "cursor_retained": True}
-        payload["relays"] = [item for item in payload["relays"] if item is not record]
-        _write(target, payload)
+                    "would_delete": _payload(record), "cursor_retained": True}
+        channel_store.delete_entry(root, channel_store.RELAYS_REGISTRY, relay_id)
     return {"id": relay_id, "deleted": True, "cursor_retained": True}
 
 
 def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
                limit: int | None = None) -> dict[str, Any]:
     """Enqueue unread source records and advance only after each durable enqueue."""
+    if not is_pumpable(relay):
+        return {
+            "id": relay["id"], "source_channel": relay.get("source_channel") or "",
+            "destination": relay.get("destination") or "", "delivered": 0,
+            "pending": 0, "error": "", "skipped": "config-style relay is not pumpable",
+        }
     endpoint = parse_endpoint(str(relay["destination"]))
     if endpoint is None:
         raise ValueError(f"relay {relay['id']} has an invalid destination")
@@ -175,7 +167,7 @@ def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
     for message in records:
         try:
             agent_mailbox.send(
-                "outbound_delivery", str(message.get("text") or ""),
+                "server_outbound_relay_agent_to_channel", str(message.get("text") or ""),
                 sender="mailbox-server",
                 message_type="channel_relay_delivery",
                 channel_type=endpoint.adapter,
@@ -210,9 +202,10 @@ def pump_relay(relay: dict[str, Any], *, mailbox_root: Path | None = None,
 
 def pump_relays(*, path: Path | None = None, mailbox_root: Path | None = None,
                 relay_ids: set[str] | None = None, limit: int | None = None) -> list[dict[str, Any]]:
-    """Pump all enabled configured relays once."""
+    """Pump all enabled, pumpable configured relays once."""
     return [
         pump_relay(relay, mailbox_root=mailbox_root, limit=limit)
         for relay in load_relays(path)
-        if relay["enabled"] and (relay_ids is None or relay["id"] in relay_ids)
+        if relay["enabled"] and is_pumpable(relay)
+        and (relay_ids is None or relay["id"] in relay_ids)
     ]

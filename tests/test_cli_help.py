@@ -62,7 +62,7 @@ def test_agent_help_lists_every_global_option() -> None:
 def test_every_agent_command_has_comprehensive_help() -> None:
     expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
                 "subscribe", "unsubscribe", "subscriptions", "token", "contacts",
-                "registry", "discover", "channels", "poll-many", "history", "cursor-init",
+                "registry", "discover", "channels", "mailboxes", "poll-many", "history", "cursor-init",
                 "cursors", "agents", "agent-add", "agent-del", "connectors", "connector-add",
                 "connector-del", "channel-add", "channel-del", "relays", "relay-add", "relay-del",
                 *CHAT_COMMANDS}

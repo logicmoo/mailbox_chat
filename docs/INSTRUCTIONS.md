@@ -78,8 +78,8 @@ Inspect or remove subscriptions with
 Do not poll `--to server_events`: it is a publish/subscribe channel name, not a
 competing-consumer mailbox identity.
 
-The server saves subscription membership under `subscriptions` in
-`config/relays.json` and reloads it after restart:
+The server saves subscription membership in the `server_registry_channels`
+registry and reloads it after restart:
 
 ```json
 {
@@ -121,7 +121,7 @@ A platform connector associates one live connection with that agent:
 
 ```json
 {
-  "id": "mattermost-primary",
+  "id": "mattermost-chat-singularitynet-io",
   "adapter": "mattermost",
   "agent_id": "symbolic-workbench-codex",
   "presence_id": "symbolic-mm"
@@ -198,22 +198,24 @@ configuration. Override either independently:
 ```
 
 Equivalent environment variables are `AGENT_MAILBOX_DIR` and
-`MAILBOX_RELAY_CONFIG_DIR`. The mailbox directory owns `messages.jsonl`,
-`attachments/`, `cursors/`, `runtime/`, and the delivery ledger. The config
-directory owns `.env`, `relays.json`, and `mailboxes.json`. This permits shared
+`MAILBOX_RELAY_CONFIG_DIR`. The mailbox directory owns the JSON channel/registry
+store (per-channel message documents plus the `server_registry_*` registries),
+`attachments/`, `runtime/`, and the delivery ledger; cursors live inside
+`server_registry_agents`. The config directory owns `.env` and `mailboxes.json`.
+This permits shared
 or read-only configuration with machine-local data, or several isolated proxy
 instances without state overlap.
 
 ## Configuration boundaries
 
-- `config/relays.json` contains non-secret routing configuration.
+- The `server_registry_*` registries under the mailbox root hold non-secret routing configuration.
 - `config/.env` contains tokens, passwords, server URLs, and deployment identifiers.
-- `mailbox/messages.jsonl`, `mailbox/attachments/`, and `mailbox/cursors/` are runtime data.
+- The per-channel message documents, `server_registry_*` registries, `mailbox/attachments/`, and `mailbox/runtime/` are runtime data.
 - `mailbox/runtime/identifier-directory.sqlite3` durably retains system-scoped
   UUID, contact, channel, group, and readable-name mappings between runs.
 - Attachment storage defaults to 1 GiB per file and 25 GiB total; configure
   `--max-attachment-mb` and `--max-attachment-storage-mb` on the relay server.
-- `messages.jsonl` defaults to a 5 GiB limit and each SQLite database to 1 GiB;
+- The JSON message store defaults to a 5 GiB limit and each SQLite database to 1 GiB;
   configure `--max-jsonl-mb` and `--max-sqlite-mb` on the relay server.
 - Never place credentials in connector records, messages, workflow resources,
   logs, screenshots, or committed files.
@@ -341,7 +343,7 @@ is desired.
 | `preserve_threads` | Preserve source thread/root IDs when supported |
 | `presences` | Optional authorized platform identities exposed by the connector |
 
-The daemon reloads `relays.json` while evaluating connectors and relays. Normal
+The daemon reloads the `server_registry_*` registries while evaluating connectors and relays. Normal
 configuration changes therefore do not require a daemon restart. Credential changes may
 require reconnecting the affected adapter.
 
@@ -398,7 +400,7 @@ reject unsupported selections. Automated identities must remain disclosed and
 must follow the platform's authorization rules rather than forging human users.
 
 The platform sections below combine connector configuration, adapter behavior,
-and platform-side setup. Never store platform secrets in `relays.json`; put
+and platform-side setup. Never store platform secrets in the connector registry; put
 tokens and signing secrets in `config/.env` or the process environment and
 reference only their environment-variable names from connector entries.
 
@@ -407,7 +409,7 @@ reference only their environment-variable names from connector entries.
 ### Setup
 
 Create a bot account in the Mattermost system console and add it to the
-required channels. Put the instance, URL, and channel IDs in `relays.json`;
+required channels. Put the instance, URL, and channel IDs in the connector record;
 keep only the token in `config/.env` or a secret manager.
 
 ```json
@@ -626,7 +628,7 @@ messaging permissions.
 
 ```json
 {
-  "id": "facebook-messenger-primary",
+  "id": "facebook-messenger",
   "adapter": "facebook_messenger",
   "enabled": false,
   "direction": "bidirectional",
@@ -1313,7 +1315,7 @@ must preserve `source_id`, `channel_type`, `channel_id`, `thread_id`, `root_id`,
 attachments, and correlation fields whenever the destination supports them.
 Every adapter must suppress its own outbound echoes to prevent relay loops.
 
-Cursor-driven relays in `config/relays.json` consume retained channels and send
+Cursor-driven relays in the `server_registry_relays` registry consume retained channels and send
 to complete external destination addresses. Manage them with `relays`,
 `relay-add`, and `relay-del`.
 

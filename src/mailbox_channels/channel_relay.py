@@ -25,30 +25,140 @@ from .subscriptions import SERVER_EVENTS_CHANNEL, subscribers
 from .endpoint_address import endpoint_instance, parse_endpoint
 
 
-RELAY_RECIPIENT = "outbound_delivery"
+RELAY_RECIPIENT = "server_outbound_relay_agent_to_channel"
 SUPPORTED_CHANNEL_TYPES = ("mattermost", "irc", "discord", "matrix", "slack", "telegram",
                            "whatsapp", "whatsapp_personal", "facebook_messenger", "viber", "line",
                            "discourse")
 PLANNED_CHANNEL_TYPES: tuple[str, ...] = ()
 ADAPTER_CAPABILITIES = {
-    "mattermost": {"presence": "single", "threads": True, "attachments": True},
-    "irc": {"presence": "single", "threads": False, "attachments": False},
-    "discord": {"presence": "single", "threads": True, "attachments": True},
-    "matrix": {"presence": "single", "threads": True, "attachments": True},
-    "discourse": {"presence": "single", "threads": True, "attachments": True,
-                  "interaction": "forum"},
-    "slack": {"presence": "multiple", "threads": True, "attachments": True},
-    "telegram": {"presence": "single", "threads": True, "attachments": True},
-    "whatsapp": {"presence": "single", "threads": False, "attachments": True,
-                 "interaction": "business"},
-    "whatsapp_personal": {"presence": "single", "threads": True, "attachments": True,
-                          "interaction": "unofficial-web-companion", "official": False},
-    "facebook_messenger": {"presence": "single", "threads": False, "attachments": True,
-                           "interaction": "page"},
-    "viber": {"presence": "single", "threads": False, "attachments": True,
-              "interaction": "bot"},
-    "line": {"presence": "single", "threads": True, "attachments": True,
-             "interaction": "user-group-room"},
+    # ghost.tier: full = real, unbadged user; display = per-message name+avatar but bot-attributed;
+    # none = one fixed identity per account/connection.
+    "mattermost": {
+        "presence": "single", "threads": True, "attachments": True,
+        "ghost": {"tier": "display", "mechanism": "webhook", "permission": "server_setting"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": True, "users": True},
+        "auth_methods": ["bot_token", "incoming_webhook"],
+        "official": True,
+        "notes": "webhook override_username/icon gated by EnablePostUsernameOverride/IconOverride "
+                 "(admin, default off); always shows a BOT badge; REST bot posts have no per-post "
+                 "override; root_id threads",
+    },
+    "irc": {
+        "presence": "single", "threads": False, "attachments": False,
+        "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
+        "dm_cold_initiate": True,
+        "discovery": {"channels": True, "users": True},
+        "auth_methods": ["sasl_plain", "sasl_external", "nickserv", "quakenet_q"],
+        "official": True,
+        "notes": "one real nick per TCP connection; no threads/native files (URLs/DCC only); "
+                 "LIST/NAMES/WHO discovery; QuakeNet=Q auth, no SASL, no msgid (heuristic dedupe); "
+                 "Libera=SASL/CertFP, has msgid+server-time+echo-message",
+    },
+    "discord": {
+        "presence": "single", "threads": True, "attachments": True,
+        "ghost": {"tier": "display", "mechanism": "webhook", "permission": "manage_webhooks"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": True, "users": True},
+        "auth_methods": ["bot_token", "webhook_token"],
+        "official": True,
+        "notes": "webhooks set per-message username+avatar (needs Manage Webhooks) but cannot DM "
+                 "and have no presence/status; bot needs a shared guild to DM",
+    },
+    "matrix": {
+        "presence": "multiple", "threads": True, "attachments": True,
+        "ghost": {"tier": "full", "mechanism": "appservice", "permission": "homeserver_admin"},
+        "dm_cold_initiate": True,
+        "discovery": {"channels": True, "users": True},
+        "auth_methods": ["access_token", "appservice"],
+        "official": True,
+        "notes": "application service masquerades as ghost users via ?user_id= within its users "
+                 "namespace (homeserver admin installs the AS registration); ghosts are full users; "
+                 "m.thread relations; availability-'presence' is CPU-heavy and often disabled",
+    },
+    "discourse": {
+        "presence": "multiple", "threads": True, "attachments": True, "interaction": "forum",
+        "ghost": {"tier": "full", "mechanism": "admin_post_as", "permission": "admin_api_key"},
+        "dm_cold_initiate": True,
+        "discovery": {"channels": True, "users": True},
+        "auth_methods": ["api_key"],
+        "official": True,
+        "notes": "admin API key + Api-Username posts AS any existing user with no badge "
+                 "(true attribution); can pre-create accounts; forum topics/posts, not chat threads",
+    },
+    "slack": {
+        "presence": "multiple", "threads": True, "attachments": True,
+        "ghost": {"tier": "display", "mechanism": "webhook", "permission": "none"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": True, "users": True},
+        "auth_methods": ["bot_token", "app_token", "incoming_webhook"],
+        "official": True,
+        "notes": "incoming webhook or chat:write.customize overrides display name+icon "
+                 "(still app/bot attributed, not real impersonation); thread_ts threads; "
+                 "1 msg/sec webhook limit",
+    },
+    "telegram": {
+        "presence": "single", "threads": True, "attachments": True,
+        "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": False, "users": False},
+        "auth_methods": ["bot_token"],
+        "official": True,
+        "notes": "no sender override (author_signature is cosmetic); message_thread_id forum topics; "
+                 "user must /start first; upload 50MB / download 20MB (2GB via local Bot API server)",
+    },
+    "whatsapp": {
+        "presence": "single", "threads": False, "attachments": True, "interaction": "business",
+        "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": False, "users": False},
+        "auth_methods": ["system_user_token"],
+        "official": True,
+        "notes": "Cloud API; fixed business phone number (no ghosting); 24h customer-service window, "
+                 "template messages required outside it; multiple numbers per WABA; 100MB media",
+    },
+    "whatsapp_personal": {
+        "presence": "single", "threads": True, "attachments": True,
+        "interaction": "unofficial-web-companion",
+        "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
+        "dm_cold_initiate": True,
+        "discovery": {"channels": False, "users": False},
+        "auth_methods": ["qr_pairing"],
+        "official": False,
+        "notes": "unofficial web-companion (Baileys/whatsapp-web.js) — against WhatsApp ToS, ban "
+                 "risk; one real account, no ghosting; no messaging window",
+    },
+    "facebook_messenger": {
+        "presence": "multiple", "threads": False, "attachments": True, "interaction": "page",
+        "ghost": {"tier": "display", "mechanism": "personas", "permission": "none"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": False, "users": False},
+        "auth_methods": ["page_token"],
+        "official": True,
+        "notes": "Personas API sends with a custom persona name+avatar within a Page; 24h window + "
+                 "message tags for out-of-window sends",
+    },
+    "viber": {
+        "presence": "single", "threads": False, "attachments": True, "interaction": "bot",
+        "ghost": {"tier": "display", "mechanism": "sender_override", "permission": "none"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": False, "users": False},
+        "auth_methods": ["auth_token"],
+        "official": True,
+        "notes": "per-message sender.name+sender.avatar override (no extra permission); new bots are "
+                 "commercial-only since 2024; user must subscribe first; no subscriber-list API",
+    },
+    "line": {
+        "presence": "single", "threads": False, "attachments": True,
+        "interaction": "user-group-room",
+        "ghost": {"tier": "display", "mechanism": "sender_override", "permission": "none"},
+        "dm_cold_initiate": False,
+        "discovery": {"channels": False, "users": False},
+        "auth_methods": ["channel_access_token"],
+        "official": True,
+        "notes": "per-message sender.name (<=20 chars)+iconUrl override; reply token single-use ~1min "
+                 "(else push, counts against monthly quota); member-list API needs verified/premium",
+    },
 }
 
 
@@ -64,6 +174,8 @@ class ChannelRelay(MattermostRelay):
         super().__init__(*args, **kwargs)
         self.verbose = verbose
         self.irc = irc_adapter or IrcAdapter()
+        self._injected_irc = irc_adapter
+        self.irc_adapters: list[IrcAdapter] = []
         self.discord = discord_adapter or DiscordAdapter()
         self.matrix = matrix_adapter or MatrixAdapter()
         self.slack = slack_adapter or SlackAdapter()
@@ -194,6 +306,81 @@ class ChannelRelay(MattermostRelay):
             self._log(f"{name} adapter disabled: {adapter.status['lastError']}")
         return enabled
 
+    def _configure_irc(self) -> bool:
+        """Build one IRC adapter per configured IRC connector (multi-server)."""
+        connectors = list(connectors_for("irc"))
+        adapters: list[IrcAdapter] = []
+        for index, connector in enumerate(connectors):
+            adapter = (self._injected_irc if index == 0 and self._injected_irc is not None
+                       else IrcAdapter())
+            try:
+                adapter.configure(connector)
+            except Exception as error:
+                raise RuntimeError(f"irc configuration failed: {error}") from error
+            adapters.append(adapter)
+            name = f"irc:{adapter.connector_id or connector.get('id') or index}"
+            self._log(f"starting {name} adapter")
+            if name not in self._adapter_event_states:
+                self._publish_adapter_event(
+                    name, adapter, "starting", f"Starting {name} chat server connection")
+        self.irc_adapters = adapters
+        self.irc = adapters[0] if adapters else (self._injected_irc or self.irc)
+        return bool(adapters)
+
+    def irc_adapter_for(self, *, connector_id: str = "", instance: str = "") -> IrcAdapter | None:
+        """Pick an enabled IRC adapter by connector id or server instance."""
+        adapters = [adapter for adapter in self.irc_adapters if adapter.status.get("enabled")]
+        if not adapters:
+            return None
+        if connector_id:
+            for adapter in adapters:
+                if adapter.connector_id == connector_id:
+                    return adapter
+        if instance:
+            for adapter in adapters:
+                if adapter.irc_instance == instance:
+                    return adapter
+        return adapters[0]
+
+    def _irc_enabled(self) -> bool:
+        return any(adapter.status.get("enabled") for adapter in self.irc_adapters)
+
+    def _irc_connected(self) -> bool:
+        return any(adapter.status.get("connected") for adapter in self.irc_adapters)
+
+    def _irc_status_summary(self) -> dict[str, Any]:
+        return {
+            "enabled": self._irc_enabled(),
+            "connected": self._irc_connected(),
+            "servers": [
+                {"connector_id": adapter.connector_id, "instance": adapter.irc_instance,
+                 **adapter.status}
+                for adapter in self.irc_adapters
+            ],
+        }
+
+    def _select_irc_adapter(self, message: dict[str, Any]) -> IrcAdapter:
+        """Route an outbound message to the IRC server it belongs to.
+
+        Prefer an explicit connector_id; otherwise match the endpoint instance
+        (the IRC server host); otherwise fall back to the only/first adapter.
+        """
+        adapters = [adapter for adapter in self.irc_adapters if adapter.status.get("enabled")]
+        if not adapters:
+            raise RuntimeError("No enabled IRC connector is configured")
+        connector_id = str(message.get("connector_id") or "").strip()
+        if connector_id:
+            for adapter in adapters:
+                if adapter.connector_id == connector_id:
+                    return adapter
+        address = parse_endpoint(str(message.get("endpoint_address") or ""))
+        instance = address.instance if address else ""
+        if instance:
+            for adapter in adapters:
+                if adapter.irc_instance == instance:
+                    return adapter
+        return adapters[0]
+
     def _cycle_adapter(self, name: str, adapter: Any, mailbox: Any) -> None:
         was_connected = bool(adapter.status.get("connected"))
         try:
@@ -224,7 +411,7 @@ class ChannelRelay(MattermostRelay):
                 self._publish_adapter_event(
                     "mattermost", self, "starting", "Starting mattermost chat server connection",
                 )
-        irc_enabled = self._configure_adapter("irc", self.irc)
+        irc_enabled = self._configure_irc()
         discord_enabled = self._configure_adapter("discord", self.discord)
         matrix_enabled = self._configure_adapter("matrix", self.matrix)
         slack_enabled = self._configure_adapter("slack", self.slack)
@@ -239,7 +426,7 @@ class ChannelRelay(MattermostRelay):
                                   or matrix_enabled or slack_enabled or telegram_enabled
                                   or whatsapp_enabled or facebook_enabled or viber_enabled or line_enabled
                                   or discourse_enabled or whatsapp_personal_enabled)
-        self.status["adapters"] = {"mattermost": dict(self.status), "irc": dict(self.irc.status),
+        self.status["adapters"] = {"mattermost": dict(self.status), "irc": self._irc_status_summary(),
                                    "discord": dict(self.discord.status), "matrix": dict(self.matrix.status),
                                    "slack": dict(self.slack.status), "telegram": dict(self.telegram.status),
                                    "whatsapp": dict(self.whatsapp.status),
@@ -251,6 +438,8 @@ class ChannelRelay(MattermostRelay):
         return bool(self.status["enabled"])
 
     def stop(self) -> None:
+        for adapter in self.irc_adapters:
+            adapter.close()
         self.irc.close()
         self.discord.close()
         self.matrix.close()
@@ -266,6 +455,8 @@ class ChannelRelay(MattermostRelay):
 
     def reset_after_failure(self) -> None:
         """Discard transient connections while keeping the daemon alive."""
+        for adapter in self.irc_adapters:
+            adapter.close()
         self.irc.close()
         self.discord.close()
         self.matrix.close()
@@ -323,7 +514,8 @@ class ChannelRelay(MattermostRelay):
                 )
                 raise RuntimeError(f"mattermost poll failed: {safe_error}") from error
             self._log("mattermost adapter poll completed", level=2)
-        self._cycle_adapter("irc", self.irc, mailbox)
+        for index, adapter in enumerate(self.irc_adapters):
+            self._cycle_adapter(f"irc:{adapter.connector_id or index}", adapter, mailbox)
         self._cycle_adapter("discord", self.discord, mailbox)
         self._cycle_adapter("matrix", self.matrix, mailbox)
         self._cycle_adapter("slack", self.slack, mailbox)
@@ -336,7 +528,7 @@ class ChannelRelay(MattermostRelay):
         self._cycle_adapter("whatsapp_personal", self.whatsapp_personal, mailbox)
         self._dispatch_outbound()
         self.status.update({
-            "connected": bool((self.mattermost_enabled and self._bot_user_id) or self.irc.status["connected"]
+            "connected": bool((self.mattermost_enabled and self._bot_user_id) or self._irc_connected()
                               or self.discord.status["connected"] or self.matrix.status["connected"]
                               or self.slack.status["connected"] or self.telegram.status["connected"]
                               or self.whatsapp.status["connected"]
@@ -349,7 +541,7 @@ class ChannelRelay(MattermostRelay):
             "lastError": None,
             "adapters": {
                 "mattermost": {"enabled": self.mattermost_enabled, "connected": bool(self._bot_user_id)},
-                "irc": dict(self.irc.status),
+                "irc": self._irc_status_summary(),
                 "discord": dict(self.discord.status),
                 "matrix": dict(self.matrix.status),
                 "slack": dict(self.slack.status),
@@ -366,6 +558,10 @@ class ChannelRelay(MattermostRelay):
     def _dispatch_outbound(self) -> None:
         mailbox = self._mailbox()
         for message in mailbox.receive(RELAY_RECIPIENT):
+            if message.get("audit_of"):
+                # Passive audit copies share the queue channel; only direct
+                # queue sends are deliveries.
+                continue
             channel_type = str(message.get("channel_type") or "mattermost").lower()
             address = parse_endpoint(str(message.get("endpoint_address") or ""))
             if address and not message.get("connector_id") and channel_type != "mattermost":
@@ -385,7 +581,7 @@ class ChannelRelay(MattermostRelay):
                 mailbox.send(
                     str(message.get("from") or "console-default-agent"),
                     f"Suppressed duplicate relay to {destination}",
-                    sender=RELAY_RECIPIENT,
+                    sender="mailbox-server",
                     message_type="channel_delivery_suppressed",
                     extra_fields={
                         "origin_id": origin_id(message),
@@ -401,8 +597,8 @@ class ChannelRelay(MattermostRelay):
                     )
                     if not address or address.identifier in set(self._channels()):
                         self._fanout_mattermost_outbound(message, posted)
-                elif channel_type == "irc" and self.irc.status["enabled"]:
-                    self.irc.send_message(message)
+                elif channel_type == "irc" and self._irc_enabled():
+                    self._select_irc_adapter(message).send_message(message)
                 elif channel_type == "discord" and self.discord.status["enabled"]:
                     self.discord.send_message(message)
                 elif channel_type == "matrix" and self.matrix.status["enabled"]:
@@ -430,7 +626,7 @@ class ChannelRelay(MattermostRelay):
                 mailbox.send(
                     str(message.get("from") or "console-default-agent"),
                     str(error),
-                    sender=RELAY_RECIPIENT,
+                    sender="mailbox-server",
                     message_type="channel_delivery_failed",
                     extra_fields={
                         "channel_type": channel_type,

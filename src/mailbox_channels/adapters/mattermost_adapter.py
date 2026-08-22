@@ -24,11 +24,11 @@ from ..endpoint_address import EndpointAddress, channel_resource_id, endpoint_in
 from ..admin_io import load_input, normalize_options, render
 from ..identifier_directory import IdentifierDirectory
 from ..agent_mailbox import MATTERMOST_COMMANDS
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 
 
 LOGGER = logging.getLogger(__name__)
-RELAY_RECIPIENT = "outbound_delivery"
+RELAY_RECIPIENT = "server_outbound_relay_agent_to_channel"
 DEFAULT_INBOUND_RECIPIENTS: tuple[str, ...] = ()
 RELAY_PORT = 46667
 
@@ -117,7 +117,7 @@ class MattermostRelay:
         address = EndpointAddress("mattermost", instance, channel_id).canonical
         identity = self._mattermost_channel_identity(channel_id)
         resource_id = channel_resource_id(
-            "mattermost", instance, channel_id, scope=identity.get("workspace_name", ""),
+            "mattermost", instance, channel_id,
         )
         ensure_channel(resource_id, metadata={
             "connector": self.connector.get("id", ""),
@@ -251,7 +251,7 @@ class MattermostRelay:
                 if str(post.get("user_id", "")) == self._bot_user_id:
                     continue
                 source_id = str(post.get("id", ""))
-                if self._source_seen(mailbox.mailbox_dir() / "messages.jsonl", source_id):
+                if self._source_seen(mailbox.mailbox_dir(), source_id):
                     continue
                 attachments = self._download_attachments(base_url, post)
                 matching = next((
@@ -296,19 +296,16 @@ class MattermostRelay:
                     )
 
     @staticmethod
-    def _source_seen(messages_path: Path, source_id: str) -> bool:
-        if not source_id or not messages_path.exists():
+    def _source_seen(mailbox_root: Path, source_id: str) -> bool:
+        if not source_id:
             return False
-        import json
+        from .. import channel_store
 
-        with messages_path.open("r", encoding="utf-8") as stream:
-            for line in stream:
-                try:
-                    record = json.loads(line)
-                    if record.get("source_id") == source_id and record.get("to") in DEFAULT_INBOUND_RECIPIENTS:
-                        return True
-                except json.JSONDecodeError:
-                    continue
+        for recipient in DEFAULT_INBOUND_RECIPIENTS:
+            document = channel_store.load_channel(mailbox_root, recipient)
+            for _key, record in channel_store.ordered_messages(document):
+                if record.get("source_id") == source_id:
+                    return True
         return False
 
     def _upload_attachments(self, base_url: str, channel_id: str, records: list[dict[str, Any]]) -> list[str]:
@@ -388,7 +385,9 @@ def arguments_from_namespace(args: argparse.Namespace, loaded: object | None) ->
     if command in {"ping", "teams"}:
         return {}
     if command == "list":
-        return {"team": args.team}
+        return {"team": args.team, "bot": getattr(args, "bot", None),
+                "page": getattr(args, "page", None),
+                "per_page": getattr(args, "per_page", None)}
     if command == "names":
         return {"channel": args.channel}
     if command == "threads":
@@ -444,8 +443,16 @@ def parser() -> argparse.ArgumentParser:
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("ping", help="verify the authenticated Mattermost connection")
     commands.add_parser("teams", help="list teams visible to the bot")
-    listing = commands.add_parser("list", help="list channels visible to the bot")
+    listing = commands.add_parser(
+        "list", help="discover a team's public channels, or --bot for the bot's own memberships")
     listing.add_argument("--team", help="limit results to one team ID")
+    listing.add_argument(
+        "--bot", nargs="?", const="", metavar="BOTNICK",
+        help="list channels the bot (or BOTNICK) has joined, like the older listing")
+    listing.add_argument("--page", type=int, default=None,
+                         help="discovery start page (default 0; discovery pages to the end)")
+    listing.add_argument("--per-page", "--per_page", dest="per_page", type=int, default=None,
+                         help="channels per discovery page (default 100)")
     names = commands.add_parser("names", help="list users in a channel")
     names.add_argument("channel")
     threads = commands.add_parser("threads", help="list the bot's threads in a team")
@@ -685,9 +692,48 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
         team = str(arguments.get("team") or "")
         if team:
             team = _id(team, directory=directory, base_url=base_url, kind="team")
-        path = (f"/api/v4/users/{me_id}/teams/{team}/channels" if team else
-                f"/api/v4/users/{me_id}/channels")
-        channels = _request(session, base_url, "GET", path)
+        bot = arguments.get("bot")
+        if bot is not None:
+            # Older behaviour: only the channels the bot (or a named user) has joined.
+            nick = str(bot or "")
+            user_id = _user_id(session, base_url, nick, directory) if nick else me_id
+            path = (f"/api/v4/users/{user_id}/teams/{team}/channels" if team else
+                    f"/api/v4/users/{user_id}/channels")
+            channels = _request(session, base_url, "GET", path)
+        else:
+            # Discover every public channel each team exposes. The list API is
+            # page/per_page only and the list can shift while we read it, so we
+            # de-duplicate by channel id and keep going for a couple of pages past
+            # the first empty one as a safety margin (Mattermost caps per_page
+            # ~200, so large pages still need several requests).
+            start_page = int(arguments.get("page") or 0)
+            per_page = int(arguments.get("per_page") or 100)
+            empty_page_margin = 2
+            team_ids = [team] if team else [
+                str(item["id"]) for item in _request(
+                    session, base_url, "GET", f"/api/v4/users/{me_id}/teams")
+            ]
+            channels = []
+            seen_ids: set[str] = set()
+            for team_id in team_ids:
+                page = start_page
+                empty_pages = 0
+                while empty_pages <= empty_page_margin:
+                    query = urlencode({"page": page, "per_page": per_page})
+                    batch = _request(session, base_url, "GET",
+                                     f"/api/v4/teams/{team_id}/channels?{query}")
+                    if isinstance(batch, list) and batch:
+                        empty_pages = 0
+                        for item in batch:
+                            channel_id = str(item.get("id") or "")
+                            if channel_id and channel_id not in seen_ids:
+                                seen_ids.add(channel_id)
+                                channels.append(item)
+                    else:
+                        empty_pages += 1
+                    page += 1
+                    if page - start_page >= 10000:
+                        break
         return [_remember(directory, base_url, item, kind=(
             "dm" if item.get("type") == "D" else "group" if item.get("type") == "G" else "channel"
         )) for item in channels]

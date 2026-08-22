@@ -9,6 +9,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from . import channel_store
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR_ENV = "MAILBOX_RELAY_CONFIG_DIR"
@@ -16,12 +18,44 @@ VALID_DIRECTIONS = {"inbound", "outbound", "bidirectional"}
 _REGISTRY_WRITE_LOCK = Lock()
 
 
-def agent_mailbox_address(agent_id: str) -> str:
-    """Return the stable writable mailbox address for an agent."""
+def store_root(path: Path | None = None) -> Path:
+    """Root directory of the channel/registry store.
+
+    The registries used to live inside a single ``relays.json`` document; they
+    are now individual ``server_registry_*`` channel files under the mailbox
+    root. Callers may still pass an explicit root (chiefly tests).
+    """
+    if path is not None:
+        return Path(path)
+    from . import agent_mailbox
+    return agent_mailbox.mailbox_dir()
+
+
+def underscored_mailbox_twin(agent_id: str) -> str:
+    """Underscored twin of a hyphens-only agent id (agent ``a-b-c`` reads ``a_b_c``)."""
     identifier = agent_id.strip()
     if not identifier:
         raise ValueError("agent_id is required")
-    return identifier
+    return identifier.replace("-", "_")
+
+
+def agent_mailbox_address(agent_id: str, path: Path | None = None) -> str:
+    """Return the stable writable mailbox address (DM channel) for an agent.
+
+    The agents registry is the first authority: an agent entry may declare its
+    ``mailbox`` channel explicitly. Otherwise the direct-message channel is the
+    underscored twin of the hyphens-only agent id.
+    """
+    identifier = agent_id.strip()
+    if not identifier:
+        raise ValueError("agent_id is required")
+    try:
+        for item in load_agents(path):
+            if str(item.get("agent_id") or "") == identifier:
+                return str(item["mailbox"])
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        pass
+    return underscored_mailbox_twin(identifier)
 
 
 def config_dir() -> Path:
@@ -52,17 +86,23 @@ def _expand_channel_ids(value: str) -> list[str]:
 
 def load_agents(path: Path | None = None) -> list[dict[str, Any]]:
     """Load stable agents and their possibly concurrent presences."""
-    path = path or connectors_file()
-    if not path.exists():
-        return []
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    root = store_root(path)
     agents: list[dict[str, Any]] = []
     agent_ids: set[str] = set()
     presence_ids: set[str] = set()
-    for index, raw in enumerate(payload.get("agents") or []):
+    records = channel_store.registry_entries(root, channel_store.AGENTS_REGISTRY)
+    for index, record in enumerate(records):
+        raw = record.get("payload")
         if not isinstance(raw, dict):
-            raise ValueError(f"agents[{index}] must be an object")
-        agent_id = str(raw.get("agent_id") or "").strip()
+            raise ValueError(f"agents[{index}] must have an object payload")
+        # The agents registry also stores durable cursor owners; skip those
+        # auto-created bookkeeping entries. Real agents use richer payload kinds
+        # (e.g. "agent", "agent_entry").
+        if str(raw.get("kind") or "") == "cursor_owner":
+            continue
+        # The registry key (envelope id) is the authoritative agent id; payload
+        # agent names are a separate, untracked namespace and may be stale.
+        agent_id = str(record.get("id") or raw.get("agent_id") or "").strip()
         if not agent_id or agent_id in agent_ids:
             raise ValueError(f"agents[{index}].agent_id must be non-empty and unique")
         normalized_presences = []
@@ -82,7 +122,8 @@ def load_agents(path: Path | None = None) -> list[dict[str, Any]]:
             **raw,
             "kind": "agent",
             "agent_id": agent_id,
-            "mailbox": agent_mailbox_address(agent_id),
+            # Registry-declared mailbox wins; else the underscored twin.
+            "mailbox": str(raw.get("mailbox") or "").strip() or underscored_mailbox_twin(agent_id),
             "presences": normalized_presences,
         })
     return agents
@@ -110,19 +151,9 @@ def register_agent(
     if not agent_id:
         raise ValueError("agent_id is required")
 
-    target = path or connectors_file()
+    root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        if target.exists():
-            payload = json.loads(target.read_text(encoding="utf-8"))
-        else:
-            payload = {"version": 1, "agents": [], "connectors": []}
-        if payload.get("version") != 1:
-            raise ValueError(f"{target.name} must contain version 1")
-        raw_agents = payload.setdefault("agents", [])
-        if not isinstance(raw_agents, list):
-            raise ValueError(f"{target.name} agents must be an array")
-
-        agents = load_agents(target) if target.exists() else []
+        agents = load_agents(root)
         presence_owner = {
             presence["presence_id"]: agent["agent_id"]
             for agent in agents
@@ -131,27 +162,16 @@ def register_agent(
         if presence_id and presence_id in presence_owner and presence_owner[presence_id] != agent_id:
             raise ValueError(f"presence {presence_id} is already registered to {presence_owner[presence_id]}")
 
-        raw_agent = next(
-            (item for item in raw_agents if isinstance(item, dict)
-             and str(item.get("agent_id") or "").strip() == agent_id),
-            None,
-        )
-        agent_created = raw_agent is None
-        if raw_agent is None:
-            raw_agent = {"kind": "agent", "agent_id": agent_id, "presences": []}
-            raw_agents.append(raw_agent)
-        raw_presences = raw_agent.setdefault("presences", [])
-        if not isinstance(raw_presences, list):
-            raise ValueError(f"agent {agent_id} presences must be an array")
-
+        record = channel_store.get_entry(root, channel_store.AGENTS_REGISTRY, agent_id)
+        payload = dict(record.get("payload") or {}) if record else {}
+        agent_created = record is None
+        raw_presences = list(payload.get("presences") or [])
         existing_presence = next(
             (item for item in raw_presences if isinstance(item, dict)
              and str(item.get("presence_id") or "").strip() == presence_id),
             None,
         ) if presence_id else None
         presence_created = bool(presence_id and existing_presence is None)
-        if presence_created:
-            raw_presences.append({"presence_id": presence_id})
 
         if dry_run:
             return {
@@ -160,14 +180,20 @@ def register_agent(
                 "presence_id": presence_id,
                 "would_create_agent": agent_created,
                 "would_create_presence": presence_created,
-                "would_add_mailboxes": [agent_mailbox_address(agent_id)] if agent_created else [],
-                "initial_mailboxes": [agent_mailbox_address(agent_id)],
+                "would_add_mailboxes": [agent_mailbox_address(agent_id, root)] if agent_created else [],
+                "initial_mailboxes": [agent_mailbox_address(agent_id, root)],
             }
 
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
-        temporary.replace(target)
+        if presence_created:
+            raw_presences.append({"presence_id": presence_id})
+        payload = {
+            "kind": "agent",
+            "agent_id": agent_id,
+            **{key: value for key, value in payload.items()
+               if key not in {"kind", "agent_id", "presences"}},
+            "presences": raw_presences,
+        }
+        channel_store.put_entry(root, channel_store.AGENTS_REGISTRY, agent_id, payload)
 
     if agent_created or presence_created:
         from . import agent_mailbox
@@ -181,7 +207,7 @@ def register_agent(
                 sender="mailbox-server",
                 message_type="agent_registered",
                 extra_fields={"agent_id": agent_id},
-                root=mailbox_root,
+                root=mailbox_root or root,
             )
         if presence_created:
             agent_mailbox.send(
@@ -193,14 +219,14 @@ def register_agent(
                     "agent_id": agent_id,
                     "presence_id": presence_id,
                 },
-                root=mailbox_root,
+                root=mailbox_root or root,
             )
 
     return {
-        "agent": next(item for item in load_agents(target) if item["agent_id"] == agent_id),
+        "agent": next(item for item in load_agents(root) if item["agent_id"] == agent_id),
         "agent_created": agent_created,
         "presence_created": presence_created,
-        "initial_mailboxes": [agent_mailbox_address(agent_id)],
+        "initial_mailboxes": [agent_mailbox_address(agent_id, root)],
     }
 
 
@@ -219,29 +245,18 @@ def unregister_agent(
     if not agent_id:
         raise ValueError("agent_id is required")
 
-    target = path or connectors_file()
+    root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        if not target.exists():
+        record = channel_store.get_entry(root, channel_store.AGENTS_REGISTRY, agent_id)
+        if record is None:
             return {"agent_id": agent_id, "presence_id": presence_id,
                     "agent_removed": False, "presence_removed": False}
-        payload = json.loads(target.read_text(encoding="utf-8"))
-        if payload.get("version") != 1:
-            raise ValueError(f"{target.name} must contain version 1")
-        raw_agents = payload.get("agents") or []
-        raw_agent = next(
-            (item for item in raw_agents if isinstance(item, dict)
-             and str(item.get("agent_id") or "").strip() == agent_id),
-            None,
-        )
-        if raw_agent is None:
-            return {"agent_id": agent_id, "presence_id": presence_id,
-                    "agent_removed": False, "presence_removed": False}
-
+        payload = dict(record.get("payload") or {})
         owned_presences = {
             str(item.get("presence_id") or "").strip()
-            for item in raw_agent.get("presences") or [] if isinstance(item, dict)
+            for item in payload.get("presences") or [] if isinstance(item, dict)
         }
-        connectors = [item for item in payload.get("connectors") or [] if isinstance(item, dict)]
+        connectors = load_connectors(root)
         if presence_id:
             if presence_id not in owned_presences:
                 return {"agent_id": agent_id, "presence_id": presence_id,
@@ -258,19 +273,20 @@ def unregister_agent(
                 from . import agent_mailbox
                 preview = agent_mailbox.purge_agent_data(
                     agent_id, presence_ids={presence_id},
-                    agent_mailbox=agent_mailbox_address(agent_id), remove_agent=False,
-                    dry_run=True, root=mailbox_root,
+                    agent_mailbox=agent_mailbox_address(agent_id, root), remove_agent=False,
+                    dry_run=True, root=mailbox_root or root,
                 )
                 return {
                     "agent_id": agent_id, "presence_id": presence_id,
                     "would_remove_agent": False, "would_remove_presence": True,
                     **preview,
                 }
-            raw_agent["presences"] = [
-                item for item in raw_agent.get("presences") or []
+            payload["presences"] = [
+                item for item in payload.get("presences") or []
                 if not (isinstance(item, dict)
                         and str(item.get("presence_id") or "").strip() == presence_id)
             ]
+            channel_store.put_entry(root, channel_store.AGENTS_REGISTRY, agent_id, payload)
             agent_removed, presence_removed = False, True
         else:
             referencing = [
@@ -286,20 +302,16 @@ def unregister_agent(
                 from . import agent_mailbox
                 preview = agent_mailbox.purge_agent_data(
                     agent_id, presence_ids=owned_presences,
-                    agent_mailbox=agent_mailbox_address(agent_id), remove_agent=True,
-                    dry_run=True, root=mailbox_root,
+                    agent_mailbox=agent_mailbox_address(agent_id, root), remove_agent=True,
+                    dry_run=True, root=mailbox_root or root,
                 )
                 return {
                     "agent_id": agent_id, "presence_id": "",
                     "would_remove_agent": True, "would_remove_presence": False,
                     **preview,
                 }
-            payload["agents"] = [item for item in raw_agents if item is not raw_agent]
+            channel_store.delete_entry(root, channel_store.AGENTS_REGISTRY, agent_id)
             agent_removed, presence_removed = True, False
-
-        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
-        temporary.replace(target)
 
     from . import agent_mailbox
     from .subscriptions import SERVER_EVENTS_CHANNEL
@@ -312,19 +324,19 @@ def unregister_agent(
         event_fields["presence_id"] = presence_id
     agent_mailbox.send(
         SERVER_EVENTS_CHANNEL, event_text, sender="mailbox-server",
-        message_type=event_type, extra_fields=event_fields, root=mailbox_root,
+        message_type=event_type, extra_fields=event_fields, root=mailbox_root or root,
     )
     purge_result: dict[str, Any] = {"purged": False}
     if purge:
         purge_result = agent_mailbox.purge_agent_data(
             agent_id,
             presence_ids={presence_id} if presence_removed else owned_presences,
-            agent_mailbox=agent_mailbox_address(agent_id),
+            agent_mailbox=agent_mailbox_address(agent_id, root),
             remove_agent=agent_removed,
             dry_run=False,
-            root=mailbox_root,
+            root=mailbox_root or root,
         )
-    remaining = next((item for item in load_agents(target) if item["agent_id"] == agent_id), None)
+    remaining = next((item for item in load_agents(root) if item["agent_id"] == agent_id), None)
     return {
         "agent_id": agent_id,
         "presence_id": presence_id,
@@ -336,24 +348,21 @@ def unregister_agent(
 
 
 def load_connectors(path: Path | None = None) -> list[dict[str, Any]]:
-    path = path or connectors_file()
-    if not path.exists():
-        return []
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("version") != 1 or not isinstance(payload.get("connectors"), list):
-        raise ValueError(f"{path.name} must contain version 1 and a connectors array")
+    root = store_root(path)
     connectors: list[dict[str, Any]] = []
-    agents = {item["agent_id"]: item for item in load_agents(path)}
+    agents = {item["agent_id"]: item for item in load_agents(root)}
     presence_owners = {
         presence["presence_id"]: agent_id
         for agent_id, agent in agents.items()
         for presence in agent["presences"]
     }
     seen: set[str] = set()
-    for index, raw in enumerate(payload["connectors"]):
+    records = channel_store.registry_entries(root, channel_store.CONNECTORS_REGISTRY)
+    for index, record in enumerate(records):
+        raw = record.get("payload")
         if not isinstance(raw, dict):
-            raise ValueError(f"connectors[{index}] must be an object")
-        connector_id = str(raw.get("id") or "").strip()
+            raise ValueError(f"connectors[{index}] must have an object payload")
+        connector_id = str(record.get("id") or raw.get("id") or "").strip()
         adapter = str(raw.get("adapter") or "").strip().lower()
         direction = str(raw.get("direction") or "bidirectional").strip().lower()
         agent_id = str(raw.get("agent_id") or "").strip()
@@ -411,14 +420,13 @@ def add_connector_channel(adapter: str, instance: str, channel_id: str,
     adapter, instance, channel_id = adapter.strip(), instance.strip(), channel_id.strip()
     if not adapter or not instance or not channel_id:
         raise ValueError("adapter, instance, and channel_id are required")
-    target = path or relays_file()
+    root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        payload = json.loads(target.read_text(encoding="utf-8"))
         raw_matches = [
-            item for item in payload.get("connectors") or []
-            if str(item.get("adapter") or "").strip().lower() == adapter.lower()
-            and str(item.get("direction") or "bidirectional") in {"inbound", "bidirectional"}
-            and bool(item.get("enabled", True))
+            item for item in load_connectors(root)
+            if item["adapter"] == adapter.lower()
+            and item["direction"] in {"inbound", "bidirectional"}
+            and item["enabled"]
         ]
         if instance.isdigit():
             index = int(instance)
@@ -426,32 +434,24 @@ def add_connector_channel(adapter: str, instance: str, channel_id: str,
                 raise ValueError(f"no {adapter} connector at index {instance}")
             record = raw_matches[index]
         else:
-            normalized = load_connectors(target)
-            ids = {
-                item["id"] for item in normalized
-                if item["adapter"] == adapter.lower()
-                and str(item.get("instance") or item.get("base_url") or "").rstrip("/")
+            matches = [
+                item for item in raw_matches
+                if str(item.get("instance") or item.get("base_url") or "").rstrip("/")
                    .removeprefix("https://").removeprefix("http://") == instance
-            }
-            matches = [item for item in raw_matches if str(item.get("id") or "") in ids]
+            ]
             if len(matches) != 1:
                 raise ValueError(f"could not uniquely select {adapter} connector {instance}")
             record = matches[0]
-        channel_ids = list(record.get("channel_ids") or [])
+        connector_id = str(record.get("id") or "")
+        stored = channel_store.get_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id)
+        payload = dict((stored or {}).get("payload") or {})
+        channel_ids = list(payload.get("channel_ids") or [])
         if channel_id not in channel_ids:
             channel_ids.append(channel_id)
-            record["channel_ids"] = channel_ids
-            _write_registry(target, payload)
-    return {"connector_id": str(record.get("id") or ""), "channel_id": channel_id,
-            "monitored": True}
-
-
-def _write_registry(target: Path, payload: dict[str, Any]) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                         encoding="utf-8", newline="\n")
-    os.replace(temporary, target)
+            payload["channel_ids"] = channel_ids
+            channel_store.put_entry(root, channel_store.CONNECTORS_REGISTRY,
+                                    connector_id, payload)
+    return {"connector_id": connector_id, "channel_id": channel_id, "monitored": True}
 
 
 def register_connector(
@@ -471,11 +471,9 @@ def register_connector(
         raise ValueError("connector id and kind are required")
     if direction not in VALID_DIRECTIONS:
         raise ValueError(f"direction must be one of: {', '.join(sorted(VALID_DIRECTIONS))}")
-    target = path or relays_file()
+    root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
-        records = payload.setdefault("connectors", [])
-        if any(str(item.get("id") or "").strip() == connector_id for item in records):
+        if channel_store.get_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id):
             raise ValueError(f"connector id is already registered: {connector_id}")
         record = {
             **dict(config or {}), "kind": "connector", "id": connector_id, "adapter": kind,
@@ -487,9 +485,8 @@ def register_connector(
             record["channel_ids"] = list(dict.fromkeys(channel_ids))
         if dry_run:
             return {**record, "dry_run": True}
-        records.append(record)
-        _write_registry(target, payload)
-        load_connectors(target)
+        channel_store.put_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id, record)
+        load_connectors(root)
     return record
 
 
@@ -497,25 +494,24 @@ def unregister_connector(connector_id: str, *, dry_run: bool = False,
                          path: Path | None = None) -> dict[str, Any]:
     """Remove one connector."""
     connector_id = connector_id.strip()
-    target = path or relays_file()
+    root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
-        records = payload.setdefault("connectors", [])
-        record = next((item for item in records if str(item.get("id") or "").strip() == connector_id), None)
+        record = channel_store.get_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id)
         if record is None:
             return {"id": connector_id, "deleted": False, "dry_run": dry_run}
         if dry_run:
-            return {"id": connector_id, "deleted": False, "dry_run": True, "would_delete": record}
-        payload["connectors"] = [item for item in records if item is not record]
-        _write_registry(target, payload)
+            return {"id": connector_id, "deleted": False, "dry_run": True,
+                    "would_delete": record.get("payload") or {}}
+        channel_store.delete_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id)
     return {"id": connector_id, "deleted": True}
 
 
-def public_registry() -> dict[str, Any]:
+def public_registry(path: Path | None = None) -> dict[str, Any]:
     """Return the public agents, connectors, and subscribable channels."""
     from .retained_relay import load_relays
     from .subscriptions import available_sources
 
+    root = store_root(path)
     connectors = [
         {
             "id": item["id"],
@@ -527,13 +523,13 @@ def public_registry() -> dict[str, Any]:
             "can_send": item["direction"] in {"outbound", "bidirectional"},
             "channel_ids": item["channel_ids"],
         }
-        for item in load_connectors()
+        for item in load_connectors(root)
     ]
-    relays = load_relays()
+    relays = load_relays(root)
     return {
         "version": 1,
-        "agents": load_agents(),
+        "agents": load_agents(root),
         "connectors": connectors,
-        "channels": available_sources(),
+        "mailboxes": available_sources(root),
         "relays": relays,
     }

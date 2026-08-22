@@ -1,55 +1,46 @@
 import json
 
-from mailbox_channels import agent_mailbox
+from conftest import seed_store
+
+from mailbox_channels import agent_mailbox, channel_store
 from mailbox_channels.subscriptions import (
     available_sources, ensure_channel, set_subscription, subscribers, subscriptions,
 )
 
 
 def test_monitored_sources_use_resource_ids_not_transport_addresses(tmp_path, monkeypatch) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text(json.dumps({
-        "version": 1,
-        "connectors": [{
-            "id": "mattermost-primary", "adapter": "mattermost", "enabled": True,
-            "direction": "inbound", "base_url": "https://chat.singularitynet.io",
-            "channel_ids": ["channel-123"], "mailbox_recipients": [],
-        }],
-    }), encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
+    seed_store(mailbox, connectors=[{
+        "id": "mattermost-primary", "adapter": "mattermost", "enabled": True,
+        "direction": "inbound", "base_url": "https://chat.singularitynet.io",
+        "channel_ids": ["channel-123"], "mailbox_recipients": [],
+    }])
 
-    sources = available_sources()
+    sources = available_sources(mailbox)
     assert {item["id"] for item in sources} == {
-        "server_events", "agent_to_agent",
-        "agent_to_channel", "mm-chat-singularitynet-io-channel-123",
+        "server_events_log", "server_outbound_relay_agent_to_agent",
+        "server_outbound_relay_agent_to_channel", "mm-chat-singularitynet-io-channel-123",
     }
-    assert {item["kind"] for item in sources} == {"channel"}
+    assert {item["kind"] for item in sources} == {"mailbox"}
     assert {item["channel_type"] for item in sources} == {"system", "audit", "mattermost"}
     assert all(set(item) == {"id", "kind", "channel_type", "aliases", "subscribers", "metadata"}
                for item in sources)
 
 
 def test_local_audit_subscription_uses_one_canonical_channel(tmp_path, monkeypatch) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text(json.dumps({
-        "version": 1,
-        "subscriptions": [{
-            "id": "agent_to_agent",
-            "subscribers": ["worker"],
-        }],
-        "connectors": [],
-    }), encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
+    seed_store(mailbox, subscriptions=[{
+        "id": "server_outbound_relay_agent_to_agent",
+        "subscribers": ["worker"],
+    }])
 
     matches = [
-        item for item in available_sources()
-        if item["id"] == "agent_to_agent"
+        item for item in available_sources(mailbox)
+        if item["id"] == "server_outbound_relay_agent_to_agent"
     ]
     assert matches == [{
-        "id": "agent_to_agent",
-        "kind": "channel",
+        "id": "server_outbound_relay_agent_to_agent",
+        "kind": "mailbox",
         "channel_type": "audit",
         "aliases": [],
         "subscribers": ["worker"],
@@ -58,24 +49,22 @@ def test_local_audit_subscription_uses_one_canonical_channel(tmp_path, monkeypat
 
 
 def test_available_sources_keep_channel_metadata_without_mapping(tmp_path, monkeypatch) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text(json.dumps({
-        "version": 1,
-        "subscriptions": [{
+    mailbox = tmp_path / "mailbox"
+    seed_store(
+        mailbox,
+        subscriptions=[{
             "id": "mm-chat-singularitynet-io-opaque-id",
             "subscribers": [],
             "metadata": {"channel_name": "test", "connector": "mattermost-primary"},
         }],
-        "connectors": [{"id": "mattermost-primary", "adapter": "mattermost"}],
-    }), encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+        connectors=[{"id": "mattermost-primary", "adapter": "mattermost"}],
+    )
 
-    source = next(item for item in available_sources()
+    source = next(item for item in available_sources(mailbox)
                   if item["id"] == "mm-chat-singularitynet-io-opaque-id")
     assert source == {
         "id": "mm-chat-singularitynet-io-opaque-id",
-        "kind": "channel",
+        "kind": "mailbox",
         "channel_type": "mattermost",
         "aliases": ["test"],
         "subscribers": [],
@@ -84,19 +73,13 @@ def test_available_sources_keep_channel_metadata_without_mapping(tmp_path, monke
 
 
 def test_registered_agents_are_exposed_as_direct_channels(tmp_path, monkeypatch) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text(json.dumps({
-        "version": 1,
-        "agents": [{"agent_id": "workspace-codex-agent", "presences": []}],
-        "connectors": [],
-    }), encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
+    seed_store(mailbox, agents=[{"agent_id": "workspace-codex-agent", "presences": []}])
 
-    direct = next(item for item in available_sources() if item["id"] == "workspace-codex-agent")
+    direct = next(item for item in available_sources(mailbox) if item["id"] == "workspace_codex_agent")
     assert direct == {
-        "id": "workspace-codex-agent",
-        "kind": "channel",
+        "id": "workspace_codex_agent",
+        "kind": "mailbox",
         "channel_type": "agent_direct",
         "aliases": [],
         "subscribers": [],
@@ -105,59 +88,55 @@ def test_registered_agents_are_exposed_as_direct_channels(tmp_path, monkeypatch)
 
 
 def test_local_channel_subscription_is_durable(tmp_path, monkeypatch) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    path = config / "relays.json"
-    path.write_text('{"version":1,"connectors":[]}', encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
+    mailbox.mkdir(parents=True)
 
-    set_subscription("server_events", "symbolic-workbench-codex", enabled=True)
-    assert subscribers("server_events") == ["symbolic-workbench-codex"]
-    assert subscriptions("symbolic-workbench-codex") == ["server_events"]
-    assert json.loads(path.read_text(encoding="utf-8"))["subscriptions"][0]["subscribers"] == [
-        "symbolic-workbench-codex",
-    ]
-    set_subscription("server_events", "symbolic-workbench-codex", enabled=False)
-    assert subscribers("server_events") == []
+    set_subscription("server_events_log", "symbolic-workbench-codex", enabled=True, path=mailbox)
+    assert subscribers("server_events_log", mailbox) == ["symbolic-workbench-codex"]
+    assert subscriptions("symbolic-workbench-codex", mailbox) == ["server_events_log"]
+    stored = channel_store.get_entry(mailbox, channel_store.CHANNELS_REGISTRY, "server_events_log")
+    assert stored["payload"]["subscribers"] == ["symbolic-workbench-codex"]
+    set_subscription("server_events_log", "symbolic-workbench-codex", enabled=False, path=mailbox)
+    assert subscribers("server_events_log", mailbox) == []
 
 
 def test_mailbox_client_manages_local_channel_subscription(tmp_path, monkeypatch, capsys) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text('{"version":1,"connectors":[]}', encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
 
-    assert agent_mailbox.main(["subscribe", "server_events", "--to", "omegaclaw-min"]) == 0
+    assert agent_mailbox.main([
+        "--dir", str(mailbox), "subscribe", "server_events_log", "--to", "omegaclaw-min",
+    ]) == 0
     assert json.loads(capsys.readouterr().out)["subscribed"] is True
-    assert agent_mailbox.main(["subscriptions", "--to", "omegaclaw-min"]) == 0
-    assert json.loads(capsys.readouterr().out)["channels"] == ["server_events"]
-    assert agent_mailbox.main(["unsubscribe", "server_events", "--to", "omegaclaw-min"]) == 0
+    assert agent_mailbox.main([
+        "--dir", str(mailbox), "subscriptions", "--to", "omegaclaw-min",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["channels"] == ["server_events_log"]
+    assert agent_mailbox.main([
+        "--dir", str(mailbox), "unsubscribe", "server_events_log", "--to", "omegaclaw-min",
+    ]) == 0
     assert json.loads(capsys.readouterr().out)["subscribed"] is False
 
 
 def test_channel_add_subscribe_all_resolves_alias_and_subscribes_agents(
     tmp_path, monkeypatch, capsys,
 ) -> None:
-    config = tmp_path / "config"
     mailbox = tmp_path / "mailbox"
-    config.mkdir()
     address = "mm/chat.example/channel-one"
     stable_id = "mm-chat-example-team-channel-one"
-    (config / "relays.json").write_text(json.dumps({
-        "version": 1,
-        "agents": [
+    seed_store(
+        mailbox,
+        agents=[
             {"agent_id": "agent-one", "presences": []},
             {"agent_id": "agent-two", "presences": []},
         ],
-        "connectors": [{
+        connectors=[{
             "kind": "connector", "id": "mm-primary", "adapter": "mattermost",
             "direction": "bidirectional", "enabled": True, "channel_ids": [],
         }],
-        "subscriptions": [{
+        subscriptions=[{
             "kind": "channel", "id": stable_id, "aliases": [address], "subscribers": [],
         }],
-    }), encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    )
 
     assert agent_mailbox.main([
         "--dir", str(mailbox), "channel-add", "mm/0/channel-one", "--subscribe-all",
@@ -168,63 +147,54 @@ def test_channel_add_subscribe_all_resolves_alias_and_subscribes_agents(
     assert output["connector"] == {
         "connector_id": "mm-primary", "channel_id": "channel-one", "monitored": True,
     }
-    assert subscribers(stable_id) == ["agent-one", "agent-two"]
-    assert ensure_channel(address)["id"] == stable_id
-    payload = json.loads((config / "relays.json").read_text(encoding="utf-8"))
-    assert payload["connectors"][0]["channel_ids"] == ["channel-one"]
+    assert subscribers(stable_id, mailbox) == ["agent-one", "agent-two"]
+    assert ensure_channel(address, path=mailbox)["id"] == stable_id
+    connector = channel_store.get_entry(mailbox, channel_store.CONNECTORS_REGISTRY, "mm-primary")
+    assert connector["payload"]["channel_ids"] == ["channel-one"]
     assert agent_mailbox.cursor_subscriptions("agent-one", root=mailbox) == [stable_id]
 
 
 def test_mailbox_client_lists_every_subscribed_mailbox(tmp_path, monkeypatch, capsys) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text('{"version":1,"connectors":[]}', encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
-    set_subscription("server_events", "agent-two", enabled=True)
-    set_subscription("mm/0/channel-one", "agent-one", enabled=True)
-    set_subscription("server_events", "agent-one", enabled=True)
+    mailbox = tmp_path / "mailbox"
+    mailbox.mkdir(parents=True)
+    set_subscription("server_events_log", "agent-two", enabled=True, path=mailbox)
+    set_subscription("mm/0/channel-one", "agent-one", enabled=True, path=mailbox)
+    set_subscription("server_events_log", "agent-one", enabled=True, path=mailbox)
 
-    assert agent_mailbox.main(["subscriptions", "--all"]) == 0
+    assert agent_mailbox.main(["--dir", str(mailbox), "subscriptions", "--all"]) == 0
     assert json.loads(capsys.readouterr().out) == {"mailboxes": [
-        {"identity": "agent-one", "channels": ["server_events", "mm-0-channel-one"]},
-        {"identity": "agent-two", "channels": ["server_events"]},
+        {"identity": "agent-one", "channels": ["server_events_log", "mm-0-channel-one"]},
+        {"identity": "agent-two", "channels": ["server_events_log"]},
     ]}
 
 
 def test_poll_can_idempotently_ensure_all_declared_subscriptions(tmp_path, monkeypatch, capsys) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text('{"version":1,"connectors":[]}', encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
 
     arguments = [
-        "--dir", str(tmp_path / "mailbox"), "poll", "--to", "symbolic-workbench-codex",
-        "--subscribed", "server_events,mm/0/3423423434234,mm/0/2342444444444",
+        "--dir", str(mailbox), "poll", "--to", "symbolic-workbench-codex",
+        "--subscribed", "server_events_log,mm/0/3423423434234,mm/0/2342444444444",
         "--checks", "1",
     ]
     assert agent_mailbox.main(arguments) == 0
     assert agent_mailbox.main(arguments) == 0
     capsys.readouterr()
-    assert subscriptions("symbolic-workbench-codex") == [
-        "server_events", "mm-0-3423423434234", "mm-0-2342444444444",
+    assert subscriptions("symbolic-workbench-codex", mailbox) == [
+        "server_events_log", "mm-0-3423423434234", "mm-0-2342444444444",
     ]
 
 
 def test_poll_subscriptions_reads_new_registry_subscription_and_unblocks(
     tmp_path, monkeypatch, capsys,
 ) -> None:
-    config = tmp_path / "config"
     mailbox = tmp_path / "mailbox"
-    config.mkdir()
-    (config / "relays.json").write_text(json.dumps({
-        "version": 1,
-        "agents": [{"agent_id": "agent-one", "presences": []}],
-        "connectors": [],
-        "subscriptions": [{
+    seed_store(
+        mailbox,
+        agents=[{"agent_id": "agent-one", "presences": []}],
+        subscriptions=[{
             "kind": "channel", "id": "new-channel", "subscribers": ["agent-one"],
         }],
-    }), encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    )
     agent_mailbox.send("new-channel", "arrived", root=mailbox)
 
     assert agent_mailbox.main([

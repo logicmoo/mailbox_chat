@@ -1,5 +1,7 @@
 import argparse
 
+from urllib.parse import parse_qs, urlparse
+
 from mailbox_channels.identifier_directory import IdentifierDirectory
 from mailbox_channels.adapters.mattermost_adapter import (
     COMMANDS, _payload, execute, parser, remember_named_ids, resolve_address,
@@ -36,9 +38,36 @@ class DiscoverySession(Session):
             return Response({"id": "a" * 26, "username": "relay-bot"})
         if url.endswith(f"/api/v4/users/{'a' * 26}/teams"):
             return Response([{"id": "t" * 26, "name": "engineering", "display_name": "Engineering"}])
-        if url.endswith(f"/api/v4/users/{'a' * 26}/channels"):
+        if f"/api/v4/teams/{'t' * 26}/channels" in url:
+            page = int(parse_qs(urlparse(url).query).get("page", ["0"])[0])
+            if page == 0:
+                return Response([{"id": "c" * 26, "name": "town-square",
+                                  "display_name": "Town Square", "type": "O"}])
+            return Response([])
+        if "/api/v4/users/" in url and url.endswith("/channels"):
             return Response([{"id": "c" * 26, "name": "town-square",
                               "display_name": "Town Square", "type": "O"}])
+        if url.endswith("/api/v4/users/username/other-bot"):
+            return Response({"id": "b" * 26, "username": "other-bot"})
+        return Response({"ok": True})
+
+
+class PagingSession(Session):
+    """Serve a scripted set of channel pages keyed by the requested page number."""
+
+    def __init__(self, pages):
+        super().__init__()
+        self.pages = pages
+
+    def request(self, method, url, json=None, timeout=0):
+        self.calls.append((method, url, json, timeout))
+        if url.endswith("/api/v4/users/me"):
+            return Response({"id": "a" * 26})
+        if url.endswith(f"/api/v4/users/{'a' * 26}/teams"):
+            return Response([{"id": "t" * 26, "name": "engineering"}])
+        if f"/api/v4/teams/{'t' * 26}/channels" in url:
+            page = int(parse_qs(urlparse(url).query).get("page", ["0"])[0])
+            return Response(self.pages.get(page, []))
         return Response({"ok": True})
 
 
@@ -134,6 +163,47 @@ def test_mm_discovery_persists_teams_channels_and_readable_addresses(tmp_path) -
                            base_url="https://chat.example") == f"mm/0/{'c' * 26}"
     assert directory.find(system="mm/chat.example", text="Engineering", kind="team")
     assert directory.find(system="mm/0") == []
+
+
+def test_mm_list_discovers_public_team_channels_with_paging() -> None:
+    session = DiscoverySession()
+    execute("list", {"page": 0, "per_page": 1000}, session=session,
+            base_url="https://chat.example")
+    assert ("GET", f"https://chat.example/api/v4/teams/{'t' * 26}/channels?page=0&per_page=1000") \
+        in [(call[0], call[1]) for call in session.calls]
+
+
+def test_mm_list_autopaginates_and_dedupes_with_empty_page_margin() -> None:
+    pages = {
+        0: [{"id": "c0", "name": "a", "type": "O"}, {"id": "c1", "name": "b", "type": "O"}],
+        1: [{"id": "c1", "name": "b", "type": "O"}, {"id": "c2", "name": "c", "type": "O"}],
+        2: [],
+    }
+    session = PagingSession(pages)
+    result = execute("list", {"per_page": 2}, session=session, base_url="https://chat.example")
+    assert [item["id"] for item in result] == ["c0", "c1", "c2"]  # c1 de-duplicated
+    requested_pages = [
+        int(parse_qs(urlparse(call[1]).query).get("page", ["-1"])[0])
+        for call in session.calls
+        if "/api/v4/teams/" in call[1] and "/channels" in call[1]
+    ]
+    # Keeps fetching a couple of pages past the first empty (page 2) as a margin.
+    assert requested_pages == [0, 1, 2, 3, 4]
+
+
+def test_mm_list_bot_returns_channels_the_bot_is_on() -> None:
+    session = DiscoverySession()
+    channels = execute("list", {"bot": ""}, session=session, base_url="https://chat.example")
+    assert session.calls[-1][:2] == (
+        "GET", f"https://chat.example/api/v4/users/{'a' * 26}/channels")
+    assert channels[0]["name"] == "town-square"
+
+
+def test_mm_list_bot_accepts_an_explicit_bot_nick() -> None:
+    session = DiscoverySession()
+    execute("list", {"bot": "other-bot"}, session=session, base_url="https://chat.example")
+    assert session.calls[-1][:2] == (
+        "GET", f"https://chat.example/api/v4/users/{'b' * 26}/channels")
 
 
 def test_mattermost_channel_web_url_resolves_through_registry(tmp_path) -> None:

@@ -93,7 +93,7 @@ def test_mattermost_channel_uses_resource_id_and_keeps_address_alias(tmp_path: P
 
     recipients = relay._inbound_recipients("channel")
 
-    assert "mm-chat-singularitynet-io-opencog-channel" in recipients
+    assert "mm-chat-singularitynet-io-channel" in recipients
 
 
 def test_mattermost_inbound_event_contains_workspace_identity(
@@ -209,14 +209,14 @@ def test_agent_channel_post_fans_out_to_other_subscribers_once(tmp_path: Path, m
     assert agent_mailbox.receive("omegaclaw-core-codex", root=tmp_path) == []
 
 
-def test_adapter_state_is_always_published_to_server_events(tmp_path: Path, monkeypatch) -> None:
+def test_adapter_state_is_always_published_to_server_events_log(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
     config = tmp_path / "config"
     config.mkdir()
     relays = config / "relays.json"
     relays.write_text('{"version":1,"connectors":[],"subscriptions":[]}', encoding="utf-8")
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
-    set_subscription("server_events", "symbolic-workbench-codex", enabled=True)
+    set_subscription("server_events_log", "symbolic-workbench-codex", enabled=True)
     relay = ChannelRelay.__new__(ChannelRelay)
     relay._adapter_event_states = {}
     relay._publish_adapter_event(
@@ -229,8 +229,8 @@ def test_adapter_state_is_always_published_to_server_events(tmp_path: Path, monk
     assert event["type"] == "chat_server_status"
     assert event["connection_state"] == "connection_failed"
     assert event["diagnostic"]["error_message"] == "offline"
-    assert agent_mailbox.receive("server_events", root=tmp_path)[0]["id"] != event["id"]
-    assert agent_mailbox.receive("server_events", root=tmp_path) == []
+    assert agent_mailbox.receive("server_events_log", root=tmp_path)[0]["id"] != event["id"]
+    assert agent_mailbox.receive("server_events_log", root=tmp_path) == []
 
 
 def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_path: Path, monkeypatch) -> None:
@@ -362,3 +362,39 @@ def test_status_tracks_repeated_verbose_message_count(monkeypatch) -> None:
 
     assert relay.status["lastVerboseMessage"] == "mattermost adapter poll completed"
     assert relay.status["lastVerboseMessageRepeatCount"] == 20
+
+
+def test_relay_configures_one_irc_adapter_per_server_and_routes_outbound(monkeypatch) -> None:
+    quakenet = {
+        "id": "irc-primary", "adapter": "irc", "direction": "bidirectional", "enabled": True,
+        "server": "irc.quakenet.org", "channel_ids": ["##logicmoo"], "nickname": "jllykifsh",
+        "bridge_agent": "", "mailbox_recipients": [],
+    }
+    libera = {
+        "id": "irc-libera", "adapter": "irc", "direction": "bidirectional", "enabled": True,
+        "server": "irc.libera.chat", "channel_ids": [], "nickname": "prologmud",
+        "bridge_agent": "", "mailbox_recipients": [],
+    }
+    monkeypatch.setattr(
+        "mailbox_channels.adapters.mattermost_adapter.connectors_for",
+        lambda adapter, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "mailbox_channels.channel_relay.connectors_for",
+        lambda adapter, **_kwargs: [quakenet, libera] if adapter == "irc" else [],
+    )
+    relay = ChannelRelay(session=Session())
+    relay.configure()
+
+    assert [adapter.connector_id for adapter in relay.irc_adapters] == ["irc-primary", "irc-libera"]
+    # Route by explicit connector_id.
+    assert relay._select_irc_adapter(
+        {"connector_id": "irc-libera", "channel_id": "#x"}).connector_id == "irc-libera"
+    # Route by endpoint instance (server host) when no connector_id is present.
+    assert relay._select_irc_adapter(
+        {"endpoint_address": "irc/irc.quakenet.org/##logicmoo", "channel_id": "##logicmoo"}
+    ).connector_id == "irc-primary"
+    # Command routing helper resolves by instance too.
+    assert relay.irc_adapter_for(instance="irc.libera.chat").connector_id == "irc-libera"
+    summary = relay._irc_status_summary()
+    assert {server["connector_id"] for server in summary["servers"]} == {"irc-primary", "irc-libera"}
