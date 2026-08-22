@@ -947,7 +947,9 @@ The client supports:
 - `--timeout`, `--retry`, `--retry-delay`, and repeatable `--require-port`;
 - `--token` or `AGENT_MAILBOX_TOKEN` for REST authentication;
 - `--curl` anywhere before `--` to print a token-redacted equivalent REST call
-  without sending it;
+  without sending it; it covers every REST-backed command (messages, cursors,
+  agents, connectors, channels, relays, subscriptions, and registry listings) and
+  errors for commands that have no REST equivalent;
 - `--input PATH` for UTF-8 message text and repeatable `--attach PATH`;
 - `--to` anywhere before `--`, or a positional recipient;
 - `--format jsonl|json|text`, `--output`, `--quiet`, `--verbose`, and
