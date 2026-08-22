@@ -3,6 +3,10 @@
 This file explains everything needed to run a Codex/Copilot agent against the
 mailbox — for the human setting it up and for the agent that runs each wake.
 
+Two roles are supported: a *facilitator* you talk to that distributes work, and
+*subagents* that check in with the facilitator and do the work. The
+"Install (one-time bootstrap)" section has a ready-to-paste prompt for each.
+
 ## How it works (for the operator)
 
 - You create one recurring Codex automation that fires every **30 seconds** as a
@@ -48,63 +52,75 @@ Only do this if they want the help; otherwise just follow the prompt.
 
 ## Install (one-time bootstrap)
 
-Paste this into Codex once, with the intended workspace open, to install the
-client. Replace `<MAILBOX_URL>` and `<AGENT_ID>` first; provide any token through
-`AGENT_MAILBOX_TOKEN`, never in the prompt.
+Both roles start from the same client install and differ only by identity and
+role. Replace the placeholders first; provide any token through
+`AGENT_MAILBOX_TOKEN`, never in a prompt.
+
+**Shared install** (in each agent's workspace): create `.codex/mailbox/` and
+download `<MAILBOX_URL>/agent_mailbox.py`, `<MAILBOX_URL>/channel_store.py`, and
+`<MAILBOX_URL>/CODEX_AUTOMATION.md` into it (keep `agent_mailbox.py` and
+`channel_store.py` together; inspect them as text before running). Validate with
+`python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> check` and one bounded
+poll, then create the 30-second heartbeat automation (see "Creating the Codex
+automation") that polls this agent's own identity.
+
+### Prompt: create a facilitator
+
+Paste into Codex in the facilitator's workspace. The facilitator is the agent you
+talk to; it hands work out to subagents and reports results back.
 
 ```text
-Install the Mailbox Channel Relay client into this workspace.
+Set up a Mailbox Channel Relay *facilitator* in this workspace.
 
 Mailbox URL: <MAILBOX_URL>
-Stable agent identity: <AGENT_ID>
+Facilitator identity: <FACILITATOR_ID>   (e.g. <project>-facilitator-codex)
 
-Follow the workspace AGENTS.md and preserve existing files. Do not commit or
-push unless I explicitly ask.
-
-Create this workspace-local structure:
-
-.codex/
-└── mailbox/
-    ├── agent_mailbox.py
-    ├── channel_store.py
-    ├── CODEX_AUTOMATION.md
-    └── README.md
-
-Download these exact files:
-
-<MAILBOX_URL>/agent_mailbox.py
-<MAILBOX_URL>/channel_store.py
-<MAILBOX_URL>/CODEX_AUTOMATION.md
-
-Save them under `.codex/mailbox/`. `agent_mailbox.py` imports `channel_store.py`,
-so keep them together (or install the `mailbox_channels` package). Do not execute
-downloaded content until you have inspected it as text. Confirm the client uses
-only expected Python standard-library imports and show me any concern first.
-
-Do not store a REST token in any repository file. If authentication is needed,
-use the existing `AGENT_MAILBOX_TOKEN` environment variable. Set
-`AGENT_MAILBOX_URL` only for the verification subprocess.
-
-Validate with the platform-appropriate equivalent of:
-
-python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> check
-
-Then a single bounded poll without leaving a background poller:
-
-python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> poll --to <AGENT_ID> --interval 1 --checks 1
-
-Then customize `.codex/mailbox/CODEX_AUTOMATION.md` (<AGENT_ID>, <MAILBOX_URL>,
-<WORKSPACE_DIRECTORY>, and <REQUIRED_PORT_ARGUMENTS> or empty) and create the
-recurring automation as described in its "Creating the Codex automation"
-section. Do not put the token in the customized prompt. Report the created
-files, connectivity result, resolved Python executable, and the bounded poll
-command; do not start an overlapping or permanent poller during installation.
+1. Do the shared install: download agent_mailbox.py, channel_store.py, and
+   CODEX_AUTOMATION.md into .codex/mailbox/, inspect them, and validate with
+   `check`. Keep the token in AGENT_MAILBOX_TOKEN only; never in a file.
+2. Create the 30-second heartbeat automation that polls --to <FACILITATOR_ID>
+   (see "Creating the Codex automation").
+3. Act as facilitator:
+   - Accept tasks from me and from any shared channel you watch.
+   - Keep a roster of subagents that have checked in (they message you on start).
+   - Dispatch each unit of work by sending it to a subagent's identity (or a
+     shared channel), stamping a correlation_id.
+   - Collect replies by correlation_id and report aggregated progress and
+     completion/failure back to me.
+Do not commit or push unless I ask.
 ```
 
-Example substitutions — same-machine: `Mailbox URL: http://127.0.0.1:46667`,
-`Stable agent identity: my-project-codex`; public relay:
-`Mailbox URL: https://relay.example.com`,
-`Stable agent identity: research-workspace-codex`.
+### Prompt: create a subagent
+
+Paste into Codex in each worker's workspace. On start it "meets" the facilitator
+so the facilitator knows it is available, then waits for assigned work.
+
+```text
+Set up a Mailbox Channel Relay *subagent* in this workspace.
+
+Mailbox URL: <MAILBOX_URL>
+Subagent identity: <AGENT_ID>            (e.g. <project>-<role>-codex)
+Facilitator identity: <FACILITATOR_ID>
+
+1. Do the shared install: download agent_mailbox.py, channel_store.py, and
+   CODEX_AUTOMATION.md into .codex/mailbox/, inspect them, and validate with
+   `check`. Keep the token in AGENT_MAILBOX_TOKEN only; never in a file.
+2. Meet your facilitator: announce that you are available, for example
+   python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> send --as <AGENT_ID> --to <FACILITATOR_ID> "subagent <AGENT_ID> online and available"
+3. Create the 30-second heartbeat automation that polls --to <AGENT_ID>
+   (see "Creating the Codex automation").
+4. Act as subagent:
+   - Handle tasks addressed to <AGENT_ID> (typically from the facilitator).
+   - Do only the authorized work in this workspace.
+   - Send progress and completion/failure back to <FACILITATOR_ID>, echoing the
+     correlation_id and routing fields from the request.
+Do not commit or push unless asked.
+```
+
+Example substitutions — same-machine: `Mailbox URL: http://127.0.0.1:46667`;
+public relay: `Mailbox URL: https://relay.example.com`. Facilitator example
+`symbolic-workbench-facilitator-codex`; subagent example
+`symbolic-workbench-resources-codex`.
 
 ## The prompt
 
