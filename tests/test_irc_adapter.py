@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from mailbox_mailboxs import agent_mailbox
-from mailbox_mailboxs.adapters import irc_adapter
-from mailbox_mailboxs.adapters.irc_adapter import IrcAdapter
+from mailbox_chat import agent_mailbox
+from mailbox_chat.adapters import irc_adapter
+from mailbox_chat.adapters.irc_adapter import IrcAdapter
 
 
 class FakeSocket:
@@ -80,7 +80,7 @@ def test_irc_publishes_attachment_urls(tmp_path: Path, monkeypatch) -> None:
     assert "image%20name.png" in sent
 
 
-def test_irc_list_mailboxs_collects_names_counts_and_topics(monkeypatch) -> None:
+def test_irc_list_mailboxes_collects_names_counts_and_topics(monkeypatch) -> None:
     monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     connection = FakeSocket()
     connection.chunks.append(
@@ -91,7 +91,7 @@ def test_irc_list_mailboxs_collects_names_counts_and_topics(monkeypatch) -> None
     )
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
     assert adapter.configure()
-    assert adapter.list_mailboxs(timeout=1) == [
+    assert adapter.list_mailboxes(timeout=1) == [
         {"identifier": "#agents", "text": "Agent coordination", "kind": "mailbox",
          "metadata": {"visible_users": 42}},
         {"identifier": "#testing", "text": "Test room", "kind": "mailbox",

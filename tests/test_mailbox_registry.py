@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_mailboxs import agent_mailbox, mailbox_registry
+from mailbox_chat import agent_mailbox, mailbox_registry
 
 
 def test_register_infers_url_and_dir_transport(tmp_path: Path) -> None:
@@ -42,7 +42,7 @@ def test_unregister_missing_is_noop(tmp_path: Path) -> None:
 
 
 def test_load_mailboxes_scans_mailbox_documents(tmp_path: Path) -> None:
-    from mailbox_mailboxs import mailbox_store
+    from mailbox_chat import mailbox_store
 
     mailbox_store.append_message(tmp_path, "worker-1", {"text": "hi"})
     mailbox_store.append_message(tmp_path, "worker-2", {"text": "yo"})

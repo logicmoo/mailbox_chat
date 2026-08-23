@@ -31,8 +31,8 @@ TOKEN_ENV = "MAILBOX_RELAY_TOKEN"
 # relaunching. Any other exit is treated by mailbox-server-loop as "restart".
 SHUTDOWN_EXIT_CODE = 42
 from .mailbox_relay import (
-    ADAPTER_CAPABILITIES, ChannelRelay, PLANNED_CHANNEL_TYPES, RELAY_PORT, RELAY_RECIPIENT,
-    SUPPORTED_CHANNEL_TYPES,
+    ADAPTER_CAPABILITIES, ChannelRelay, PLANNED_MAILBOX_TYPES, RELAY_PORT, RELAY_RECIPIENT,
+    SUPPORTED_MAILBOX_TYPES,
 )
 from . import agent_mailbox
 from .connector_registry import CONFIG_DIR_ENV, config_dir, public_registry
@@ -381,19 +381,19 @@ def main(argv: list[str] | None = None) -> int:
                     "mailbox": agent_mailbox.status(),
                     "outboundRecipient": RELAY_RECIPIENT,
                     "cmdClient": "/cmd-client/",
-                    "supportedChannelTypes": SUPPORTED_CHANNEL_TYPES,
-                    "plannedChannelTypes": PLANNED_CHANNEL_TYPES,
+                    "supportedChannelTypes": SUPPORTED_MAILBOX_TYPES,
+                    "plannedChannelTypes": PLANNED_MAILBOX_TYPES,
                     **relay.status,
                 })
                 return
             if parsed.path == "/v1/adapters":
                 self._json(200, {
-                    "supported": SUPPORTED_CHANNEL_TYPES,
-                    "planned": PLANNED_CHANNEL_TYPES,
+                    "supported": SUPPORTED_MAILBOX_TYPES,
+                    "planned": PLANNED_MAILBOX_TYPES,
                     "capabilities": ADAPTER_CAPABILITIES,
                 })
                 return
-            if parsed.path == "/v1/discovery/mailboxs":
+            if parsed.path == "/v1/discovery/mailboxes":
                 query = parse_qs(parsed.query)
                 platform = query.get("platform", [""])[0].strip().lower()
                 instance = query.get("instance", [""])[0].strip()
@@ -401,9 +401,9 @@ def main(argv: list[str] | None = None) -> int:
                     timeout = float(query.get("timeout", ["30"])[0])
                     if platform != "irc":
                         raise ValueError("mailbox discovery currently supports platform=irc")
-                    from .discovery_admin import discover_irc_mailboxs
+                    from .discovery_admin import discover_irc_mailboxes
                     self._json(200, {"platform": platform,
-                                     "mailboxs": discover_irc_mailboxs(instance=instance, timeout=timeout)})
+                                     "mailboxes": discover_irc_mailboxes(instance=instance, timeout=timeout)})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
@@ -435,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not identity:
                     self._json(400, {"error": "identity is required"})
                     return
-                self._json(200, {"identity": identity, "mailboxs": subscriptions(identity)})
+                self._json(200, {"identity": identity, "mailboxes": subscriptions(identity)})
                 return
             if parsed.path == "/v1/cursors":
                 cursor = parse_qs(parsed.query).get("cursor", [""])[0].strip()
@@ -630,12 +630,12 @@ def main(argv: list[str] | None = None) -> int:
                         cutoff = datetime.now(timezone.utc) - timedelta(seconds=172800)
                     if request_path == "/v1/maintenance/trim-to-size" or payload.get("max_bytes") is not None:
                         max_bytes = int(payload.get("max_bytes"))
-                    mailboxs = payload.get("mailboxs") or []
-                    if not isinstance(mailboxs, list):
-                        raise ValueError("mailboxs must be an array; omit it to trim all mailboxs")
+                    mailboxes = payload.get("mailboxes") or []
+                    if not isinstance(mailboxes, list):
+                        raise ValueError("mailboxes must be an array; omit it to trim all mailboxes")
                     result = agent_mailbox.trim_messages(
                         cutoff=cutoff, max_bytes=max_bytes,
-                        mailboxs={str(item) for item in mailboxs},
+                        mailboxes={str(item) for item in mailboxes},
                     )
                 except (OSError, ValueError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
@@ -652,7 +652,7 @@ def main(argv: list[str] | None = None) -> int:
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/cursors", "/v1/agents", "/v1/identifiers",
                                      "/v1/identifier-resolution-requests",
                                      "/v1/subscriptions", "/v1/irc/command",
-                                     "/v1/mm/command", "/v1/connectors", "/v1/mailboxs",
+                                     "/v1/mm/command", "/v1/connectors", "/v1/mailboxes",
                                      "/v1/relays", "/v1/mailboxes", "/v1/exec"}:
                 self._json(404, {"error": "not found"})
                 return
@@ -825,7 +825,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         self._json(200 if payload.get("dry_run") else 201, result)
                     return
-                if request_path == "/v1/mailboxs":
+                if request_path == "/v1/mailboxes":
                     from .subscriptions import delete_mailbox, ensure_mailbox, set_subscription
                     from .connector_registry import add_connector_mailbox, load_agents
                     from .endpoint_address import parse_endpoint

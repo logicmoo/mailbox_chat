@@ -1,11 +1,11 @@
 import argparse
 
-from mailbox_channels.agent_mailbox import build_parser as agent_parser
-from mailbox_channels.console_client import parser as speaker_parser
-from mailbox_channels.server import build_parser as server_parser
-from mailbox_channels.token_admin import parser as token_parser
-from mailbox_channels.contact_admin import parser as contact_parser
-from mailbox_channels.agent_mailbox import CHAT_COMMANDS, IRC_COMMANDS, MATTERMOST_COMMANDS
+from mailbox_chat.agent_mailbox import build_parser as agent_parser
+from mailbox_chat.console_client import parser as speaker_parser
+from mailbox_chat.server import build_parser as server_parser
+from mailbox_chat.token_admin import parser as token_parser
+from mailbox_chat.contact_admin import parser as contact_parser
+from mailbox_chat.agent_mailbox import CHAT_COMMANDS, IRC_COMMANDS, MATTERMOST_COMMANDS
 
 
 def _agent_commands():
@@ -49,11 +49,11 @@ def test_agent_help_lists_every_global_option() -> None:
     ):
         assert option in help_text
     assert "COMMAND --help" in help_text
-    assert "channel endpoints" in help_text
+    assert "mailbox endpoints" in help_text
     assert "\n    irc " not in help_text
     assert "--on TYPE/INSTANCE" in help_text
     assert "mm COMMAND" not in help_text
-    assert "list channels across configured providers" in help_text
+    assert "list mailboxes across configured providers" in help_text
     assert "registered names and bare IDs infer their" in help_text
     assert "+o/-o" in help_text and "ephemeral" in help_text
     _assert_actions_documented(parser)
@@ -62,9 +62,9 @@ def test_agent_help_lists_every_global_option() -> None:
 def test_every_agent_command_has_comprehensive_help() -> None:
     expected = {"send", "receive", "peek", "poll", "follow", "unread-count", "ack", "status", "check",
                 "subscribe", "unsubscribe", "subscriptions", "token", "contacts",
-                "registry", "discover", "channels", "mailboxes", "poll-many", "history", "cursor-init",
+                "registry", "discover", "mailboxes", "mailboxes", "poll-many", "history", "cursor-init",
                 "cursors", "agents", "agent-add", "agent-del", "connectors", "connector-add",
-                "connector-del", "channel-add", "channel-del", "relays", "relay-add", "relay-del",
+                "connector-del", "mailbox-add", "mailbox-del", "relays", "relay-add", "relay-del",
                 "mailbox-add", "mailbox-del", "exec",
                 *CHAT_COMMANDS}
     commands = _agent_commands()

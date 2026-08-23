@@ -38,7 +38,7 @@ def _client_argv(arguments: str, relay_url: str) -> list[str]:
     supplied = shlex.split(arguments, posix=True)
     # mailbox-client.cmd is only a platform launcher for this exact module.
     # Calling it directly avoids cmd.exe rewriting metacharacters in arguments.
-    return [sys.executable, "-m", "mailbox_mailboxs.agent_mailbox", "--url", relay_url, *supplied]
+    return [sys.executable, "-m", "mailbox_chat.agent_mailbox", "--url", relay_url, *supplied]
 
 def _collect_output(session: CommandSession) -> None:
     assert session.process.stdout is not None
@@ -75,7 +75,7 @@ def run_mailbox_client_argv(arguments: list[str], *, relay_url: str, token: str 
                             env: dict[str, str] | None = None, cwd: str | None = None,
                             timeout: float | None = None) -> dict[str, object]:
     """Run mailbox-client on the server, wait for completion, and return its output."""
-    argv = [sys.executable, "-m", "mailbox_mailboxs.agent_mailbox", "--url", relay_url,
+    argv = [sys.executable, "-m", "mailbox_chat.agent_mailbox", "--url", relay_url,
             *[str(item) for item in arguments]]
     environment = os.environ.copy()
     if token:

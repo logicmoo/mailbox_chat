@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_mailboxs.identifier_directory import IdentifierDirectory
+from mailbox_chat.identifier_directory import IdentifierDirectory
 
 
 def test_directory_resolves_uuid_to_text_and_back(tmp_path: Path) -> None:

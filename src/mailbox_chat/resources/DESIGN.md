@@ -66,14 +66,14 @@ Ghosting/virtual-presence sorts into three FIDELITY tiers — the key design axi
 | adapter | auth | ghost tier | ghost mechanism / permission gate | multi | threads | attach | DM cold-init | discovery |
 |---|---|---|---|---|---|---|---|---|
 | matrix | access token / **appservice** registration | FULL | `?user_id=` masquerade within AS `users` namespace; **homeserver-admin** installs AS registration | ✅ unlimited ghosts | ✅ m.thread | ✅ | ✅ (invite/DM room) | rooms/members |
-| discord | bot token (+ intents) / webhook token | DISPLAY | webhook per-msg username+avatar; needs **Manage Webhooks**; webhooks CANNOT DM | ✅ | ✅ | ✅ | ❌ (bot needs shared guild) | guilds/mailboxs/members |
+| discord | bot token (+ intents) / webhook token | DISPLAY | webhook per-msg username+avatar; needs **Manage Webhooks**; webhooks CANNOT DM | ✅ | ✅ | ✅ | ❌ (bot needs shared guild) | guilds/mailboxes/members |
 | discourse | Api-Key + Api-Username | FULL | admin key + `Api-Username: <user>` posts AS that user (no badge); **admin key**; user must exist (can pre-create) | ✅ (one key, N users) | forum topics/posts | ✅ (uploads) | n/a (forum) | categories/users |
-| slack | bot token xoxb (+ app token/Socket Mode) | DISPLAY | webhook or `chat:write.customize` name+icon (bot-attributed) | ✅ | ✅ thread_ts | ✅ | limited | mailboxs/users |
-| mattermost | bot PAT / incoming webhook | DISPLAY | webhook `override_username`/`icon` — gated by **EnablePostUsernameOverride/IconOverride** (admin, default OFF); always **BOT badge**; REST bot posts have NO per-post override | ✅ | ✅ root_id | ✅ | admin-granted | mailboxs/users |
+| slack | bot token xoxb (+ app token/Socket Mode) | DISPLAY | webhook or `chat:write.customize` name+icon (bot-attributed) | ✅ | ✅ thread_ts | ✅ | limited | mailboxes/users |
+| mattermost | bot PAT / incoming webhook | DISPLAY | webhook `override_username`/`icon` — gated by **EnablePostUsernameOverride/IconOverride** (admin, default OFF); always **BOT badge**; REST bot posts have NO per-post override | ✅ | ✅ root_id | ✅ | admin-granted | mailboxes/users |
 | irc | services: **Q** (QuakeNet) / **SASL** (Libera) | NONE | none (one real nick per TCP conn); "<name> text" prefixing only | ✅ = N conns (QuakeNet 5/IP) | ❌ | ❌ (URLs/DCC) | ✅ PRIVMSG | LIST/NAMES/WHO |
 | telegram | bot token (BotFather) | NONE | none (`author_signature` cosmetic only) | ✅ N tokens | ✅ message_thread_id | ✅ 50MB up | ❌ user must /start | ❌ |
 | viber | X-Viber-Auth-Token | DISPLAY | per-msg `sender.name`+`sender.avatar` (no extra perm); **new bots commercial-only since 2024** | ✅ | ❌ | ✅ URL media | ❌ user subscribes first | ❌ no subscriber list |
-| line | mailbox access token (+ secret) | DISPLAY | per-msg `sender.name`(≤20) + `sender.iconUrl` | ✅ N mailboxs | ❌ | ✅ (2MB body; URL media) | ❌ user must friend | ⚠️ member list = verified/premium |
+| line | mailbox access token (+ secret) | DISPLAY | per-msg `sender.name`(≤20) + `sender.iconUrl` | ✅ N mailboxes | ❌ | ✅ (2MB body; URL media) | ❌ user must friend | ⚠️ member list = verified/premium |
 | whatsapp (cloud) | Meta app + phone_number_id + system token | NONE | none — fixed business number; **24h window + templates** | ✅ per phone number (2→20) | ❌ | ✅ 100MB | ❌ (opt-in/template) | ❌ |
 | whatsapp_personal | QR web-companion pairing (**UNOFFICIAL, ToS risk**) | NONE | none (one real account) | 1/account | ⚠️ | ✅ | within contacts | partial (chats/contacts) |
 | facebook_messenger | Page token (app review) | DISPLAY | **Personas API** (custom persona name+avatar); **24h window** | ✅ personas per Page | ❌ | ✅ | ❌ (opt-in/24h) | ❌ |
@@ -90,7 +90,7 @@ Key per-network IRC facts: QuakeNet = Q auth (`/msg Q@CServe.quakenet.org AUTH`)
   "threads": true|false,
   "attachments": true|false,
   "dm_cold_initiate": true|false,      // can we DM a user who hasn't contacted us?
-  "discovery": { "mailboxs": bool, "users": bool },
+  "discovery": { "mailboxes": bool, "users": bool },
   "auth_methods": ["..."],
   "official": true|false,              // false = unofficial/ToS-risk (whatsapp_personal)
   "notes": "msgid? windows? badges?"
@@ -118,7 +118,7 @@ Consequences:
 
 ## Adapter CATALOG vs configured connectors (discoverability)
 "What adapters exist" is a CODE-DERIVED catalog, separate from configured connectors/presences:
-- Catalog = SUPPORTED_CHANNEL_TYPES + ADAPTER_CAPABILITIES (mailbox_relay.py), served at
+- Catalog = SUPPORTED_MAILBOX_TYPES + ADAPTER_CAPABILITIES (mailbox_relay.py), served at
   GET /v1/adapters. Lists all 12 implemented adapters (incl. whatsapp, whatsapp_personal) with
   capability flags (presence/threads/attachments/interaction/official). This is "what's possible".
 - Connectors/presences = the LIVE subset we actually operate. "What's configured".
@@ -152,7 +152,7 @@ An operated presence folds in its connection (connector = the "how to log in" of
     "keepalive": { "ping_interval_s": 60, "reconnect_backoff_s": [1,2,5,15,60,120] }
   },
   "availability": { "desired": "online" },// what we make the bot APPEAR as (set, not read)
-  "join": ["irc-quakenet-org-mailbox-logicmoo"]  // mailboxs to stay in (or derive from membership)
+  "join": ["irc-quakenet-org-mailbox-logicmoo"]  // mailboxes to stay in (or derive from membership)
 }
 ```
 Mattermost operated presence differs only in `connection`:
@@ -234,7 +234,7 @@ claims it.
 ## Do we need a server adapter with no LLM? Yes — but only a thin MECHANICAL one
 LLM agents are on-demand/ephemeral; external reality is continuous. Split into two layers:
 - MECHANICAL (persistent server worker; required when no LLM is around) — a DUMB executor:
-  * Liveness: keep presences connected, reconnect, answer PING, stay in mailboxs. (IRC presence
+  * Liveness: keep presences connected, reconnect, answer PING, stay in mailboxes. (IRC presence
     IS the live socket; you can't lazily reconnect per message without leaving the room.)
   * Ingest: pull inbound into the right mailbox, with dedupe.
   * Flush already-addressed outbound: if an item has target+text+presence, just send it. No
@@ -385,20 +385,20 @@ no identity) can't disambiguate two nicks on one network, so connector_id is aut
 ### 6. Cursor ownership
 Relay/bridge cursors live under the owning bridge agent's registry entry
 (entries[irc-bridge-agent].cursors = {mailbox_resource_id: {next, consumed}}), one map
-spanning all its presences' mailboxs. Consistent with mm relays' cursors under the mm bridge.
+spanning all its presences' mailboxes. Consistent with mm relays' cursors under the mm bridge.
 
-### 7. Lifecycle (join/list/leave/mailboxs/mailboxes)
-- list [--on adapter/instance]  -> discovery on that presence; all mailboxs, joined or not.
+### 7. Lifecycle (join/list/leave/mailboxes/mailboxes)
+- list [--on adapter/instance]  -> discovery on that presence; all mailboxes, joined or not.
 - join adapter/instance/#chan   -> full onboarding: select/ensure connector, add #chan to
   its mailbox_ids, create the local mailbox (network-qualified id), subscribe relevant
   agents + init cursors, and tell the live adapter to JOIN. (matches the "join does it all".)
-- mailboxs                      -> mailboxs we hold a presence on and are handling.
+- mailboxes                      -> mailboxes we hold a presence on and are handling.
 - mailboxes                     -> all cursor-consumed local streams.
 - leave/part                    -> PART + unsubscribe (+ optionally stop monitoring).
 
 ### 8. Regeneration (since history is disposable)
 Define a small SEED spec (agents, connectors/presences, relays, subscriptions). A builder
-regenerates server_registry_{agents,connectors,mailboxs,relays} from the seed and drops
+regenerates server_registry_{agents,connectors,mailboxes,relays} from the seed and drops
 message-history mailbox files. Registries kept; logs discarded.
 
 ## Open forks to confirm
@@ -447,7 +447,7 @@ STATUS: analysis recorded; awaiting user's pick before any code.
 
 ## Registry filename convention (user 2026-08-22): CONFIRMED, keep `server_registry_<kind>`
 User: "i love them.. but they need to indicate the kind of thing they register in their names."
-The 5 registry files (mailbox_store.py:28-32) already comply: server_registry_{agents,mailboxs,
+The 5 registry files (mailbox_store.py:28-32) already comply: server_registry_{agents,mailboxes,
 connectors,identifiers,relays} — each names the KIND it registers. RULE: every registry file is
 `server_registry_<kind>` and must name the kind of thing registered. No renames needed.
 The new Fork I registry therefore MUST be `server_registry_presences` (kind = presences).

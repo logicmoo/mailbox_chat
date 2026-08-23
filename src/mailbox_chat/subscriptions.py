@@ -1,6 +1,6 @@
 """Durable subscriptions for fully qualified conversation addresses.
 
-Channels live in the ``server_registry_mailboxs`` registry. Each entry's
+Channels live in the ``server_registry_mailboxes`` registry. Each entry's
 payload holds ``{subscribers, aliases, kind, ...}`` plus any connector/endpoint
 metadata; the registry id is the canonical mailbox id.
 """
@@ -14,11 +14,11 @@ from . import mailbox_store
 from .connector_registry import store_root
 
 
-SERVER_EVENTS_CHANNEL = "server_events_log"
-SERVER_AGENT_TO_AGENT_CHANNEL = "server_outbound_relay_agent_to_agent"
-SERVER_AGENT_TO_CHANNEL_CHANNEL = "server_outbound_relay_agent_to_mailbox"
-BUILTIN_CHANNELS = {
-    SERVER_EVENTS_CHANNEL, SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL,
+SERVER_EVENTS_MAILBOX = "server_events_log"
+SERVER_AGENT_TO_AGENT_MAILBOX = "server_outbound_relay_agent_to_agent"
+SERVER_AGENT_TO_MAILBOX_MAILBOX = "server_outbound_relay_agent_to_mailbox"
+BUILTIN_MAILBOXES = {
+    SERVER_EVENTS_MAILBOX, SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_MAILBOX_MAILBOX,
 }
 
 
@@ -40,7 +40,7 @@ def canonical_mailbox(value: str, path: Path | None = None) -> str:
         raise ValueError("mailbox must use TYPE/INSTANCE/IDENTIFIER addressing")
     root = store_root(path)
     equivalent_ids: list[str] = []
-    for record in mailbox_store.registry_entries(root, mailbox_store.CHANNELS_REGISTRY):
+    for record in mailbox_store.registry_entries(root, mailbox_store.MAILBOXES_REGISTRY):
         payload = _payload(record)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         aliases = [
@@ -88,34 +88,34 @@ def _mailbox_record(payload: dict[str, Any], mailbox_id: str) -> dict[str, Any]:
     }
 
 
-def mailboxs(path: Path | None = None) -> list[dict[str, Any]]:
+def mailboxes(path: Path | None = None) -> list[dict[str, Any]]:
     root = store_root(path)
     result = []
     seen = set()
-    for record in mailbox_store.registry_entries(root, mailbox_store.CHANNELS_REGISTRY):
+    for record in mailbox_store.registry_entries(root, mailbox_store.MAILBOXES_REGISTRY):
         mailbox_id = canonical_mailbox(str(record.get("id") or ""), root)
         if not mailbox_id or mailbox_id in seen:
             raise ValueError("subscription addresses must be non-empty and unique")
         seen.add(mailbox_id)
         result.append(_mailbox_record(_payload(record), mailbox_id))
-    if SERVER_EVENTS_CHANNEL not in seen:
-        result.append({"id": SERVER_EVENTS_CHANNEL, "subscribers": []})
+    if SERVER_EVENTS_MAILBOX not in seen:
+        result.append({"id": SERVER_EVENTS_MAILBOX, "subscribers": []})
     return result
 
 
 def subscribers(mailbox_id: str, path: Path | None = None) -> list[str]:
     root = store_root(path)
     mailbox_id = canonical_mailbox(mailbox_id, root)
-    match = next((item for item in mailboxs(root) if item["id"] == mailbox_id), None)
+    match = next((item for item in mailboxes(root) if item["id"] == mailbox_id), None)
     return list(match["subscribers"]) if match else []
 
 
 def subscriptions(identity: str, path: Path | None = None) -> list[str]:
-    return [item["id"] for item in mailboxs(path) if identity in item["subscribers"]]
+    return [item["id"] for item in mailboxes(path) if identity in item["subscribers"]]
 
 
 def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
-    """List subscribable mailboxs with stable IDs and explicit kinds."""
+    """List subscribable mailboxes with stable IDs and explicit kinds."""
     from .connector_registry import load_agents, load_connectors
 
     root = store_root(path)
@@ -124,9 +124,9 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
 
     def source_kind(item: dict[str, Any]) -> str:
         mailbox_id = item["id"]
-        if mailbox_id == SERVER_EVENTS_CHANNEL:
+        if mailbox_id == SERVER_EVENTS_MAILBOX:
             return "system"
-        if mailbox_id in {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}:
+        if mailbox_id in {SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_MAILBOX_MAILBOX}:
             return "audit"
         connector_id = str(item.get("connector")
                            or (item.get("metadata") or {}).get("connector") or "")
@@ -141,14 +141,14 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
             "subscribers": list(item["subscribers"]),
             "metadata": dict(item.get("metadata") or {}),
         }
-        for item in mailboxs(root)
+        for item in mailboxes(root)
     ]
     seen = {item["id"] for item in result}
     for audit in [
-        {"id": SERVER_AGENT_TO_AGENT_CHANNEL, "kind": "mailbox", "mailbox_type": "audit",
+        {"id": SERVER_AGENT_TO_AGENT_MAILBOX, "kind": "mailbox", "mailbox_type": "audit",
          "aliases": [], "subscribers": [],
          "metadata": {"scope": "direct_agent"}},
-        {"id": SERVER_AGENT_TO_CHANNEL_CHANNEL, "kind": "mailbox", "mailbox_type": "audit",
+        {"id": SERVER_AGENT_TO_MAILBOX_MAILBOX, "kind": "mailbox", "mailbox_type": "audit",
          "aliases": [], "subscribers": [],
          "metadata": {"scope": "all_sends"}},
     ]:
@@ -203,7 +203,7 @@ def ensure_mailbox(mailbox_id: str, *, path: Path | None = None,
     root = store_root(path)
     mailbox_id = canonical_mailbox(mailbox_id, root)
     with mailbox_store.STORE_LOCK:
-        record = mailbox_store.get_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
+        record = mailbox_store.get_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id)
         payload = _payload(record) if record else {"kind": "mailbox", "subscribers": []}
         if metadata:
             payload.update(metadata)
@@ -220,7 +220,7 @@ def ensure_mailbox(mailbox_id: str, *, path: Path | None = None,
             ]))
         payload.setdefault("kind", "mailbox")
         payload.setdefault("subscribers", [])
-        mailbox_store.put_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id, payload)
+        mailbox_store.put_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id, payload)
     return {"kind": "mailbox", "id": mailbox_id, **payload}
 
 
@@ -229,16 +229,16 @@ def delete_mailbox(mailbox_id: str, *, force: bool = False,
     """Delete a configured mailbox, protecting subscribers unless forced."""
     root = store_root(path)
     mailbox_id = canonical_mailbox(mailbox_id, root)
-    if mailbox_id in BUILTIN_CHANNELS:
+    if mailbox_id in BUILTIN_MAILBOXES:
         raise ValueError(f"built-in mailbox cannot be deleted: {mailbox_id}")
     with mailbox_store.STORE_LOCK:
-        record = mailbox_store.get_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
+        record = mailbox_store.get_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id)
         if record is None:
             return {"id": mailbox_id, "deleted": False}
         members = list(_payload(record).get("subscribers") or [])
         if members and not force:
             raise ValueError("mailbox has subscribers; unsubscribe them or use --force")
-        mailbox_store.delete_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
+        mailbox_store.delete_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id)
     return {"id": mailbox_id, "deleted": True, "removed_subscribers": members}
 
 
@@ -249,7 +249,7 @@ def set_subscription(mailbox_id: str, identity: str, *, enabled: bool,
     if not mailbox_id or not identity:
         raise ValueError("mailbox and identity are required")
     with mailbox_store.STORE_LOCK:
-        record = mailbox_store.get_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
+        record = mailbox_store.get_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id)
         payload = _payload(record) if record else {"kind": "mailbox", "subscribers": []}
         members = list(dict.fromkeys(
             str(item).strip() for item in payload.get("subscribers") or [] if str(item).strip()
@@ -260,5 +260,5 @@ def set_subscription(mailbox_id: str, identity: str, *, enabled: bool,
             members = [item for item in members if item != identity]
         payload["subscribers"] = members
         payload.setdefault("kind", "mailbox")
-        mailbox_store.put_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id, payload)
+        mailbox_store.put_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id, payload)
     return {"mailbox": mailbox_id, "identity": identity, "subscribed": enabled}

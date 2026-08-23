@@ -1,18 +1,18 @@
-from mailbox_mailboxs import discovery_admin
+from mailbox_chat import discovery_admin
 
 
 def test_discovery_help_lists_irc_mailbox_capability(capsys) -> None:
     assert discovery_admin.main(["platforms"]) == 0
     output = capsys.readouterr().out
     assert '"id": "irc"' in output
-    assert '"mailboxs"' in output
+    assert '"mailboxes"' in output
 
 
-def test_discovery_mailboxs_outputs_provider_results(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(discovery_admin, "discover_irc_mailboxs", lambda **_kwargs: [
+def test_discovery_mailboxes_outputs_provider_results(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(discovery_admin, "discover_irc_mailboxes", lambda **_kwargs: [
         {"address": "irc/irc.example/%23testing", "text": "Test room"},
     ])
-    assert discovery_admin.main(["mailboxs", "--platform", "irc"]) == 0
+    assert discovery_admin.main(["mailboxes", "--platform", "irc"]) == 0
     assert "irc/irc.example/%23testing" in capsys.readouterr().out
 
 

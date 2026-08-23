@@ -1,4 +1,4 @@
-import mailbox_mailboxs.agent_mailbox as am
+import mailbox_chat.agent_mailbox as am
 
 
 def _capture(monkeypatch):
@@ -37,7 +37,7 @@ def test_mailbox_rest_helpers_post_expected_bodies(monkeypatch) -> None:
         subscribe_all=True, base_url="http://h",
     )
     am.delete_mailbox_rest("team", force=True, base_url="http://h")
-    assert calls[0][0:2] == ("POST", "/v1/mailboxs")
+    assert calls[0][0:2] == ("POST", "/v1/mailboxes")
     assert calls[0][2] == {
         "mailbox_id": "team", "metadata": {"title": "Updates"},
         "aliases": ["alias1"], "subscribe_all": True,

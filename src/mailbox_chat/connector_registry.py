@@ -185,9 +185,9 @@ def register_agent(
 
     if agent_created or presence_created:
         from . import agent_mailbox
-        from .subscriptions import SERVER_EVENTS_CHANNEL
+        from .subscriptions import SERVER_EVENTS_MAILBOX
 
-        event_mailbox = SERVER_EVENTS_CHANNEL
+        event_mailbox = SERVER_EVENTS_MAILBOX
         if agent_created:
             agent_mailbox.send(
                 event_mailbox,
@@ -302,7 +302,7 @@ def unregister_agent(
             agent_removed, presence_removed = True, False
 
     from . import agent_mailbox
-    from .subscriptions import SERVER_EVENTS_CHANNEL
+    from .subscriptions import SERVER_EVENTS_MAILBOX
 
     event_type = "presence_unregistered" if presence_removed else "agent_unregistered"
     event_text = (f"Presence unregistered: {presence_id} for {agent_id}" if presence_removed
@@ -311,7 +311,7 @@ def unregister_agent(
     if presence_removed:
         event_fields["presence_id"] = presence_id
     agent_mailbox.send(
-        SERVER_EVENTS_CHANNEL, event_text, sender="mailbox-server",
+        SERVER_EVENTS_MAILBOX, event_text, sender="mailbox-server",
         message_type=event_type, extra_fields=event_fields, root=mailbox_root or root,
     )
     purge_result: dict[str, Any] = {"purged": False}
@@ -495,7 +495,7 @@ def unregister_connector(connector_id: str, *, dry_run: bool = False,
 
 
 def public_registry(path: Path | None = None) -> dict[str, Any]:
-    """Return the public agents, connectors, and subscribable mailboxs."""
+    """Return the public agents, connectors, and subscribable mailboxes."""
     from .retained_relay import load_relays
     from .subscriptions import available_sources
 

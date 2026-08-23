@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from mailbox_mailboxs import agent_mailbox
-from mailbox_mailboxs.attachment_gateway import attachment_url
+from mailbox_chat import agent_mailbox
+from mailbox_chat.attachment_gateway import attachment_url
 
 
 def test_attachment_url_only_accepts_managed_attachments(tmp_path: Path, monkeypatch) -> None:

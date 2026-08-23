@@ -47,7 +47,7 @@ try:
     from . import mailbox_store
 except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
     try:
-        from mailbox_mailboxs import mailbox_store  # installed package on sys.path
+        from mailbox_chat import mailbox_store  # installed package on sys.path
     except ImportError:
         import mailbox_store  # type: ignore[no-redef]  # co-located mailbox_store.py
 
@@ -64,9 +64,9 @@ REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
 MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
 DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
-SERVER_AGENT_TO_AGENT_CHANNEL = "server_outbound_relay_agent_to_agent"
-SERVER_AGENT_TO_CHANNEL_CHANNEL = "server_outbound_relay_agent_to_mailbox"
-SERVER_AUDIT_CHANNELS = {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}
+SERVER_AGENT_TO_AGENT_MAILBOX = "server_outbound_relay_agent_to_agent"
+SERVER_AGENT_TO_MAILBOX_MAILBOX = "server_outbound_relay_agent_to_mailbox"
+SERVER_AUDIT_MAILBOXES = {SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_MAILBOX_MAILBOX}
 SERVER_WORKER_QUEUE = "server_worker_queue"
 # Environment variables the client forwards to an exec'd command by default.
 # Values are read from the current environment; --env-vars entries add to or
@@ -83,7 +83,7 @@ CHAT_COMMANDS = tuple(dict.fromkeys((*IRC_COMMANDS, *MATTERMOST_COMMANDS)))
 CHAT_COMMAND_HELP = {
     "ping": "check connectivity to a configured chat platform",
     "teams": "list visible teams (where supported)",
-    "list": "list mailboxs across configured providers, or one selected with --on",
+    "list": "list mailboxes across configured providers, or one selected with --on",
     "names": "list users in a mailbox; registered names, IDs, addresses, and URLs resolve",
     "threads": "list followed threads (where supported)",
     "join": "join a mailbox or add the connected account",
@@ -214,7 +214,7 @@ def purge_agent_data(
         cursor_owners.add(agent_id)
 
     removed_records = 0
-    doomed_mailboxs: list[str] = []
+    doomed_mailboxes: list[str] = []
     for recipient in sorted(private_recipients):
         path = mailbox_store.mailbox_path(target, recipient)
         if not path.exists():
@@ -223,11 +223,11 @@ def purge_agent_data(
         if document.get("sub_kind") == "ordered_id_mailbox":
             continue  # Never purge a registry.
         removed_records += len(document.get("messages") or {})
-        doomed_mailboxs.append(recipient)
+        doomed_mailboxes.append(recipient)
 
     # Presence-targeted copies retained inside a surviving agent mailbox.
     partial_keys: list[str] = []
-    if not remove_agent and presence_ids and agent_mailbox not in doomed_mailboxs:
+    if not remove_agent and presence_ids and agent_mailbox not in doomed_mailboxes:
         document = mailbox_store.load_mailbox(target, agent_mailbox)
         for key, record in (document.get("messages") or {}).items():
             if str(record.get("audit_recipient") or "") in presence_ids:
@@ -245,13 +245,13 @@ def purge_agent_data(
         return {
             "purged": False,
             "dry_run": True,
-            "would_purge_mailboxs": sorted(private_recipients),
+            "would_purge_mailboxes": sorted(private_recipients),
             "would_purge_records": removed_records,
             "would_purge_cursor_files": cursor_files,
         }
 
     with mailbox_store.STORE_LOCK:
-        for recipient in doomed_mailboxs:
+        for recipient in doomed_mailboxes:
             mailbox_store.mailbox_path(target, recipient).unlink(missing_ok=True)
         if partial_keys:
             document = mailbox_store.load_mailbox(target, agent_mailbox)
@@ -259,11 +259,11 @@ def purge_agent_data(
                 document["messages"].pop(key, None)
             mailbox_store.save_mailbox(target, document)
         mailbox_store.delete_cursors(target, owners=cursor_owners,
-                                     mailboxs=private_recipients)
+                                     mailboxes=private_recipients)
 
     return {
         "purged": True,
-        "purged_mailboxs": sorted(private_recipients),
+        "purged_mailboxes": sorted(private_recipients),
         "purged_records": removed_records,
         "purged_cursor_files": cursor_files,
     }
@@ -332,9 +332,9 @@ def ensure_cursor(
 
 
 def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = None,
-                  mailboxs: set[str] | None = None,
+                  mailboxes: set[str] | None = None,
                   root: Path | None = None) -> dict[str, Any]:
-    """Trim all or selected mailboxs by age/size; entry numbering stays stable."""
+    """Trim all or selected mailboxes by age/size; entry numbering stays stable."""
     if cutoff is None and max_bytes is None:
         raise ValueError("trim requires cutoff or max_bytes")
     if cutoff is not None and cutoff.tzinfo is None:
@@ -343,7 +343,7 @@ def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = Non
         raise ValueError("max_bytes must be non-negative")
     target = root or mailbox_dir()
     cutoff_utc = cutoff.astimezone(timezone.utc) if cutoff else None
-    selected_mailboxs = {item.strip() for item in mailboxs or set() if item.strip()}
+    selected_mailboxes = {item.strip() for item in mailboxes or set() if item.strip()}
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     removed = retained = retained_bytes = 0
     backups: list[str] = []
@@ -362,7 +362,7 @@ def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = Non
     with mailbox_store.STORE_LOCK:
         documents: dict[str, dict[str, Any]] = {}
         for mailbox_id in mailbox_store.mailbox_ids(target):
-            if selected_mailboxs and mailbox_id not in selected_mailboxs:
+            if selected_mailboxes and mailbox_id not in selected_mailboxes:
                 continue
             document = mailbox_store.load_mailbox(target, mailbox_id)
             if "messages" not in document:
@@ -410,7 +410,7 @@ def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = Non
     return {
         "cutoff": cutoff_utc.isoformat().replace("+00:00", "Z") if cutoff_utc else None,
         "max_bytes": max_bytes,
-        "mailboxs": sorted(selected_mailboxs) if selected_mailboxs else "all",
+        "mailboxes": sorted(selected_mailboxes) if selected_mailboxes else "all",
         "removed_records": removed,
         "retained_records": retained,
         "retained_bytes": retained_bytes,
@@ -420,7 +420,7 @@ def trim_messages(*, cutoff: datetime | None = None, max_bytes: int | None = Non
 
 
 def trim_messages_before(cutoff: datetime, *, root: Path | None = None) -> dict[str, Any]:
-    """Compatibility wrapper for trimming all mailboxs before one timestamp."""
+    """Compatibility wrapper for trimming all mailboxes before one timestamp."""
     return trim_messages(cutoff=cutoff, root=root)
 
 
@@ -475,8 +475,8 @@ def _copy_attachments(target: Path, message_id: str, paths: list[Path]) -> list[
 
 
 def _mailbox_sub_kind(mailbox_id: str) -> str:
-    """Best-effort sub_kind for mailboxs created on first write."""
-    if mailbox_id in SERVER_AUDIT_CHANNELS:
+    """Best-effort sub_kind for mailboxes created on first write."""
+    if mailbox_id in SERVER_AUDIT_MAILBOXES:
         return "relay_outbox"
     if mailbox_id == "server_events_log":
         return "event_log"
@@ -530,15 +530,15 @@ def send(
         record["attachments"] = copied_attachments
     records = [record]
     delivered_sub_kinds = {record["to"]: _mailbox_sub_kind(recipient)}
-    if recipient not in SERVER_AUDIT_CHANNELS:
-        audit_recipients = [SERVER_AGENT_TO_CHANNEL_CHANNEL]
+    if recipient not in SERVER_AUDIT_MAILBOXES:
+        audit_recipients = [SERVER_AGENT_TO_MAILBOX_MAILBOX]
         resolved_agent_id = ""
         addressed_presence_id = ""
         try:
             try:
                 from .connector_registry import agent_mailbox_address, load_agents
             except ImportError:
-                from mailbox_mailboxs.connector_registry import agent_mailbox_address, load_agents
+                from mailbox_chat.connector_registry import agent_mailbox_address, load_agents
             agents = load_agents(target)
             if recipient in {item["agent_id"] for item in agents}:
                 resolved_agent_id = recipient
@@ -554,7 +554,7 @@ def send(
                 ), "")
                 addressed_presence_id = recipient if resolved_agent_id else ""
             if resolved_agent_id:
-                audit_recipients.append(SERVER_AGENT_TO_AGENT_CHANNEL)
+                audit_recipients.append(SERVER_AGENT_TO_AGENT_MAILBOX)
                 if addressed_presence_id:
                     audit_recipients.append(agent_mailbox_address(resolved_agent_id, target))
                     delivered_sub_kinds[audit_recipients[-1]] = "agent_inbox"
@@ -688,7 +688,7 @@ def status(*, root: Path | None = None) -> dict[str, Any]:
     ) if target.is_dir() else 0
     agents: list[dict[str, Any]] = []
     connectors: list[dict[str, Any]] = []
-    mailboxs: list[dict[str, Any]] = []
+    mailboxes: list[dict[str, Any]] = []
     relays: list[dict[str, Any]] = []
     try:
         from .retained_relay import load_relays
@@ -722,7 +722,7 @@ def status(*, root: Path | None = None) -> dict[str, Any]:
                 "can_send": connector["direction"] in {"outbound", "bidirectional"},
                 "mailbox_ids": connector["mailbox_ids"],
             })
-        mailboxs = available_sources(target)
+        mailboxes = available_sources(target)
         relays = [item for item in load_relays(target) if item["enabled"]]
     except ImportError:
         # A downloaded /agent_mailbox.py can run without the server package.
@@ -734,7 +734,7 @@ def status(*, root: Path | None = None) -> dict[str, Any]:
         "default_sender": DEFAULT_SENDER,
         "agents": agents,
         "connectors": connectors,
-        "mailboxes": mailboxs,
+        "mailboxes": mailboxes,
         "relays": relays,
     }
 
@@ -847,7 +847,7 @@ def unregister_connector_rest(connector_id: str, *, dry_run: bool = False,
 def add_mailbox_rest(mailbox_id: str, *, metadata: dict[str, Any] | None = None,
                      aliases: list[str] | None = None, subscribe_all: bool = False,
                      base_url: str | None = None) -> dict[str, Any]:
-    return dict(_rest_request("POST", "/v1/mailboxs", {
+    return dict(_rest_request("POST", "/v1/mailboxes", {
         "mailbox_id": mailbox_id, "metadata": dict(metadata or {}),
         "aliases": list(aliases or []), "subscribe_all": subscribe_all,
     }, base_url=base_url))
@@ -855,7 +855,7 @@ def add_mailbox_rest(mailbox_id: str, *, metadata: dict[str, Any] | None = None,
 
 def delete_mailbox_rest(mailbox_id: str, *, force: bool = False,
                         base_url: str | None = None) -> dict[str, Any]:
-    return dict(_rest_request("POST", "/v1/mailboxs", {
+    return dict(_rest_request("POST", "/v1/mailboxes", {
         "action": "delete", "mailbox_id": mailbox_id, "force": force,
     }, base_url=base_url))
 
@@ -1021,7 +1021,7 @@ def _render_text_record(item: dict[str, Any]) -> str:
     if context.get("connector_ids"):
         details.append(f"connectors={','.join(map(str, context['connector_ids']))}")
     if context.get("mailbox_ids"):
-        details.append(f"mailboxs={','.join(map(str, context['mailbox_ids']))}")
+        details.append(f"mailboxes={','.join(map(str, context['mailbox_ids']))}")
     if diagnostic:
         details.append(f"operation={diagnostic.get('operation', '')}")
         details.append(f"error={diagnostic.get('error_type', '')}: {diagnostic.get('error_message', '')}")
@@ -1120,13 +1120,13 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
         method = "POST"
         payload = {"action": "delete", "connector_id": args.connector_id, "dry_run": args.dry_run}
     elif command == "mailbox-add":
-        url = f"{base}/v1/mailboxs"
+        url = f"{base}/v1/mailboxes"
         method = "POST"
         payload = {"mailbox_id": args.mailbox_id,
                    "metadata": _json_object_with_assignments(args.metadata, args.metadata_values, "--metadata"),
                    "aliases": list(args.aliases), "subscribe_all": args.subscribe_all}
     elif command == "mailbox-del":
-        url = f"{base}/v1/mailboxs"
+        url = f"{base}/v1/mailboxes"
         method = "POST"
         payload = {"action": "delete", "mailbox_id": args.mailbox_id, "force": args.force}
     elif command == "relay-add":
@@ -1172,7 +1172,7 @@ def curl_command(args: argparse.Namespace, base_url: str, *, token: bool) -> str
         else:
             url = f"{base}/v1/subscriptions?" + urllib.parse.urlencode(
                 {"identity": args.global_recipient})
-    elif command in {"agents", "connectors", "mailboxs", "mailboxes", "relays"}:
+    elif command in {"agents", "connectors", "mailboxes", "mailboxes", "relays"}:
         url = f"{base}/v1/registry"
     elif command in {"receive", "peek", "poll", "poll-many", "history", "follow", "unread-count"}:
         advance = command not in {"peek", "unread-count"} and not getattr(args, "no_advance", False)
@@ -1221,7 +1221,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="source endpoint (for example mm/chat.snt/ID), or legacy sending identity")
     parser.add_argument("--to", dest="global_recipient",
                         help="mailbox identity or external endpoint (for example mm/chat.snt/ID)")
-    parser.add_argument("--subscribed", metavar="CHANNELS",
+    parser.add_argument("--subscribed", metavar="MAILBOXES",
                         help="comma-separated mailbox endpoints that --to/--as must be subscribed to")
     parser.add_argument("--format", choices=("jsonl", "json", "text"), default="jsonl",
                         help="output rendering format (default: jsonl)")
@@ -1246,7 +1246,7 @@ def build_parser() -> argparse.ArgumentParser:
         "send", help="append a message", description="Append one durable mailbox message.",
         epilog=("Example: mailbox-client send --as symbolic-workbench-codex --to "
                 "omegaclaw-core-codex 'Task complete'; mailbox-client send --as "
-                "symbolic-workbench-codex --to mm/chat.snt/CHANNEL_OR_PERSON_ID 'Hello'"),
+                "symbolic-workbench-codex --to mm/chat.snt/MAILBOX_OR_PERSON_ID 'Hello'"),
     )
     send_parser.add_argument("recipient", nargs="?", help="destination identity; alternatively use --to")
     send_parser.add_argument("text", nargs="?", help="message text; alternatively use global --input PATH")
@@ -1285,7 +1285,7 @@ def build_parser() -> argparse.ArgumentParser:
         "poll", help="poll for unread messages",
         description="Check repeatedly until mail arrives or the bounded check count is exhausted.",
         epilog=("Example: mailbox-client poll --to symbolic-workbench-codex; mailbox-client poll "
-                "--as symbolic-workbench-codex --from mm/chat.snt/CHANNEL_OR_PERSON_ID"),
+                "--as symbolic-workbench-codex --from mm/chat.snt/MAILBOX_OR_PERSON_ID"),
     )
     poll_parser.add_argument("recipient", nargs="?", help="mailbox identity to poll; alternatively use --to")
     poll_parser.add_argument("--interval", type=float, default=30.0,
@@ -1298,7 +1298,7 @@ def build_parser() -> argparse.ArgumentParser:
                              help="poll every mailbox initialized for this cursor/agent identity")
     _add_read_options(poll_parser, waiting=False)
     poll_many_parser = commands.add_parser(
-        "poll-many", help="poll several retained mailboxs in one command",
+        "poll-many", help="poll several retained mailboxes in one command",
         description="Poll multiple recipients using one independently saved cursor name.",
         epilog=("Example: mailbox-client poll-many mm/example.test/mailbox-a "
                 "mm/example.test/mailbox-b --cursor workbench-codex"),
@@ -1312,7 +1312,7 @@ def build_parser() -> argparse.ArgumentParser:
                                   help="fail when this local TCP port stops listening; repeatable")
     _add_read_options(poll_many_parser, waiting=False)
     history_parser = commands.add_parser(
-        "history", help="search retained history across mailboxs",
+        "history", help="search retained history across mailboxes",
         description="Read retained records independently of every live cursor.",
         epilog=("Example: mailbox-client history mm/example.test/mailbox-a "
                 "mm/example.test/mailbox-b --since 7d"),
@@ -1334,7 +1334,7 @@ def build_parser() -> argparse.ArgumentParser:
     cursor_parser.add_argument("--start", default="now",
                                help="beginning, now, UTC timestamp, or relative duration such as 7d")
     cursors_parser = commands.add_parser(
-        "cursors", help="list mailboxs and positions initialized for one cursor",
+        "cursors", help="list mailboxes and positions initialized for one cursor",
         description="List every retained mailbox initialized for one cursor or agent identity.",
         epilog=("Example: mailbox-client --url http://127.0.0.1:46667 "
                 "cursors --cursor symbolic-workbench-codex"),
@@ -1357,7 +1357,7 @@ def build_parser() -> argparse.ArgumentParser:
                                   help="globally unique presence identity to attach")
     agent_add_parser.add_argument(
         "--dry-run", action="store_true",
-        help="show the agent, presence, and initial mailboxs that would be added",
+        help="show the agent, presence, and initial mailboxes that would be added",
     )
     agent_del_parser = commands.add_parser(
         "agent-del", help="remove an agent or one of its presences",
@@ -1407,16 +1407,16 @@ def build_parser() -> argparse.ArgumentParser:
     connector_del.add_argument("--dry-run", action="store_true", help="preview without deleting")
 
     commands.add_parser(
-        "mailboxs", help="list external mailboxs we hold a presence on and handle",
-        description="List external mailboxs (IRC/Mattermost/etc.) where we have a bot presence "
+        "mailboxes", help="list external mailboxes we hold a presence on and handle",
+        description="List external mailboxes (IRC/Mattermost/etc.) where we have a bot presence "
                     "and are handling messages. Use 'mailboxes' for local streams and the chat "
-                    "'list' command to discover mailboxs we are not on.",
-        epilog="Example: mailbox-client mailboxs",
+                    "'list' command to discover mailboxes we are not on.",
+        epilog="Example: mailbox-client mailboxes",
     )
     commands.add_parser(
         "mailboxes", help="list local cursor-consumed mailboxes (inboxes, system/audit streams)",
         description="List every local cursor-consumed stream: agent inboxes, the server "
-                    "event/audit streams, and the local mailbox view of external mailboxs.",
+                    "event/audit streams, and the local mailbox view of external mailboxes.",
         epilog="Example: mailbox-client mailboxes",
     )
     mailbox_add = commands.add_parser(
@@ -1489,7 +1489,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser(
         "relays", help="list cursor-driven mailbox relays",
-        description="List cursor-driven relays from retained mailboxs to external destinations.",
+        description="List cursor-driven relays from retained mailboxes to external destinations.",
         epilog="Example: mailbox-client relays",
     )
     relay_add = commands.add_parser(
@@ -1972,9 +1972,9 @@ def main(argv: list[str] | None = None) -> int:
             args.mailbox_type = destination_endpoint.adapter
             args.mailbox_id = destination_endpoint.identifier
             if args.global_recipient:
-                args.global_recipient = SERVER_AGENT_TO_CHANNEL_CHANNEL
+                args.global_recipient = SERVER_AGENT_TO_MAILBOX_MAILBOX
             else:
-                args.recipient = SERVER_AGENT_TO_CHANNEL_CHANNEL
+                args.recipient = SERVER_AGENT_TO_MAILBOX_MAILBOX
         if args.global_recipient and args.recipient:
             if args.text is not None:
                 build_parser().error("send accepts either positional recipient or --to, not both")
@@ -2051,10 +2051,10 @@ def main(argv: list[str] | None = None) -> int:
         declared_subscriptions.extend(
             item.strip() for item in args.subscribed.split(",") if item.strip()
         )
-    requested_mailboxs = list(dict.fromkeys(declared_subscriptions))
-    if args.subscribed and not requested_mailboxs:
+    requested_mailboxes = list(dict.fromkeys(declared_subscriptions))
+    if args.subscribed and not requested_mailboxes:
             build_parser().error("--subscribed requires at least one mailbox")
-    for mailbox in requested_mailboxs:
+    for mailbox in requested_mailboxes:
         if use_rest:
             _rest_request("POST", "/v1/subscriptions", {
                 "mailbox": mailbox, "identity": subscription_identity, "subscribed": True,
@@ -2077,10 +2077,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.verbose:
         target = rest_url if use_rest else str(mailbox_root or mailbox_dir())
         print(f"agent_mailbox transport={'REST' if use_rest else 'local'} target={target}", file=sys.stderr)
-    if args.command in {"agents", "connectors", "mailboxs", "mailboxes", "relays"}:
+    if args.command in {"agents", "connectors", "mailboxes", "mailboxes", "relays"}:
         registry = (_rest_request("GET", "/v1/registry", base_url=rest_url)
                     if use_rest else __import__(
-                        "mailbox_mailboxs.connector_registry", fromlist=["public_registry"]
+                        "mailbox_chat.connector_registry", fromlist=["public_registry"]
                     ).public_registry(mailbox_root))
         if args.command == "agents":
             enriched_agents = []
@@ -2109,13 +2109,13 @@ def main(argv: list[str] | None = None) -> int:
             result = {"agents": enriched_agents}
         elif args.command == "mailboxes":
             # Every cursor-consumed local stream (agent inboxes, system/audit streams,
-            # and the local view of external mailboxs).
+            # and the local view of external mailboxes).
             result = {"mailboxes": registry.get("mailboxes", [])}
-        elif args.command == "mailboxs":
+        elif args.command == "mailboxes":
             # External places we hold a presence on and handle: mailboxes whose mailbox_type
             # is an external adapter (not a local system/audit/agent-direct stream).
             local_types = {"system", "audit", "agent_direct", "local"}
-            result = {"mailboxs": [
+            result = {"mailboxes": [
                 item for item in registry.get("mailboxes", [])
                 if str(item.get("mailbox_type") or "") not in local_types
             ]}
@@ -2329,17 +2329,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.all_subscriptions:
                 if use_rest:
                     configured = _rest_request("GET", "/v1/registry", base_url=rest_url).get(
-                        "mailboxs", []
+                        "mailboxes", []
                     )
                 else:
-                    from .subscriptions import mailboxs
-                    configured = mailboxs(mailbox_root)
+                    from .subscriptions import mailboxes
+                    configured = mailboxes(mailbox_root)
                 by_identity: dict[str, list[str]] = {}
                 for subscription in configured:
                     for identity in subscription.get("subscribers") or []:
                         by_identity.setdefault(str(identity), []).append(str(subscription["id"]))
                 result = {"mailboxes": [
-                    {"identity": identity, "mailboxs": mailbox_ids}
+                    {"identity": identity, "mailboxes": mailbox_ids}
                     for identity, mailbox_ids in sorted(by_identity.items())
                 ]}
             else:
@@ -2347,7 +2347,7 @@ def main(argv: list[str] | None = None) -> int:
                     "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.global_recipient}),
                     base_url=rest_url,
                 ) if use_rest else {"identity": args.global_recipient,
-                                    "mailboxs": subscriptions(args.global_recipient, mailbox_root)})
+                                    "mailboxes": subscriptions(args.global_recipient, mailbox_root)})
         else:
             enabled = args.command == "subscribe"
             mailbox = args.mailbox
@@ -2413,8 +2413,8 @@ def main(argv: list[str] | None = None) -> int:
             configured_recipients = (list(_rest_request(
                 "GET", "/v1/subscriptions?" + urllib.parse.urlencode({"identity": args.cursor}),
                 base_url=rest_url,
-            ).get("mailboxs", [])) if use_rest else __import__(
-                "mailbox_mailboxs.subscriptions", fromlist=["subscriptions"]
+            ).get("mailboxes", [])) if use_rest else __import__(
+                "mailbox_chat.subscriptions", fromlist=["subscriptions"]
             ).subscriptions(args.cursor, mailbox_root))
             recipients = list(dict.fromkeys([*configured_recipients, *cursor_recipients]))
             if not recipients:

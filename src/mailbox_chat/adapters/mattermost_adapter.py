@@ -50,7 +50,7 @@ class MattermostRelay:
             "connected": False,
             "lastError": None,
             "lastCycleAt": None,
-            "mailboxs": [],
+            "mailboxes": [],
         }
         self._latest_create_at: dict[str, int] = {}
         self._bot_user_id = ""
@@ -68,16 +68,16 @@ class MattermostRelay:
         self.base_url = str(self.connector.get("base_url") or os.environ.get("MM_URL") or "").rstrip("/")
         token_env = str(self.connector.get("token_env") or "MM_BOT_TOKEN")
         self.token = os.environ.get(token_env, "").strip()
-        configured_mailboxs = list(self.connector.get("mailbox_ids") or [])
-        legacy_mailboxs = [item.strip() for item in os.environ.get(
-            "MM_CHANNEL_IDS", os.environ.get("MM_CHANNEL_ID", ""),
+        configured_mailboxes = list(self.connector.get("mailbox_ids") or [])
+        legacy_mailboxes = [item.strip() for item in os.environ.get(
+            "MM_MAILBOX_IDS", os.environ.get("MM_MAILBOX_ID", ""),
         ).split(",") if item.strip()]
-        mailboxs = configured_mailboxs or legacy_mailboxs
-        self.default_mailbox = mailboxs[0] if mailboxs else ""
+        mailboxes = configured_mailboxes or legacy_mailboxes
+        self.default_mailbox = mailboxes[0] if mailboxes else ""
         missing = [name for name, value in (
             ("connectors[].base_url (or MM_URL)", self.base_url),
             (f"environment variable {token_env}", self.token),
-            ("connectors[].mailbox_ids (or MM_CHANNEL_ID)", self.default_mailbox),
+            ("connectors[].mailbox_ids (or MM_MAILBOX_ID)", self.default_mailbox),
         ) if not value]
         enabled = os.environ.get("MATTERMOST_RELAY_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
         self.status["enabled"] = enabled and not missing
@@ -90,13 +90,13 @@ class MattermostRelay:
         self.status["running"] = False
         self.status["connected"] = False
 
-    def _mailboxs(self) -> list[str]:
+    def _mailboxes(self) -> list[str]:
         configured_connectors = connectors_for("mattermost", direction="inbound")
-        configured_mailboxs = [
+        configured_mailboxes = [
             mailbox_id for connector in configured_connectors for mailbox_id in connector["mailbox_ids"]
         ]
-        if configured_mailboxs:
-            return list(dict.fromkeys(configured_mailboxs))
+        if configured_mailboxes:
+            return list(dict.fromkeys(configured_mailboxes))
         return [self.default_mailbox] if self.default_mailbox else []
 
     def _inbound_recipients(self, mailbox_id: str) -> list[str]:
@@ -104,7 +104,7 @@ class MattermostRelay:
             recipient
             for connector in connectors_for("mattermost", direction="inbound")
             if mailbox_id in connector["mailbox_ids"] or (
-                connector.get("include_direct_messages") and mailbox_id not in self._mailboxs()
+                connector.get("include_direct_messages") and mailbox_id not in self._mailboxes()
             )
             for recipient in [connector.get("bridge_agent"), *connector.get("mailbox_recipients", [])]
             if recipient
@@ -137,7 +137,7 @@ class MattermostRelay:
             return self._mailbox_metadata[mailbox_id]
         identity: dict[str, str] = {}
         try:
-            response = self.session.get(f"{self.base_url}/api/v4/mailboxs/{mailbox_id}", timeout=15)
+            response = self.session.get(f"{self.base_url}/api/v4/mailboxes/{mailbox_id}", timeout=15)
             response.raise_for_status()
             mailbox = response.json()
             if isinstance(mailbox, dict) and mailbox.get("id") == mailbox_id:
@@ -180,7 +180,7 @@ class MattermostRelay:
             urlsplit(self.base_url).hostname or "mattermost").lower()
         direct_subscribers = (list(dict.fromkeys([
             *subscribers(author_id),
-        ])) if mailbox_id not in self._mailboxs() else [])
+        ])) if mailbox_id not in self._mailboxes() else [])
         return list(dict.fromkeys([*self._inbound_recipients(mailbox_id), *direct_subscribers]))
 
     def _connect(self) -> None:
@@ -189,22 +189,22 @@ class MattermostRelay:
         response = self.session.get(f"{base_url}/api/v4/users/me", timeout=15)
         response.raise_for_status()
         self._bot_user_id = str(response.json()["id"])
-        mailboxs = self._mailboxs()
+        mailboxes = self._mailboxes()
         now_ms = int(time.time() * 1000)
-        self._latest_create_at = {mailbox_id: now_ms for mailbox_id in mailboxs}
-        self.status.update({"connected": True, "mailboxs": mailboxs, "lastError": None})
+        self._latest_create_at = {mailbox_id: now_ms for mailbox_id in mailboxes}
+        self.status.update({"connected": True, "mailboxes": mailboxes, "lastError": None})
 
-    def _refresh_direct_mailboxs(self, base_url: str) -> None:
+    def _refresh_direct_mailboxes(self, base_url: str) -> None:
         if time.time() < self._next_dm_refresh:
             return
-        response = self.session.get(f"{base_url}/api/v4/users/{self._bot_user_id}/mailboxs", timeout=15)
+        response = self.session.get(f"{base_url}/api/v4/users/{self._bot_user_id}/mailboxes", timeout=15)
         response.raise_for_status()
         direct = [str(item["id"]) for item in response.json() if item.get("type") == "D" and item.get("id")]
         now_ms = int(time.time() * 1000)
-        mailboxs = list(dict.fromkeys([*self._mailboxs(), *direct]))
-        for mailbox_id in mailboxs:
+        mailboxes = list(dict.fromkeys([*self._mailboxes(), *direct]))
+        for mailbox_id in mailboxes:
             self._latest_create_at.setdefault(mailbox_id, now_ms)
-        self.status["mailboxs"] = mailboxs
+        self.status["mailboxes"] = mailboxes
         self._next_dm_refresh = time.time() + 30
 
     def _download_attachments(self, base_url: str, post: dict[str, Any]) -> list[dict[str, Any]]:
@@ -235,9 +235,9 @@ class MattermostRelay:
 
     def _poll_inbound(self, base_url: str) -> None:
         mailbox = _mailbox_module()
-        for mailbox_id in self.status["mailboxs"]:
+        for mailbox_id in self.status["mailboxes"]:
             response = self.session.get(
-                f"{base_url}/api/v4/mailboxs/{mailbox_id}/posts",
+                f"{base_url}/api/v4/mailboxes/{mailbox_id}/posts",
                 params={"page": 0, "per_page": 200, "since": self._latest_create_at.get(mailbox_id, 0)},
                 timeout=15,
             )
@@ -344,7 +344,7 @@ class MattermostRelay:
         if not self._bot_user_id:
             self._connect()
         base_url = self.base_url
-        self._refresh_direct_mailboxs(base_url)
+        self._refresh_direct_mailboxes(base_url)
         self._poll_inbound(base_url)
         self._send_outbound(base_url)
         self.status.update({"connected": True, "lastCycleAt": time.time(), "lastError": None})
@@ -444,15 +444,15 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("ping", help="verify the authenticated Mattermost connection")
     commands.add_parser("teams", help="list teams visible to the bot")
     listing = commands.add_parser(
-        "list", help="discover a team's public mailboxs, or --bot for the bot's own memberships")
+        "list", help="discover a team's public mailboxes, or --bot for the bot's own memberships")
     listing.add_argument("--team", help="limit results to one team ID")
     listing.add_argument(
         "--bot", nargs="?", const="", metavar="BOTNICK",
-        help="list mailboxs the bot (or BOTNICK) has joined, like the older listing")
+        help="list mailboxes the bot (or BOTNICK) has joined, like the older listing")
     listing.add_argument("--page", type=int, default=None,
                          help="discovery start page (default 0; discovery pages to the end)")
     listing.add_argument("--per-page", "--per_page", dest="per_page", type=int, default=None,
-                         help="mailboxs per discovery page (default 100)")
+                         help="mailboxes per discovery page (default 100)")
     names = commands.add_parser("names", help="list users in a mailbox")
     names.add_argument("mailbox")
     threads = commands.add_parser("threads", help="list the bot's threads in a team")
@@ -472,8 +472,8 @@ def parser() -> argparse.ArgumentParser:
         "mode", help="read/set public/private visibility or mailbox operator (+o/-o)",
         description=("Read mailbox details; change public/private visibility; or map IRC-style "
                      "+o/-o to Mattermost mailbox-admin membership."),
-        epilog=("Examples: mailbox-client mode mm/0/CHANNEL public; "
-                "mailbox-client mode mm/0/CHANNEL +o USER"),
+        epilog=("Examples: mailbox-client mode mm/0/MAILBOX public; "
+                "mailbox-client mode mm/0/MAILBOX +o USER"),
     )
     mode.add_argument("mailbox", help="mailbox ID, discovered name, or mm/INSTANCE/ID address")
     mode.add_argument("setting", nargs="?", help="public, private, +o, or -o; omit to inspect")
@@ -491,7 +491,7 @@ def parser() -> argparse.ArgumentParser:
         "notice", help="post a tagged notice or an ephemeral user-only notice",
         description=("Post a mailbox-tagged mailbox message. With --user, use Mattermost's "
                      "ephemeral-post API so only that user sees it."),
-        epilog="Example: mailbox-client notice mm/0/CHANNEL --user USER 'Maintenance soon'",
+        epilog="Example: mailbox-client notice mm/0/MAILBOX --user USER 'Maintenance soon'",
     )
     notice.add_argument("target", help="mailbox ID, discovered name, or mm/INSTANCE/ID address")
     notice.add_argument("text", nargs="?", help="notice text; alternatively use --input FILE")
@@ -528,11 +528,11 @@ def _id(value: str, *, directory: IdentifierDirectory | None = None,
     if parsed_url.scheme in {"http", "https"} and parsed_url.hostname:
         parts = [unquote(item) for item in parsed_url.path.split("/") if item]
         try:
-            mailbox_index = parts.index("mailboxs")
+            mailbox_index = parts.index("mailboxes")
             value = parts[mailbox_index + 1]
         except (ValueError, IndexError) as error:
             raise ValueError(
-                "Mattermost URLs must contain /mailboxs/CHANNEL_NAME"
+                "Mattermost URLs must contain /mailboxes/MAILBOX_NAME"
             ) from error
         active_host = _instance(base_url)
         if active_host != "mattermost" and parsed_url.hostname.lower() != active_host:
@@ -692,10 +692,10 @@ def _user_id(session: requests.Session, base_url: str, value: str,
 def _direct_mailbox_id(session: requests.Session, base_url: str, me_id: str, user_id: str) -> str:
     """Get-or-create the direct-message mailbox between the bot and a user.
 
-    In Mattermost a DM is itself a mailbox (type ``"D"``); POST /mailboxs/direct is
+    In Mattermost a DM is itself a mailbox (type ``"D"``); POST /mailboxes/direct is
     idempotent and returns the existing DM mailbox when one already exists.
     """
-    mailbox = _request(session, base_url, "POST", "/api/v4/mailboxs/direct", [me_id, user_id])
+    mailbox = _request(session, base_url, "POST", "/api/v4/mailboxes/direct", [me_id, user_id])
     return str(mailbox["id"])
 
 
@@ -726,12 +726,12 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
             team = _id(team, directory=directory, base_url=base_url, kind="team")
         bot = arguments.get("bot")
         if bot is not None:
-            # Older behaviour: only the mailboxs the bot (or a named user) has joined.
+            # Older behaviour: only the mailboxes the bot (or a named user) has joined.
             nick = str(bot or "")
             user_id = _user_id(session, base_url, nick, directory) if nick else me_id
-            path = (f"/api/v4/users/{user_id}/teams/{team}/mailboxs" if team else
-                    f"/api/v4/users/{user_id}/mailboxs")
-            mailboxs = _request(session, base_url, "GET", path)
+            path = (f"/api/v4/users/{user_id}/teams/{team}/mailboxes" if team else
+                    f"/api/v4/users/{user_id}/mailboxes")
+            mailboxes = _request(session, base_url, "GET", path)
         else:
             # Discover every public mailbox each team exposes. The list API is
             # page/per_page only and the list can shift while we read it, so we
@@ -745,7 +745,7 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                 str(item["id"]) for item in _request(
                     session, base_url, "GET", f"/api/v4/users/{me_id}/teams")
             ]
-            mailboxs = []
+            mailboxes = []
             seen_ids: set[str] = set()
             for team_id in team_ids:
                 page = start_page
@@ -753,14 +753,14 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                 while empty_pages <= empty_page_margin:
                     query = urlencode({"page": page, "per_page": per_page})
                     batch = _request(session, base_url, "GET",
-                                     f"/api/v4/teams/{team_id}/mailboxs?{query}")
+                                     f"/api/v4/teams/{team_id}/mailboxes?{query}")
                     if isinstance(batch, list) and batch:
                         empty_pages = 0
                         for item in batch:
                             mailbox_id = str(item.get("id") or "")
                             if mailbox_id and mailbox_id not in seen_ids:
                                 seen_ids.add(mailbox_id)
-                                mailboxs.append(item)
+                                mailboxes.append(item)
                     else:
                         empty_pages += 1
                     page += 1
@@ -768,7 +768,7 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                         break
         return [_remember(directory, base_url, item, kind=(
             "dm" if item.get("type") == "D" else "group" if item.get("type") == "G" else "mailbox"
-        )) for item in mailboxs]
+        )) for item in mailboxes]
     if command == "names":
         mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
         return _remember_many(directory, base_url, _request(session, base_url, "GET",
@@ -785,18 +785,18 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
         user_id = (me_id if command == "join" else
                    _user_id(session, base_url, str(arguments["user"]), directory))
         mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
-        return _request(session, base_url, "POST", f"/api/v4/mailboxs/{mailbox}/members",
+        return _request(session, base_url, "POST", f"/api/v4/mailboxes/{mailbox}/members",
                         {"user_id": user_id})
     if command in {"part", "kick"}:
         user_id = (me_id if command == "part" else
                    _user_id(session, base_url, str(arguments["user"]), directory))
         mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
-        return _request(session, base_url, "DELETE", f"/api/v4/mailboxs/{mailbox}/members/{user_id}")
+        return _request(session, base_url, "DELETE", f"/api/v4/mailboxes/{mailbox}/members/{user_id}")
     if command == "topic":
         mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
         if arguments.get("text") is None:
-            return _request(session, base_url, "GET", f"/api/v4/mailboxs/{mailbox}")
-        return _request(session, base_url, "PUT", f"/api/v4/mailboxs/{mailbox}/patch",
+            return _request(session, base_url, "GET", f"/api/v4/mailboxes/{mailbox}")
+        return _request(session, base_url, "PUT", f"/api/v4/mailboxes/{mailbox}/patch",
                         {"header": arguments["text"]})
     if command == "nick":
         return _request(session, base_url, "PUT", f"/api/v4/users/{me_id}/patch",
@@ -810,9 +810,9 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
         mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
         setting = str(arguments.get("setting") or "").lower()
         if not setting:
-            return _request(session, base_url, "GET", f"/api/v4/mailboxs/{mailbox}")
+            return _request(session, base_url, "GET", f"/api/v4/mailboxes/{mailbox}")
         if setting in {"public", "private"}:
-            return _request(session, base_url, "PUT", f"/api/v4/mailboxs/{mailbox}/patch",
+            return _request(session, base_url, "PUT", f"/api/v4/mailboxes/{mailbox}/patch",
                             {"type": "O" if setting == "public" else "P"})
         if setting in {"+o", "-o"}:
             if not arguments.get("user"):
@@ -820,7 +820,7 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
             user_id = _user_id(session, base_url, str(arguments["user"]), directory)
             roles = "mailbox_user mailbox_admin" if setting == "+o" else "mailbox_user"
             return _request(session, base_url, "PUT",
-                            f"/api/v4/mailboxs/{mailbox}/members/{user_id}/roles",
+                            f"/api/v4/mailboxes/{mailbox}/members/{user_id}/roles",
                             {"roles": roles})
         raise ValueError("Mattermost mode supports public, private, +o, and -o")
     if command in {"message", "notice"}:

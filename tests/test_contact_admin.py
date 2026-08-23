@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from mailbox_mailboxs.contact_admin import load_contacts, main
-from mailbox_mailboxs.identifier_directory import IdentifierDirectory
+from mailbox_chat.contact_admin import load_contacts, main
+from mailbox_chat.identifier_directory import IdentifierDirectory
 
 
 def test_loads_csv_json_and_vcard_contacts(tmp_path: Path) -> None:

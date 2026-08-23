@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_mailboxs import agent_mailbox
-from mailbox_mailboxs.attachment_storage import MAX_FILE_ENV, MAX_STORAGE_ENV
+from mailbox_chat import agent_mailbox
+from mailbox_chat.attachment_storage import MAX_FILE_ENV, MAX_STORAGE_ENV
 
 
 def test_rejects_attachment_larger_than_per_file_limit(tmp_path: Path, monkeypatch) -> None:

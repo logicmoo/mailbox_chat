@@ -1,5 +1,5 @@
-from mailbox_mailboxs.identifier_directory import IdentifierDirectory
-from mailbox_mailboxs.registry_admin import main
+from mailbox_chat.identifier_directory import IdentifierDirectory
+from mailbox_chat.registry_admin import main
 import pytest
 
 

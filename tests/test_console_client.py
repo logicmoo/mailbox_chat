@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from mailbox_mailboxs import agent_mailbox, console_client
-from mailbox_mailboxs.console_client import (
+from mailbox_chat import agent_mailbox, console_client
+from mailbox_chat.console_client import (
     CLIENT_NAME,
     display_event,
     parser,
@@ -115,7 +115,7 @@ def test_console_on_qualified_address_changes_conversation(monkeypatch, tmp_path
 
 
 def test_console_client_reports_unavailable_service(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("mailbox_mailboxs.console_client.websocket.create_connection", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr("mailbox_chat.console_client.websocket.create_connection", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
     assert run("console-one", "agent-two", "ws://127.0.0.1:1/v1/chat/ws") == 2
     assert "Mailbox Console service unavailable" in capsys.readouterr().err
 
@@ -197,7 +197,7 @@ def test_console_can_emulate_external_mailbox_presence(monkeypatch, tmp_path) ->
 
     assert run("agent-one", "unused", "unused", directory=tmp_path) == 0
     assert "irc-0-agents" in __import__(
-        "mailbox_mailboxs.subscriptions", fromlist=["subscriptions"],
+        "mailbox_chat.subscriptions", fromlist=["subscriptions"],
     ).subscriptions("agent-one", tmp_path)
     relayed = agent_mailbox.receive("server_outbound_relay_agent_to_mailbox", root=tmp_path)[0]
     assert relayed["from"] == "agent-one"
@@ -217,7 +217,7 @@ def test_temporary_console_switch_unsubscribes_previous_view(monkeypatch, tmp_pa
     monkeypatch.setattr("builtins.input", lambda _prompt: next(entries))
     assert run("agent-one", "unused", "unused", directory=tmp_path) == 0
     subscriptions = __import__(
-        "mailbox_mailboxs.subscriptions", fromlist=["subscriptions"],
+        "mailbox_chat.subscriptions", fromlist=["subscriptions"],
     ).subscriptions("agent-one", tmp_path)
     assert "irc-0-one" not in subscriptions
     assert "irc-0-two" in subscriptions

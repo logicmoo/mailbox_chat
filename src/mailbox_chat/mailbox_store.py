@@ -3,7 +3,7 @@
 Every durable record lives in ``<root>/<mailbox_id>.json``. Two shapes share
 one container format (``kind: "mailbox"``):
 
-* message mailboxs: ``{id, kind, sub_kind, count, messages: {entry_N: {...}}}``
+* message mailboxes: ``{id, kind, sub_kind, count, messages: {entry_N: {...}}}``
 * id-keyed registries (``sub_kind: "ordered_id_mailbox"``):
   ``{id, kind, sub_kind, count, ordinal: {entry_N: id}, entries: {id: {...}}}``
 
@@ -26,13 +26,13 @@ from pathlib import Path
 from typing import Any, Iterator
 
 AGENTS_REGISTRY = "server_registry_agents"
-CHANNELS_REGISTRY = "server_registry_mailboxs"
+MAILBOXES_REGISTRY = "server_registry_mailboxes"
 CONNECTORS_REGISTRY = "server_registry_connectors"
 IDENTIFIERS_REGISTRY = "server_registry_identifiers"
 RELAYS_REGISTRY = "server_registry_relays"
 MAILBOXES_REGISTRY = "server_registry_mailboxes"
 
-_SAFE_CHANNEL = re.compile(r"[^A-Za-z0-9_.-]")
+_SAFE_MAILBOX = re.compile(r"[^A-Za-z0-9_.-]")
 _ENTRY_KEY = re.compile(r"^entry_(\d+)$")
 
 STORE_LOCK = threading.RLock()
@@ -50,7 +50,7 @@ def entry_index(entry_key: str) -> int:
 
 
 def mailbox_path(root: Path, mailbox_id: str) -> Path:
-    clean = _SAFE_CHANNEL.sub("_", str(mailbox_id).strip())
+    clean = _SAFE_MAILBOX.sub("_", str(mailbox_id).strip())
     if not clean:
         raise ValueError("mailbox id is required")
     return root / f"{clean}.json"
@@ -254,7 +254,7 @@ def set_cursor(root: Path, owner: str, mailbox_id: str, next_index: int) -> dict
 
 
 def delete_cursors(root: Path, *, owners: set[str] | None = None,
-                   mailboxs: set[str] | None = None) -> int:
+                   mailboxes: set[str] | None = None) -> int:
     """Drop cursor state by owner and/or mailbox; returns removed cursor count."""
     removed = 0
     with STORE_LOCK:
@@ -266,9 +266,9 @@ def delete_cursors(root: Path, *, owners: set[str] | None = None,
                 removed += len(record["cursors"])
                 record["cursors"] = {}
                 continue
-            if mailboxs:
+            if mailboxes:
                 kept = {key: value for key, value in record["cursors"].items()
-                        if key not in mailboxs}
+                        if key not in mailboxes}
                 removed += len(record["cursors"]) - len(kept)
                 record["cursors"] = kept
         save_mailbox(root, document)

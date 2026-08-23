@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-INSTRUCTIONS = (Path(__file__).parents[1] / "src" / "mailbox_mailboxs" /
+INSTRUCTIONS = (Path(__file__).parents[1] / "src" / "mailbox_chat" /
                 "resources" / "REFERENCE.md")
 RESOURCES = INSTRUCTIONS.parents[0]
 REPO_ROOT = INSTRUCTIONS.parents[3]
@@ -56,8 +56,8 @@ def test_repository_docs_do_not_invoke_removed_python_entrypoints() -> None:
     assert "python server.py" not in combined
     assert "python agent_mailbox.py" not in instructions
     assert "\\agent_mailbox.py" not in instructions
-    assert "mailbox_mailboxs.token_admin" not in readme
-    assert "mailbox_mailboxs.console_client" not in instructions
+    assert "mailbox_chat.token_admin" not in readme
+    assert "mailbox_chat.console_client" not in instructions
 
 
 def test_standalone_client_docs_avoid_cross_wsl_direct_store() -> None:

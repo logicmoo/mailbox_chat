@@ -1,4 +1,4 @@
-from mailbox_mailboxs.server import build_parser, run_relay_supervisor, runtime_paths
+from mailbox_chat.server import build_parser, run_relay_supervisor, runtime_paths
 
 
 class FlakyRelay:
@@ -29,7 +29,7 @@ class FlakyRelay:
 def test_supervisor_recovers_from_configuration_and_adapter_exceptions(monkeypatch) -> None:
     relay = FlakyRelay()
     delays = []
-    monkeypatch.setattr("mailbox_mailboxs.server._safe_write_status", lambda _relay: None)
+    monkeypatch.setattr("mailbox_chat.server._safe_write_status", lambda _relay: None)
     run_relay_supervisor(relay, sleep=delays.append)
     assert relay.configure_calls == 3
     assert relay.cycle_calls == 2

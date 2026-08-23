@@ -4,4 +4,4 @@ relay_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 relay_python=python3
 if [ -x "$relay_root/.venv/bin/python" ]; then relay_python="$relay_root/.venv/bin/python"; fi
 export PYTHONPATH="$relay_root/src${PYTHONPATH:+:$PYTHONPATH}"
-exec "$relay_python" -m mailbox_mailboxs.server "$@"
+exec "$relay_python" -m mailbox_chat.server "$@"

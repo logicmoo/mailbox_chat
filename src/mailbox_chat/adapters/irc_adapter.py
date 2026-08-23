@@ -32,7 +32,7 @@ class IrcAdapter:
             "enabled": False,
             "connected": False,
             "lastError": None,
-            "mailboxs": [],
+            "mailboxes": [],
         }
 
     def configure(self, connector: dict[str, Any] | None = None) -> bool:
@@ -41,7 +41,7 @@ class IrcAdapter:
             connector = configured[0] if configured else None
         self.connector = connector
         self.status["enabled"] = self.connector is not None
-        self.status["mailboxs"] = list(self.connector.get("mailbox_ids", [])) if self.connector else []
+        self.status["mailboxes"] = list(self.connector.get("mailbox_ids", [])) if self.connector else []
         if self.connector is not None:
             self.status["connector_id"] = self.connector_id
             self.status["instance"] = self.irc_instance
@@ -96,7 +96,7 @@ class IrcAdapter:
             raise ConnectionError("IRC adapter is not connected")
         self.connection.sendall((line.replace("\r", " ").replace("\n", " ") + "\r\n").encode("utf-8"))
 
-    def _join_mailboxs(self) -> None:
+    def _join_mailboxes(self) -> None:
         if self.joined or not self.connector:
             return
         for mailbox in self.connector.get("mailbox_ids", []):
@@ -130,7 +130,7 @@ class IrcAdapter:
             self._write("PONG " + line[5:])
             return
         if " 001 " in line:
-            self._join_mailboxs()
+            self._join_mailboxes()
             return
         if " PRIVMSG " not in line or not line.startswith(":"):
             if " NOTICE " in line or line.startswith("ERROR ") or (
@@ -203,15 +203,15 @@ class IrcAdapter:
         for line in [*(text.splitlines() or [""]), *attachment_lines]:
             self._write(f"PRIVMSG {target} :{line}")
 
-    def list_mailboxs(self, *, timeout: float = 30.0) -> list[dict[str, Any]]:
-        """Use IRC LIST (322/323) to discover visible public mailboxs."""
+    def list_mailboxes(self, *, timeout: float = 30.0) -> list[dict[str, Any]]:
+        """Use IRC LIST (322/323) to discover visible public mailboxes."""
         if not self.status["enabled"]:
             raise RuntimeError("IRC adapter is not enabled")
         if not self.connection:
             self.connect()
         deadline = time.monotonic() + timeout
         requested = False
-        mailboxs: list[dict[str, Any]] = []
+        mailboxes: list[dict[str, Any]] = []
         buffer = ""
         while time.monotonic() < deadline:
             try:
@@ -232,14 +232,14 @@ class IrcAdapter:
                 if " 322 " in line:
                     fields = line.split(" ", 5)
                     if len(fields) >= 6:
-                        mailboxs.append({
+                        mailboxes.append({
                             "identifier": fields[3],
                             "text": fields[5].removeprefix(":"),
                             "kind": "mailbox",
                             "metadata": {"visible_users": int(fields[4])},
                         })
                 if " 323 " in line:
-                    return mailboxs
+                    return mailboxes
         raise TimeoutError("IRC LIST did not complete before the timeout")
 
     def list_mailbox_users(self, mailbox: str, *, timeout: float = 15.0) -> list[dict[str, Any]]:

@@ -5,20 +5,20 @@ import pytest
 
 from conftest import seed_store
 
-from mailbox_mailboxs import mailbox_store
-from mailbox_mailboxs.connector_registry import (
+from mailbox_chat import mailbox_store
+from mailbox_chat.connector_registry import (
     agent_for_presence, config_dir, load_agents, load_connectors, register_agent,
     unregister_agent,
 )
-from mailbox_mailboxs.agent_mailbox import peek
+from mailbox_chat.agent_mailbox import peek
 
 
 def test_connector_registry_expands_environment_mailbox_lists(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("TEST_CHANNELS", "one,two")
+    monkeypatch.setenv("TEST_MAILBOXES", "one,two")
     seed_store(tmp_path, connectors=[{
         "id": "test",
         "adapter": "mattermost",
-        "mailbox_ids": ["$TEST_CHANNELS"],
+        "mailbox_ids": ["$TEST_MAILBOXES"],
         "mailbox_recipients": ["alpha", "alpha", "beta"],
     }])
     connector = load_connectors(tmp_path)[0]

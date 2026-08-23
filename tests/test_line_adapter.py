@@ -4,7 +4,7 @@ import hmac
 import json
 from pathlib import Path
 
-from mailbox_mailboxs.adapters.line_adapter import LineAdapter
+from mailbox_chat.adapters.line_adapter import LineAdapter
 
 
 class Response:
@@ -50,9 +50,9 @@ class Mailbox:
 def test_line_signed_group_webhook_and_push(monkeypatch, tmp_path: Path) -> None:
     connector = {"id": "line-one", "direction": "bidirectional", "mailbox_ids": ["group-1"],
                 "bridge_agent": "line-agent", "mailbox_recipients": ["worker"]}
-    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "access")
-    monkeypatch.setenv("LINE_CHANNEL_SECRET", "secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.line_adapter.connectors_for",
+    monkeypatch.setenv("LINE_MAILBOX_ACCESS_TOKEN", "access")
+    monkeypatch.setenv("LINE_MAILBOX_SECRET", "secret")
+    monkeypatch.setattr("mailbox_chat.adapters.line_adapter.connectors_for",
                         lambda adapter: [connector])
     session = Session()
     adapter = LineAdapter(session=session)
@@ -83,9 +83,9 @@ def test_line_signed_group_webhook_and_push(monkeypatch, tmp_path: Path) -> None
 def test_line_downloads_inbound_content_through_quota_storage(monkeypatch, tmp_path: Path) -> None:
     connector = {"id": "line-one", "direction": "inbound", "mailbox_ids": ["room-1"],
                 "mailbox_recipients": ["worker"]}
-    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "access")
-    monkeypatch.setenv("LINE_CHANNEL_SECRET", "secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.line_adapter.connectors_for",
+    monkeypatch.setenv("LINE_MAILBOX_ACCESS_TOKEN", "access")
+    monkeypatch.setenv("LINE_MAILBOX_SECRET", "secret")
+    monkeypatch.setattr("mailbox_chat.adapters.line_adapter.connectors_for",
                         lambda adapter: [connector])
     adapter = LineAdapter(session=Session())
     mailbox = Mailbox(tmp_path)

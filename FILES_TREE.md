@@ -24,7 +24,7 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 
 - [`config/.env.example`](config/.env.example) - Non-secret template listing supported environment settings and credentials.
 - [`config/mailboxes.json`](config/mailboxes.json) - Named mailbox transport and location profiles.
-- [`config/relays.json`](config/relays.json) - Durable listeners, routes, qualified mailboxs, and saved subscriptions.
+- [`config/relays.json`](config/relays.json) - Durable listeners, routes, qualified mailboxes, and saved subscriptions.
 
 ## Documentation
 
@@ -38,53 +38,53 @@ Generated and runtime files are indexed in the collapsed appendix below. Only `.
 
 ## Python package
 
-- [`src/mailbox_mailboxs/__init__.py`](src/mailbox_mailboxs/__init__.py) - Package marker and package-level metadata.
-- [`src/mailbox_mailboxs/agent_mailbox.py`](src/mailbox_mailboxs/agent_mailbox.py) - Standalone-capable mailbox-client implementation for JSONL and REST transports.
-- [`src/mailbox_mailboxs/server.py`](src/mailbox_mailboxs/server.py) - HTTP/WebSocket server, REST API, webhook endpoints, status pages, and relay supervisor.
-- [`src/mailbox_mailboxs/mailbox_relay.py`](src/mailbox_mailboxs/mailbox_relay.py) - Adapter orchestration, outbound dispatch, status events, retries, and mailbox fan-out.
-- [`src/mailbox_mailboxs/mailbox_routes.py`](src/mailbox_mailboxs/mailbox_routes.py) - Runtime dispatch of configured mailbox-to-mailbox routes.
-- [`src/mailbox_mailboxs/listener_registry.py`](src/mailbox_mailboxs/listener_registry.py) - Loading, expansion, validation, and safe publication of listener/route configuration.
-- [`src/mailbox_mailboxs/subscriptions.py`](src/mailbox_mailboxs/subscriptions.py) - Durable qualified-address subscriptions and atomic subscriber updates.
-- [`src/mailbox_mailboxs/mailbox_admin.py`](src/mailbox_mailboxs/mailbox_admin.py) - Unified local and external platform mailbox creation.
-- [`src/mailbox_mailboxs/chat_admin.py`](src/mailbox_mailboxs/chat_admin.py) - Platform-neutral chat command parsing, address inference, and adapter dispatch.
-- [`src/mailbox_mailboxs/admin_io.py`](src/mailbox_mailboxs/admin_io.py) - Shared `--input`, `--input-format`, and output formatting for platform commands.
-- [`src/mailbox_mailboxs/adapters/`](src/mailbox_mailboxs/adapters/) - External chat-platform transport implementations.
-- [`src/mailbox_mailboxs/endpoint_address.py`](src/mailbox_mailboxs/endpoint_address.py) - Parsing and canonicalization of `TYPE/INSTANCE/SOURCE_OR_DESTINATION` addresses.
-- [`src/mailbox_mailboxs/delivery_ledger.py`](src/mailbox_mailboxs/delivery_ledger.py) - SQLite origin/endpoint traversal ledger for durable loop and duplicate suppression.
-- [`src/mailbox_mailboxs/identifier_directory.py`](src/mailbox_mailboxs/identifier_directory.py) - Persistent system-scoped UUID, contact, name, and resolution-request directory.
-- [`src/mailbox_mailboxs/registry_admin.py`](src/mailbox_mailboxs/registry_admin.py) - CLI management for UUID/identifier mappings and resolution requests.
-- [`src/mailbox_mailboxs/discovery_admin.py`](src/mailbox_mailboxs/discovery_admin.py) - Platform resource discovery, beginning with native IRC mailbox listing.
-- [`src/mailbox_mailboxs/attachment_storage.py`](src/mailbox_mailboxs/attachment_storage.py) - Managed attachment writes and per-file/aggregate storage quota enforcement.
-- [`src/mailbox_mailboxs/attachment_gateway.py`](src/mailbox_mailboxs/attachment_gateway.py) - Safe public attachment URL generation and path-boundary enforcement.
-- [`src/mailbox_mailboxs/sqlite_limits.py`](src/mailbox_mailboxs/sqlite_limits.py) - SQLite size-limit configuration shared by durable databases.
-- [`src/mailbox_mailboxs/websocket_chat.py`](src/mailbox_mailboxs/websocket_chat.py) - WebSocket framing, session handling, message receive/send, and ping support.
-- [`src/mailbox_mailboxs/console_client.py`](src/mailbox_mailboxs/console_client.py) - Trusted Speaker interactive WebSocket or local-JSONL client.
-- [`src/mailbox_mailboxs/token_admin.py`](src/mailbox_mailboxs/token_admin.py) - Secure relay-token generation, registration, rotation, and status inspection.
-- [`src/mailbox_mailboxs/contact_admin.py`](src/mailbox_mailboxs/contact_admin.py) - Contact import/list CLI backed by the identifier directory.
-- [`src/mailbox_mailboxs/route_admin.py`](src/mailbox_mailboxs/route_admin.py) - Local and REST route list/attach/detach CLI.
-- [`src/mailbox_mailboxs/runtime_admin.py`](src/mailbox_mailboxs/runtime_admin.py) - Trusted in-chat `!relay` route-management command handling.
-- [`src/mailbox_mailboxs/meta_webhooks.py`](src/mailbox_mailboxs/meta_webhooks.py) - Shared Meta webhook verification and signature checking.
+- [`src/mailbox_chat/__init__.py`](src/mailbox_chat/__init__.py) - Package marker and package-level metadata.
+- [`src/mailbox_chat/agent_mailbox.py`](src/mailbox_chat/agent_mailbox.py) - Standalone-capable mailbox-client implementation for JSONL and REST transports.
+- [`src/mailbox_chat/server.py`](src/mailbox_chat/server.py) - HTTP/WebSocket server, REST API, webhook endpoints, status pages, and relay supervisor.
+- [`src/mailbox_chat/mailbox_relay.py`](src/mailbox_chat/mailbox_relay.py) - Adapter orchestration, outbound dispatch, status events, retries, and mailbox fan-out.
+- [`src/mailbox_chat/mailbox_routes.py`](src/mailbox_chat/mailbox_routes.py) - Runtime dispatch of configured mailbox-to-mailbox routes.
+- [`src/mailbox_chat/listener_registry.py`](src/mailbox_chat/listener_registry.py) - Loading, expansion, validation, and safe publication of listener/route configuration.
+- [`src/mailbox_chat/subscriptions.py`](src/mailbox_chat/subscriptions.py) - Durable qualified-address subscriptions and atomic subscriber updates.
+- [`src/mailbox_chat/mailbox_admin.py`](src/mailbox_chat/mailbox_admin.py) - Unified local and external platform mailbox creation.
+- [`src/mailbox_chat/chat_admin.py`](src/mailbox_chat/chat_admin.py) - Platform-neutral chat command parsing, address inference, and adapter dispatch.
+- [`src/mailbox_chat/admin_io.py`](src/mailbox_chat/admin_io.py) - Shared `--input`, `--input-format`, and output formatting for platform commands.
+- [`src/mailbox_chat/adapters/`](src/mailbox_chat/adapters/) - External chat-platform transport implementations.
+- [`src/mailbox_chat/endpoint_address.py`](src/mailbox_chat/endpoint_address.py) - Parsing and canonicalization of `TYPE/INSTANCE/SOURCE_OR_DESTINATION` addresses.
+- [`src/mailbox_chat/delivery_ledger.py`](src/mailbox_chat/delivery_ledger.py) - SQLite origin/endpoint traversal ledger for durable loop and duplicate suppression.
+- [`src/mailbox_chat/identifier_directory.py`](src/mailbox_chat/identifier_directory.py) - Persistent system-scoped UUID, contact, name, and resolution-request directory.
+- [`src/mailbox_chat/registry_admin.py`](src/mailbox_chat/registry_admin.py) - CLI management for UUID/identifier mappings and resolution requests.
+- [`src/mailbox_chat/discovery_admin.py`](src/mailbox_chat/discovery_admin.py) - Platform resource discovery, beginning with native IRC mailbox listing.
+- [`src/mailbox_chat/attachment_storage.py`](src/mailbox_chat/attachment_storage.py) - Managed attachment writes and per-file/aggregate storage quota enforcement.
+- [`src/mailbox_chat/attachment_gateway.py`](src/mailbox_chat/attachment_gateway.py) - Safe public attachment URL generation and path-boundary enforcement.
+- [`src/mailbox_chat/sqlite_limits.py`](src/mailbox_chat/sqlite_limits.py) - SQLite size-limit configuration shared by durable databases.
+- [`src/mailbox_chat/websocket_chat.py`](src/mailbox_chat/websocket_chat.py) - WebSocket framing, session handling, message receive/send, and ping support.
+- [`src/mailbox_chat/console_client.py`](src/mailbox_chat/console_client.py) - Trusted Speaker interactive WebSocket or local-JSONL client.
+- [`src/mailbox_chat/token_admin.py`](src/mailbox_chat/token_admin.py) - Secure relay-token generation, registration, rotation, and status inspection.
+- [`src/mailbox_chat/contact_admin.py`](src/mailbox_chat/contact_admin.py) - Contact import/list CLI backed by the identifier directory.
+- [`src/mailbox_chat/route_admin.py`](src/mailbox_chat/route_admin.py) - Local and REST route list/attach/detach CLI.
+- [`src/mailbox_chat/runtime_admin.py`](src/mailbox_chat/runtime_admin.py) - Trusted in-chat `!relay` route-management command handling.
+- [`src/mailbox_chat/meta_webhooks.py`](src/mailbox_chat/meta_webhooks.py) - Shared Meta webhook verification and signature checking.
 
 ### Platform adapters
 
-- [`src/mailbox_mailboxs/adapters/mattermost_adapter.py`](src/mailbox_mailboxs/adapters/mattermost_adapter.py) - Complete Mattermost transport, discovery, command mapping, registry resolution, membership, files, threads, and REST behavior.
-- [`src/mailbox_mailboxs/adapters/discord_adapter.py`](src/mailbox_mailboxs/adapters/discord_adapter.py) - Discord mailbox polling and outbound message/file delivery.
-- [`src/mailbox_mailboxs/adapters/slack_adapter.py`](src/mailbox_mailboxs/adapters/slack_adapter.py) - Slack Web API polling, threaded messages, files, and multiple listener presences.
-- [`src/mailbox_mailboxs/adapters/matrix_adapter.py`](src/mailbox_mailboxs/adapters/matrix_adapter.py) - Matrix Client-Server sync, room messages, threads, and media transfer.
-- [`src/mailbox_mailboxs/adapters/irc_adapter.py`](src/mailbox_mailboxs/adapters/irc_adapter.py) - Complete IRC/TLS transport, discovery, protocol commands, joins, messages, and attachment-link delivery.
-- [`src/mailbox_mailboxs/adapters/telegram_adapter.py`](src/mailbox_mailboxs/adapters/telegram_adapter.py) - Telegram Bot API polling, topics, chat-name resolution, text, and documents.
-- [`src/mailbox_mailboxs/adapters/whatsapp_adapter.py`](src/mailbox_mailboxs/adapters/whatsapp_adapter.py) - WhatsApp Business Cloud API webhooks, direct/group delivery, and media handling.
-- [`src/mailbox_mailboxs/adapters/whatsapp_personal_adapter.py`](src/mailbox_mailboxs/adapters/whatsapp_personal_adapter.py) - Signed integration with the local personal-WhatsApp companion.
-- [`src/mailbox_mailboxs/adapters/facebook_messenger_adapter.py`](src/mailbox_mailboxs/adapters/facebook_messenger_adapter.py) - Facebook Page Messenger webhooks, PSID resolution, text, and attachments.
-- [`src/mailbox_mailboxs/adapters/viber_adapter.py`](src/mailbox_mailboxs/adapters/viber_adapter.py) - Viber Bot API signed callbacks, user resolution, messages, and public file links.
-- [`src/mailbox_mailboxs/adapters/line_adapter.py`](src/mailbox_mailboxs/adapters/line_adapter.py) - LINE signed webhooks, user/group/room conversations, media downloads, and pushes.
-- [`src/mailbox_mailboxs/adapters/discourse_adapter.py`](src/mailbox_mailboxs/adapters/discourse_adapter.py) - Discourse signed post webhooks, topic creation, and replies.
+- [`src/mailbox_chat/adapters/mattermost_adapter.py`](src/mailbox_chat/adapters/mattermost_adapter.py) - Complete Mattermost transport, discovery, command mapping, registry resolution, membership, files, threads, and REST behavior.
+- [`src/mailbox_chat/adapters/discord_adapter.py`](src/mailbox_chat/adapters/discord_adapter.py) - Discord mailbox polling and outbound message/file delivery.
+- [`src/mailbox_chat/adapters/slack_adapter.py`](src/mailbox_chat/adapters/slack_adapter.py) - Slack Web API polling, threaded messages, files, and multiple listener presences.
+- [`src/mailbox_chat/adapters/matrix_adapter.py`](src/mailbox_chat/adapters/matrix_adapter.py) - Matrix Client-Server sync, room messages, threads, and media transfer.
+- [`src/mailbox_chat/adapters/irc_adapter.py`](src/mailbox_chat/adapters/irc_adapter.py) - Complete IRC/TLS transport, discovery, protocol commands, joins, messages, and attachment-link delivery.
+- [`src/mailbox_chat/adapters/telegram_adapter.py`](src/mailbox_chat/adapters/telegram_adapter.py) - Telegram Bot API polling, topics, chat-name resolution, text, and documents.
+- [`src/mailbox_chat/adapters/whatsapp_adapter.py`](src/mailbox_chat/adapters/whatsapp_adapter.py) - WhatsApp Business Cloud API webhooks, direct/group delivery, and media handling.
+- [`src/mailbox_chat/adapters/whatsapp_personal_adapter.py`](src/mailbox_chat/adapters/whatsapp_personal_adapter.py) - Signed integration with the local personal-WhatsApp companion.
+- [`src/mailbox_chat/adapters/facebook_messenger_adapter.py`](src/mailbox_chat/adapters/facebook_messenger_adapter.py) - Facebook Page Messenger webhooks, PSID resolution, text, and attachments.
+- [`src/mailbox_chat/adapters/viber_adapter.py`](src/mailbox_chat/adapters/viber_adapter.py) - Viber Bot API signed callbacks, user resolution, messages, and public file links.
+- [`src/mailbox_chat/adapters/line_adapter.py`](src/mailbox_chat/adapters/line_adapter.py) - LINE signed webhooks, user/group/room conversations, media downloads, and pushes.
+- [`src/mailbox_chat/adapters/discourse_adapter.py`](src/mailbox_chat/adapters/discourse_adapter.py) - Discourse signed post webhooks, topic creation, and replies.
 
 ### Served resources
 
-- [`src/mailbox_mailboxs/resources/INSTALL_WITH_CODEX.md`](src/mailbox_mailboxs/resources/INSTALL_WITH_CODEX.md) - Prompt for installing the standalone mailbox client into another Codex workspace.
-- [`src/mailbox_mailboxs/resources/AUTOMATION_PROMPT.md`](src/mailbox_mailboxs/resources/AUTOMATION_PROMPT.md) - Customizable recurring Codex mailbox-monitor prompt and manual verification instructions.
-- [`src/mailbox_mailboxs/resources/special_websocket_client.html`](src/mailbox_mailboxs/resources/special_websocket_client.html) - Browser demonstration and links to live relay resources.
+- [`src/mailbox_chat/resources/INSTALL_WITH_CODEX.md`](src/mailbox_chat/resources/INSTALL_WITH_CODEX.md) - Prompt for installing the standalone mailbox client into another Codex workspace.
+- [`src/mailbox_chat/resources/AUTOMATION_PROMPT.md`](src/mailbox_chat/resources/AUTOMATION_PROMPT.md) - Customizable recurring Codex mailbox-monitor prompt and manual verification instructions.
+- [`src/mailbox_chat/resources/special_websocket_client.html`](src/mailbox_chat/resources/special_websocket_client.html) - Browser demonstration and links to live relay resources.
 
 ## Tests
 
@@ -14541,26 +14541,26 @@ This appendix inventories every currently present non-Git generated or runtime f
 </details>
 
 <details>
-<summary><code>.pytest-local-mailboxs/</code> - 18 generated/runtime files</summary>
+<summary><code>.pytest-local-mailboxes/</code> - 18 generated/runtime files</summary>
 
-- [`.pytest-local-mailboxs/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor`](<.pytest-local-mailboxs/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_adapter_failure_names_ser0/messages.jsonl`](<.pytest-local-mailboxs/test_adapter_failure_names_ser0/messages.jsonl>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_adapter_state_is_always_p0/config/relays.json`](<.pytest-local-mailboxs/test_adapter_state_is_always_p0/config/relays.json>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_adapter_state_is_always_p0/cursors/76122831a69ce3fc.cursor`](<.pytest-local-mailboxs/test_adapter_state_is_always_p0/cursors/76122831a69ce3fc.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_adapter_state_is_always_p0/cursors/ec9c9f40f674d32c.cursor`](<.pytest-local-mailboxs/test_adapter_state_is_always_p0/cursors/ec9c9f40f674d32c.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_adapter_state_is_always_p0/messages.jsonl`](<.pytest-local-mailboxs/test_adapter_state_is_always_p0/messages.jsonl>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/89142779ac60d225.cursor`](<.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/89142779ac60d225.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/a868ee13a5f5aaaf.cursor`](<.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/a868ee13a5f5aaaf.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/ec9c9f40f674d32c.cursor`](<.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/ec9c9f40f674d32c.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/f13c1f00efa45f69.cursor`](<.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/cursors/f13c1f00efa45f69.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/messages.jsonl`](<.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/messages.jsonl>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/runtime/delivery-ledger.sqlite3`](<.pytest-local-mailboxs/test_agent_mailbox_post_fans_o0/runtime/delivery-ledger.sqlite3>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_local_mailbox_subscriptio0/config/relays.json`](<.pytest-local-mailboxs/test_local_mailbox_subscriptio0/config/relays.json>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_mailbox_client_manages_lo0/config/relays.json`](<.pytest-local-mailboxs/test_mailbox_client_manages_lo0/config/relays.json>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/cursors/89142779ac60d225.cursor`](<.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/cursors/89142779ac60d225.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/cursors/d9a01a13398198c2.cursor`](<.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/cursors/d9a01a13398198c2.cursor>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/messages.jsonl`](<.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/messages.jsonl>) - Generated pytest scratch artifact.
-- [`.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/runtime/delivery-ledger.sqlite3`](<.pytest-local-mailboxs/test_mattermost_adapter_uses_s0/runtime/delivery-ledger.sqlite3>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor`](<.pytest-local-mailboxes/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_adapter_failure_names_ser0/messages.jsonl`](<.pytest-local-mailboxes/test_adapter_failure_names_ser0/messages.jsonl>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_adapter_state_is_always_p0/config/relays.json`](<.pytest-local-mailboxes/test_adapter_state_is_always_p0/config/relays.json>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_adapter_state_is_always_p0/cursors/76122831a69ce3fc.cursor`](<.pytest-local-mailboxes/test_adapter_state_is_always_p0/cursors/76122831a69ce3fc.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_adapter_state_is_always_p0/cursors/ec9c9f40f674d32c.cursor`](<.pytest-local-mailboxes/test_adapter_state_is_always_p0/cursors/ec9c9f40f674d32c.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_adapter_state_is_always_p0/messages.jsonl`](<.pytest-local-mailboxes/test_adapter_state_is_always_p0/messages.jsonl>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/89142779ac60d225.cursor`](<.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/89142779ac60d225.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/a868ee13a5f5aaaf.cursor`](<.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/a868ee13a5f5aaaf.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/ec9c9f40f674d32c.cursor`](<.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/ec9c9f40f674d32c.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/f13c1f00efa45f69.cursor`](<.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/cursors/f13c1f00efa45f69.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/messages.jsonl`](<.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/messages.jsonl>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/runtime/delivery-ledger.sqlite3`](<.pytest-local-mailboxes/test_agent_mailbox_post_fans_o0/runtime/delivery-ledger.sqlite3>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_local_mailbox_subscriptio0/config/relays.json`](<.pytest-local-mailboxes/test_local_mailbox_subscriptio0/config/relays.json>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_mailbox_client_manages_lo0/config/relays.json`](<.pytest-local-mailboxes/test_mailbox_client_manages_lo0/config/relays.json>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/cursors/89142779ac60d225.cursor`](<.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/cursors/89142779ac60d225.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/cursors/d9a01a13398198c2.cursor`](<.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/cursors/d9a01a13398198c2.cursor>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/messages.jsonl`](<.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/messages.jsonl>) - Generated pytest scratch artifact.
+- [`.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/runtime/delivery-ledger.sqlite3`](<.pytest-local-mailboxes/test_mattermost_adapter_uses_s0/runtime/delivery-ledger.sqlite3>) - Generated pytest scratch artifact.
 
 - [`.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/messages.jsonl`](<.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/messages.jsonl>) - Generated or runtime file.
 - [`.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor`](<.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor>) - Generated or runtime file.
@@ -23988,38 +23988,38 @@ This appendix inventories every currently present non-Git generated or runtime f
 <details>
 <summary><code>src/</code> - 38 generated/runtime files</summary>
 
-- [`src/mailbox_mailboxs/__pycache__/__init__.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/__init__.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/agent_mailbox.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/agent_mailbox.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/attachment_gateway.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/attachment_gateway.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/attachment_storage.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/attachment_storage.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/mailbox_relay.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/mailbox_relay.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/mailbox_routes.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/mailbox_routes.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/console_client.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/console_client.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/contact_admin.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/contact_admin.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/delivery_ledger.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/delivery_ledger.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/discord_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/discord_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/discourse_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/discourse_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/endpoint_address.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/endpoint_address.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/facebook_messenger_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/facebook_messenger_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/identifier_directory.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/identifier_directory.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/irc_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/irc_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/line_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/line_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/listener_registry.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/listener_registry.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/subscriptions.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/subscriptions.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/matrix_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/matrix_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/mattermost_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/mattermost_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/meta_webhooks.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/meta_webhooks.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/route_admin.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/route_admin.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/runtime_admin.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/runtime_admin.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/server.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/server.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/slack_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/slack_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/sqlite_limits.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/sqlite_limits.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/telegram_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/telegram_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/token_admin.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/token_admin.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/viber_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/viber_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/websocket_chat.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/websocket_chat.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/whatsapp_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/whatsapp_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
-- [`src/mailbox_mailboxs/__pycache__/whatsapp_personal_adapter.cpython-313.pyc`](<src/mailbox_mailboxs/__pycache__/whatsapp_personal_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/__init__.cpython-313.pyc`](<src/mailbox_chat/__pycache__/__init__.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/agent_mailbox.cpython-313.pyc`](<src/mailbox_chat/__pycache__/agent_mailbox.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/attachment_gateway.cpython-313.pyc`](<src/mailbox_chat/__pycache__/attachment_gateway.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/attachment_storage.cpython-313.pyc`](<src/mailbox_chat/__pycache__/attachment_storage.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/mailbox_relay.cpython-313.pyc`](<src/mailbox_chat/__pycache__/mailbox_relay.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/mailbox_routes.cpython-313.pyc`](<src/mailbox_chat/__pycache__/mailbox_routes.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/console_client.cpython-313.pyc`](<src/mailbox_chat/__pycache__/console_client.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/contact_admin.cpython-313.pyc`](<src/mailbox_chat/__pycache__/contact_admin.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/delivery_ledger.cpython-313.pyc`](<src/mailbox_chat/__pycache__/delivery_ledger.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/discord_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/discord_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/discourse_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/discourse_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/endpoint_address.cpython-313.pyc`](<src/mailbox_chat/__pycache__/endpoint_address.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/facebook_messenger_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/facebook_messenger_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/identifier_directory.cpython-313.pyc`](<src/mailbox_chat/__pycache__/identifier_directory.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/irc_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/irc_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/line_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/line_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/listener_registry.cpython-313.pyc`](<src/mailbox_chat/__pycache__/listener_registry.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/subscriptions.cpython-313.pyc`](<src/mailbox_chat/__pycache__/subscriptions.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/matrix_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/matrix_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/mattermost_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/mattermost_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/meta_webhooks.cpython-313.pyc`](<src/mailbox_chat/__pycache__/meta_webhooks.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/route_admin.cpython-313.pyc`](<src/mailbox_chat/__pycache__/route_admin.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/runtime_admin.cpython-313.pyc`](<src/mailbox_chat/__pycache__/runtime_admin.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/server.cpython-313.pyc`](<src/mailbox_chat/__pycache__/server.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/slack_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/slack_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/sqlite_limits.cpython-313.pyc`](<src/mailbox_chat/__pycache__/sqlite_limits.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/telegram_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/telegram_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/token_admin.cpython-313.pyc`](<src/mailbox_chat/__pycache__/token_admin.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/viber_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/viber_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/websocket_chat.cpython-313.pyc`](<src/mailbox_chat/__pycache__/websocket_chat.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/whatsapp_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/whatsapp_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
+- [`src/mailbox_chat/__pycache__/whatsapp_personal_adapter.cpython-313.pyc`](<src/mailbox_chat/__pycache__/whatsapp_personal_adapter.cpython-313.pyc>) - Generated Python bytecode cache.
 
 - [`.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/messages.jsonl`](<.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/messages.jsonl>) - Generated or runtime file.
 - [`.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor`](<.pytest-agent-presence-1786583335797/test_adapter_failure_names_ser0/cursors/87eba76e7f316453.cursor>) - Generated or runtime file.

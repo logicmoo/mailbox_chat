@@ -25,7 +25,7 @@ class DiscordAdapter:
         self.bot_ids: dict[str, str] = {}
         self.latest_ids: dict[tuple[str, str], str] = {}
         self.status: dict[str, Any] = {
-            "enabled": False, "connected": False, "lastError": None, "mailboxs": [],
+            "enabled": False, "connected": False, "lastError": None, "mailboxes": [],
         }
 
     @staticmethod
@@ -45,7 +45,7 @@ class DiscordAdapter:
         self.status.update({
             "enabled": bool(self.connectors) and not missing,
             "connected": False,
-            "mailboxs": list(dict.fromkeys(
+            "mailboxes": list(dict.fromkeys(
                 mailbox for item in self.connectors for mailbox in item.get("mailbox_ids", [])
             )),
             "lastError": f"Missing Discord tokens for: {', '.join(missing)}" if missing else None,
@@ -59,7 +59,7 @@ class DiscordAdapter:
             self.bot_ids[connector["id"]] = str(response.json()["id"])
             for mailbox_id in connector.get("mailbox_ids", []):
                 latest = self.session.get(
-                    f"{DISCORD_API}/mailboxs/{mailbox_id}/messages",
+                    f"{DISCORD_API}/mailboxes/{mailbox_id}/messages",
                     headers=self._headers(connector), params={"limit": 1}, timeout=15,
                 )
                 latest.raise_for_status()
@@ -85,7 +85,7 @@ class DiscordAdapter:
 
     def _poll_mailbox(self, mailbox: Any, connector: dict[str, Any], mailbox_id: str) -> None:
         response = self.session.get(
-            f"{DISCORD_API}/mailboxs/{mailbox_id}/messages",
+            f"{DISCORD_API}/mailboxes/{mailbox_id}/messages",
             headers=self._headers(connector),
             params={"limit": 100, "after": self.latest_ids.get((connector["id"], mailbox_id), "0")},
             timeout=15,
@@ -148,7 +148,7 @@ class DiscordAdapter:
                     opened.append(stream)
                     files[f"files[{index}]"] = (path.name, stream, record.get("mime_type") or "application/octet-stream")
                 response = self.session.post(
-                    f"{DISCORD_API}/mailboxs/{mailbox_id}/messages", headers=self._headers(connector),
+                    f"{DISCORD_API}/mailboxes/{mailbox_id}/messages", headers=self._headers(connector),
                     data={"payload_json": json.dumps({"content": str(message.get("text") or "")})},
                     files=files, timeout=60,
                 )
@@ -157,7 +157,7 @@ class DiscordAdapter:
                     stream.close()
         else:
             response = self.session.post(
-                f"{DISCORD_API}/mailboxs/{mailbox_id}/messages", headers=self._headers(connector),
+                f"{DISCORD_API}/mailboxes/{mailbox_id}/messages", headers=self._headers(connector),
                 json={"content": str(message.get("text") or "")}, timeout=15,
             )
         response.raise_for_status()

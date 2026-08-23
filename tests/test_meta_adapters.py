@@ -3,9 +3,9 @@ import hmac
 import json
 from pathlib import Path
 
-from mailbox_mailboxs.adapters.facebook_messenger_adapter import FacebookMessengerAdapter
-from mailbox_mailboxs.meta_webhooks import verify_challenge, verify_signature
-from mailbox_mailboxs.adapters.whatsapp_adapter import WhatsAppAdapter
+from mailbox_chat.adapters.facebook_messenger_adapter import FacebookMessengerAdapter
+from mailbox_chat.meta_webhooks import verify_challenge, verify_signature
+from mailbox_chat.adapters.whatsapp_adapter import WhatsAppAdapter
 
 
 class Response:
@@ -61,7 +61,7 @@ def test_facebook_messenger_inbound_and_outbound(monkeypatch, tmp_path: Path) ->
     monkeypatch.setenv("FACEBOOK_PAGE_ACCESS_TOKEN", "secret")
     monkeypatch.setenv("FACEBOOK_VERIFY_TOKEN", "verify")
     monkeypatch.setenv("FACEBOOK_APP_SECRET", "app-secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.facebook_messenger_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_chat.adapters.facebook_messenger_adapter.connectors_for", lambda adapter: [connector])
     session = Session()
     adapter = FacebookMessengerAdapter(session=session)
     mailbox = Mailbox(tmp_path)
@@ -83,7 +83,7 @@ def test_whatsapp_business_inbound_outbound_and_media(monkeypatch, tmp_path: Pat
     monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "secret")
     monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", "verify")
     monkeypatch.setenv("WHATSAPP_APP_SECRET", "app-secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.whatsapp_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_chat.adapters.whatsapp_adapter.connectors_for", lambda adapter: [connector])
     session = Session()
     adapter = WhatsAppAdapter(session=session)
     mailbox = Mailbox(tmp_path)
@@ -112,7 +112,7 @@ def test_whatsapp_business_group_preserves_group_and_participant(monkeypatch, tm
     monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "secret")
     monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", "verify")
     monkeypatch.setenv("WHATSAPP_APP_SECRET", "app-secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.whatsapp_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_chat.adapters.whatsapp_adapter.connectors_for",
                         lambda adapter: [connector])
     session, mailbox = Session(), Mailbox(tmp_path)
     adapter = WhatsAppAdapter(session=session)
@@ -138,9 +138,9 @@ def test_inbound_meta_adapters_require_webhook_credentials(monkeypatch) -> None:
     for name in ("WHATSAPP_VERIFY_TOKEN", "WHATSAPP_APP_SECRET",
                  "FACEBOOK_VERIFY_TOKEN", "FACEBOOK_APP_SECRET"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr("mailbox_mailboxs.adapters.whatsapp_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_chat.adapters.whatsapp_adapter.connectors_for",
                         lambda adapter: [whatsapp])
-    monkeypatch.setattr("mailbox_mailboxs.adapters.facebook_messenger_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_chat.adapters.facebook_messenger_adapter.connectors_for",
                         lambda adapter: [facebook])
     whatsapp_adapter = WhatsAppAdapter()
     facebook_adapter = FacebookMessengerAdapter()

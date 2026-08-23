@@ -30,13 +30,13 @@ def _irc_connector(instance: str = "") -> dict[str, Any]:
     return connectors[0]
 
 
-def discover_irc_mailboxs(*, instance: str = "", timeout: float = 30.0) -> list[dict[str, Any]]:
+def discover_irc_mailboxes(*, instance: str = "", timeout: float = 30.0) -> list[dict[str, Any]]:
     connector = _irc_connector(instance)
     adapter = IrcAdapter()
     adapter.configure(connector)
     instance = endpoint_instance("irc", connector)
     try:
-        entries = adapter.list_mailboxs(timeout=timeout)
+        entries = adapter.list_mailboxes(timeout=timeout)
     finally:
         adapter.close()
     directory = IdentifierDirectory(agent_mailbox.mailbox_dir())
@@ -94,7 +94,7 @@ def _remote(base: str, resource: str, platform: str, timeout: float,
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="mailbox-client discover",
-        description="Discover mailboxs and other resources visible to configured platform accounts",
+        description="Discover mailboxes and other resources visible to configured platform accounts",
     )
     result.add_argument("--url", help="ask a running relay server to perform discovery")
     result.add_argument("--format", choices=("jsonl", "json", "text"), default="json",
@@ -103,10 +103,10 @@ def parser() -> argparse.ArgumentParser:
                         help="print the equivalent REST curl command without executing it")
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("platforms", help="list platforms with implemented discovery")
-    mailboxs = commands.add_parser("mailboxs", help="list visible platform mailboxs")
-    mailboxs.add_argument("--platform", required=True, choices=("irc",), help="platform adapter")
-    mailboxs.add_argument("--instance", default="", help="IRC server instance to query (default: first)")
-    mailboxs.add_argument("--timeout", type=float, default=30.0, help="discovery timeout in seconds")
+    mailboxes = commands.add_parser("mailboxes", help="list visible platform mailboxes")
+    mailboxes.add_argument("--platform", required=True, choices=("irc",), help="platform adapter")
+    mailboxes.add_argument("--instance", default="", help="IRC server instance to query (default: first)")
+    mailboxes.add_argument("--timeout", type=float, default=30.0, help="discovery timeout in seconds")
     users = commands.add_parser("users", help="list users visible in one platform mailbox")
     users.add_argument("--platform", required=True, choices=("irc",), help="platform adapter")
     users.add_argument("--mailbox", required=True, help="mailbox address or platform mailbox ID")
@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("--curl requires --url")
         if args.command == "platforms":
             raise ValueError("--curl has no REST equivalent for the platforms command")
-        resource = "mailboxs" if args.command == "mailboxs" else "users"
+        resource = "mailboxes" if args.command == "mailboxes" else "users"
         query = urllib.parse.urlencode({
             "platform": args.platform, "timeout": args.timeout,
             "mailbox": getattr(args, "mailbox", "") if args.command == "users" else "",
@@ -138,13 +138,13 @@ def main(argv: list[str] | None = None) -> int:
                            token=token))
         return 0
     if args.command == "platforms":
-        result: Any = {"platforms": [{"id": "irc", "resources": ["mailboxs", "users"]}]}
+        result: Any = {"platforms": [{"id": "irc", "resources": ["mailboxes", "users"]}]}
     else:
-        if args.command == "mailboxs":
-            result = (_remote(args.url, "mailboxs", args.platform, args.timeout,
+        if args.command == "mailboxes":
+            result = (_remote(args.url, "mailboxes", args.platform, args.timeout,
                               instance=args.instance) if args.url else
                       {"platform": args.platform,
-                       "mailboxs": discover_irc_mailboxs(instance=args.instance, timeout=args.timeout)})
+                       "mailboxes": discover_irc_mailboxes(instance=args.instance, timeout=args.timeout)})
         else:
             result = (_remote(args.url, "users", args.platform, args.timeout, args.mailbox,
                               instance=args.instance) if args.url else

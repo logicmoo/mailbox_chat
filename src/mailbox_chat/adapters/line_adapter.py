@@ -29,15 +29,15 @@ class LineAdapter:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
         self.connectors: list[dict[str, Any]] = []
-        self.status = {"enabled": False, "connected": False, "lastError": None, "mailboxs": []}
+        self.status = {"enabled": False, "connected": False, "lastError": None, "mailboxes": []}
 
     @staticmethod
     def _token(connector: dict[str, Any]) -> str:
-        return os.environ.get(str(connector.get("token_env") or "LINE_CHANNEL_ACCESS_TOKEN"), "").strip()
+        return os.environ.get(str(connector.get("token_env") or "LINE_MAILBOX_ACCESS_TOKEN"), "").strip()
 
     @staticmethod
     def _secret(connector: dict[str, Any]) -> str:
-        return os.environ.get(str(connector.get("secret_env") or "LINE_CHANNEL_SECRET"), "").strip()
+        return os.environ.get(str(connector.get("secret_env") or "LINE_MAILBOX_SECRET"), "").strip()
 
     def _headers(self, connector: dict[str, Any]) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token(connector)}"}
@@ -46,7 +46,7 @@ class LineAdapter:
         self.connectors = connectors_for("line")
         missing = [item["id"] for item in self.connectors if not self._token(item) or not self._secret(item)]
         self.status.update({"enabled": bool(self.connectors) and not missing, "connected": False,
-                            "mailboxs": [item["id"] for item in self.connectors],
+                            "mailboxes": [item["id"] for item in self.connectors],
                             "lastError": f"Missing LINE credentials for: {', '.join(missing)}" if missing else None})
         return bool(self.status["enabled"])
 

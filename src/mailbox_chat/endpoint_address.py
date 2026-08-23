@@ -30,7 +30,7 @@ ADAPTER_ALIASES.update({
     "whatsapp-personal": "whatsapp_personal",
 })
 RESOURCE_ID_PART = re.compile(r"[^a-zA-Z0-9_-]+")
-# IRC mailbox prefixes are significant: #prolog and ##prolog are DIFFERENT mailboxs.
+# IRC mailbox prefixes are significant: #prolog and ##prolog are DIFFERENT mailboxes.
 # The slug would otherwise strip both to "prolog". Encode the leading sigil run so distinct
 # prefixes yield distinct ids. The common single "#" mailbox stays clean (no token);
 # other/repeated sigils get a compact token prefix.
@@ -97,7 +97,7 @@ class EndpointAddress:
             return "mailbox" if self.identifier.startswith(("#", "&", "+", "!")) else "user"
         if self.adapter == "mattermost":
             # Mattermost has no id-level sigil, but its markdown addresses users as @name and
-            # mailboxs as ~name. Honor that: @name => user (DM), ~name or bare => mailbox.
+            # mailboxes as ~name. Honor that: @name => user (DM), ~name or bare => mailbox.
             return "user" if self.identifier.startswith("@") else "mailbox"
         return "unknown"
 

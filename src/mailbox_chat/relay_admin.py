@@ -15,7 +15,7 @@ from .connector_registry import CONFIG_DIR_ENV
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="mailbox-client relay",
-        description="Manage cursor-driven pumps from retained mailboxs to external endpoints.",
+        description="Manage cursor-driven pumps from retained mailboxes to external endpoints.",
     )
     result.add_argument("--config-dir", type=Path)
     result.add_argument("--dir", type=Path, dest="mailbox_root")

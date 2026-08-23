@@ -1,4 +1,4 @@
-"""Cursor-driven pumps from retained mailboxs to external endpoints.
+"""Cursor-driven pumps from retained mailboxes to external endpoints.
 
 Relays live in the ``server_registry_relays`` registry. Two payload shapes are
 tolerated:

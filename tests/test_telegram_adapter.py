@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_mailboxs.adapters.telegram_adapter import TelegramAdapter
+from mailbox_chat.adapters.telegram_adapter import TelegramAdapter
 
 
 class Response:
@@ -61,7 +61,7 @@ def test_telegram_inbound_outbound_threads_and_attachments(monkeypatch, tmp_path
         "bridge_agent": "telegram-agent", "mailbox_recipients": ["worker"],
     }
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_chat.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
     session = Session()
     adapter = TelegramAdapter(session=session)
     mailbox = Mailbox(tmp_path)
@@ -92,7 +92,7 @@ def test_telegram_rejects_unconfigured_chat(monkeypatch, tmp_path: Path) -> None
         "bridge_agent": "telegram-agent", "mailbox_recipients": [],
     }
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_chat.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
     adapter = TelegramAdapter(session=Session())
     mailbox = Mailbox(tmp_path)
     assert adapter.configure()

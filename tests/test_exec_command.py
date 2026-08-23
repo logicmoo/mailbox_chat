@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_mailboxs import agent_mailbox, mailbox_store, cmd_client_page
+from mailbox_chat import agent_mailbox, mailbox_store, cmd_client_page
 
 
 def _queue_messages(root: Path) -> list[dict]:

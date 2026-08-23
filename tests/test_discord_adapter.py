@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_mailboxs.adapters.discord_adapter import DiscordAdapter
+from mailbox_chat.adapters.discord_adapter import DiscordAdapter
 
 
 class Response:
@@ -50,7 +50,7 @@ def test_discord_inbound_and_outbound_use_mailbox(monkeypatch, tmp_path: Path) -
         "bridge_agent": "discord-agent", "mailbox_recipients": ["worker"],
     }
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.discord_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_chat.adapters.discord_adapter.connectors_for", lambda adapter: [connector])
     session = Session()
     adapter = DiscordAdapter(session=session)
     mailbox = Mailbox(tmp_path)

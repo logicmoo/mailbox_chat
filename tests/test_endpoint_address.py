@@ -1,8 +1,8 @@
 import json
 
-from mailbox_mailboxs import agent_mailbox
-from mailbox_mailboxs.endpoint_address import parse_endpoint, subscription_recipients
-from mailbox_mailboxs.subscriptions import subscriptions
+from mailbox_chat import agent_mailbox
+from mailbox_chat.endpoint_address import parse_endpoint, subscription_recipients
+from mailbox_chat.subscriptions import subscriptions
 
 
 def test_mattermost_endpoint_address_parses_canonically() -> None:
@@ -19,7 +19,7 @@ def test_zero_instance_is_canonical_default_instance(monkeypatch) -> None:
     assert endpoint is not None
     assert endpoint.canonical == "mm/0/mailbox-1"
     monkeypatch.setattr(
-        "mailbox_mailboxs.subscriptions.subscribers",
+        "mailbox_chat.subscriptions.subscribers",
         lambda address: ["specific-agent"] if address == "mm-chat-snt-mailbox-1" else [],
     )
     assert subscription_recipients(

@@ -2,8 +2,8 @@ import json
 
 from conftest import seed_store
 
-from mailbox_mailboxs import agent_mailbox, mailbox_store
-from mailbox_mailboxs.subscriptions import (
+from mailbox_chat import agent_mailbox, mailbox_store
+from mailbox_chat.subscriptions import (
     available_sources, ensure_mailbox, set_subscription, subscribers, subscriptions,
 )
 
@@ -72,7 +72,7 @@ def test_available_sources_keep_mailbox_metadata_without_mapping(tmp_path, monke
     }
 
 
-def test_registered_agents_are_exposed_as_direct_mailboxs(tmp_path, monkeypatch) -> None:
+def test_registered_agents_are_exposed_as_direct_mailboxes(tmp_path, monkeypatch) -> None:
     mailbox = tmp_path / "mailbox"
     seed_store(mailbox, agents=[{"agent_id": "workspace-codex-agent", "presences": []}])
 
@@ -94,7 +94,7 @@ def test_local_mailbox_subscription_is_durable(tmp_path, monkeypatch) -> None:
     set_subscription("server_events_log", "symbolic-workbench-codex", enabled=True, path=mailbox)
     assert subscribers("server_events_log", mailbox) == ["symbolic-workbench-codex"]
     assert subscriptions("symbolic-workbench-codex", mailbox) == ["server_events_log"]
-    stored = mailbox_store.get_entry(mailbox, mailbox_store.CHANNELS_REGISTRY, "server_events_log")
+    stored = mailbox_store.get_entry(mailbox, mailbox_store.MAILBOXES_REGISTRY, "server_events_log")
     assert stored["payload"]["subscribers"] == ["symbolic-workbench-codex"]
     set_subscription("server_events_log", "symbolic-workbench-codex", enabled=False, path=mailbox)
     assert subscribers("server_events_log", mailbox) == []
@@ -110,7 +110,7 @@ def test_mailbox_client_manages_local_mailbox_subscription(tmp_path, monkeypatch
     assert agent_mailbox.main([
         "--dir", str(mailbox), "subscriptions", "--to", "omegaclaw-min",
     ]) == 0
-    assert json.loads(capsys.readouterr().out)["mailboxs"] == ["server_events_log"]
+    assert json.loads(capsys.readouterr().out)["mailboxes"] == ["server_events_log"]
     assert agent_mailbox.main([
         "--dir", str(mailbox), "unsubscribe", "server_events_log", "--to", "omegaclaw-min",
     ]) == 0
@@ -163,8 +163,8 @@ def test_mailbox_client_lists_every_subscribed_mailbox(tmp_path, monkeypatch, ca
 
     assert agent_mailbox.main(["--dir", str(mailbox), "subscriptions", "--all"]) == 0
     assert json.loads(capsys.readouterr().out) == {"mailboxes": [
-        {"identity": "agent-one", "mailboxs": ["server_events_log", "mm-0-mailbox-one"]},
-        {"identity": "agent-two", "mailboxs": ["server_events_log"]},
+        {"identity": "agent-one", "mailboxes": ["server_events_log", "mm-0-mailbox-one"]},
+        {"identity": "agent-two", "mailboxes": ["server_events_log"]},
     ]}
 
 

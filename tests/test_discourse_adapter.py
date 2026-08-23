@@ -3,7 +3,7 @@ import hmac
 import json
 from pathlib import Path
 
-from mailbox_mailboxs.adapters.discourse_adapter import DiscourseAdapter
+from mailbox_chat.adapters.discourse_adapter import DiscourseAdapter
 
 
 class Response:
@@ -26,7 +26,7 @@ def test_discourse_signed_post_webhook_and_reply(monkeypatch, tmp_path: Path) ->
     connector = {"id": "forum", "direction": "bidirectional", "base_url": "https://forum.example",
                 "mailbox_ids": ["42"], "bridge_agent": "forum-agent", "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("DISCOURSE_API_KEY", "key"); monkeypatch.setenv("DISCOURSE_WEBHOOK_SECRET", "secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.discourse_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_chat.adapters.discourse_adapter.connectors_for",
                         lambda adapter: [connector])
     session, mailbox = Session(), Mailbox(tmp_path); adapter = DiscourseAdapter(session=session)
     assert adapter.configure()
@@ -45,7 +45,7 @@ def test_discourse_can_create_topic(monkeypatch) -> None:
     connector = {"id": "forum", "direction": "outbound", "base_url": "https://forum.example",
                 "default_category_id": 3}
     monkeypatch.setenv("DISCOURSE_API_KEY", "key"); monkeypatch.setenv("DISCOURSE_WEBHOOK_SECRET", "secret")
-    monkeypatch.setattr("mailbox_mailboxs.adapters.discourse_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_chat.adapters.discourse_adapter.connectors_for",
                         lambda adapter: [connector])
     session = Session(); adapter = DiscourseAdapter(session=session); assert adapter.configure()
     adapter.send_message({"connector_id": "forum", "text": "opening", "topic_title": "New topic"})

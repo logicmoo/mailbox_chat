@@ -8,10 +8,10 @@ import pytest
 
 from conftest import seed_messages, seed_store
 
-from mailbox_mailboxs import agent_mailbox, mailbox_store
+from mailbox_chat import agent_mailbox, mailbox_store
 
 
-def test_status_reports_agents_connectors_mailboxs_and_relays(
+def test_status_reports_agents_connectors_mailboxes_and_relays(
     monkeypatch, tmp_path: Path,
 ) -> None:
     mailbox = tmp_path / "mailbox"
@@ -252,7 +252,7 @@ def test_trim_messages_before_keeps_recent_records_and_remaps_cursors(tmp_path: 
     assert [item["text"] for item in received] == ["recent"]
 
 
-def test_trim_messages_to_size_can_target_selected_mailboxs(tmp_path: Path) -> None:
+def test_trim_messages_to_size_can_target_selected_mailboxes(tmp_path: Path) -> None:
     seed_messages(tmp_path, "a", [
         {"id": "a1", "timestamp": "2026-08-01T00:00:00Z", "to": "a"},
         {"id": "a2", "timestamp": "2026-08-03T00:00:00Z", "to": "a"},
@@ -266,7 +266,7 @@ def test_trim_messages_to_size_can_target_selected_mailboxs(tmp_path: Path) -> N
     newest_a_size = len(json.dumps(newest, ensure_ascii=False).encode("utf-8"))
 
     result = agent_mailbox.trim_messages(
-        max_bytes=newest_a_size, mailboxs={"a"}, root=tmp_path,
+        max_bytes=newest_a_size, mailboxes={"a"}, root=tmp_path,
     )
 
     retained_a = [record["id"] for _key, record
@@ -275,7 +275,7 @@ def test_trim_messages_to_size_can_target_selected_mailboxs(tmp_path: Path) -> N
                   in mailbox_store.ordered_messages(mailbox_store.load_mailbox(tmp_path, "b"))]
     assert retained_a == ["a2"]
     assert retained_b == ["b1"]
-    assert result["mailboxs"] == ["a"]
+    assert result["mailboxes"] == ["a"]
 
 
 def test_cursor_listing_reports_every_initialized_mailbox_and_position(tmp_path: Path, capsys) -> None:
@@ -399,7 +399,7 @@ def test_agent_del_purge_dry_run_reports_without_deleting(
     preview = json.loads(capsys.readouterr().out)
     assert preview["dry_run"] is True
     assert preview["would_remove_agent"] is True
-    assert preview["would_purge_mailboxs"] == ["review-agent", "review-agent-app", "review_agent"]
+    assert preview["would_purge_mailboxes"] == ["review-agent", "review-agent-app", "review_agent"]
     assert preview["would_purge_records"] == 1
     assert preview["would_purge_cursor_files"] == 1
     assert (mailbox / "server_registry_agents.json").read_bytes() == before_registry
@@ -432,7 +432,7 @@ def test_agent_del_purge_removes_private_history_but_keeps_global_audit(
         for _key, record in mailbox_store.ordered_messages(
             mailbox_store.load_mailbox(mailbox, mailbox_id))
     ]
-    assert not any(item["to"] in result["purged_mailboxs"] for item in records)
+    assert not any(item["to"] in result["purged_mailboxes"] for item in records)
     assert any(
         item["to"] == "server_outbound_relay_agent_to_agent"
         and item.get("audit_recipient") == "review-agent"
@@ -518,7 +518,7 @@ def test_cli_text_output_explains_chat_server_diagnostics(tmp_path: Path, capsys
     output = capsys.readouterr().out
     assert "local-discord-server: discord chat server connection failed: offline" in output
     assert "adapter=discord; state=connection_failed" in output
-    assert "connectors=discord-main; mailboxs=ops" in output
+    assert "connectors=discord-main; mailboxes=ops" in output
     assert "error=ConnectionError: offline; will_retry=true" in output
 
 
@@ -589,15 +589,15 @@ def test_curl_covers_every_rest_backed_command(monkeypatch, capsys) -> None:
         ("cursors", "--cursor", "codex"): ("-X GET", "/v1/cursors?cursor=codex"),
         ("agents",): ("-X GET", "/v1/registry"),
         ("connectors",): ("-X GET", "/v1/registry"),
-        ("mailboxs",): ("-X GET", "/v1/registry"),
+        ("mailboxes",): ("-X GET", "/v1/registry"),
         ("mailboxes",): ("-X GET", "/v1/registry"),
         ("relays",): ("-X GET", "/v1/registry"),
         ("agent-add", "review-agent"): ("-X POST", "/v1/agents"),
         ("agent-del", "review-agent"): ("-X POST", "/v1/agents"),
         ("connector-add", "mm-x", "mattermost"): ("-X POST", "/v1/connectors"),
         ("connector-del", "mm-x"): ("-X POST", "/v1/connectors"),
-        ("mailbox-add", "team_updates"): ("-X POST", "/v1/mailboxs"),
-        ("mailbox-del", "team_updates"): ("-X POST", "/v1/mailboxs"),
+        ("mailbox-add", "team_updates"): ("-X POST", "/v1/mailboxes"),
+        ("mailbox-del", "team_updates"): ("-X POST", "/v1/mailboxes"),
         ("relay-add", "team_updates", "mm/chat.snt/cid"): ("-X POST", "/v1/relays"),
         ("relay-del", "r1"): ("-X POST", "/v1/relays"),
         ("mailbox-add", "research", "http://relay.example"): ("-X POST", "/v1/mailboxes"),
@@ -632,7 +632,7 @@ def test_curl_covers_chat_platform_commands(capsys) -> None:
         ("notice", "mm/chat.snt/CID", "heads up"): ("-X POST", "/v1/mm/command"),
         ("join", "mm/chat.snt/CID"): ("-X POST", "/v1/mm/command"),
         ("teams", "--on", "mm/example"): ("-X POST", "/v1/mm/command"),
-        ("list", "--on", "irc"): ("-X GET", "/v1/discovery/mailboxs"),
+        ("list", "--on", "irc"): ("-X GET", "/v1/discovery/mailboxes"),
         ("names", "#chan", "--on", "irc"): ("-X GET", "/v1/discovery/users"),
     }
     for argv, (method, fragment) in cases.items():
@@ -645,11 +645,11 @@ def test_curl_covers_chat_platform_commands(capsys) -> None:
 
 def test_curl_covers_discovery_commands(capsys) -> None:
     assert agent_mailbox.main([
-        "discover", "--url", "https://relay.example", "mailboxs", "--platform", "irc", "--curl",
+        "discover", "--url", "https://relay.example", "mailboxes", "--platform", "irc", "--curl",
     ]) == 0
-    mailboxs = capsys.readouterr().out
-    assert mailboxs.startswith("curl ") and "-X GET" in mailboxs
-    assert "/v1/discovery/mailboxs" in mailboxs
+    mailboxes = capsys.readouterr().out
+    assert mailboxes.startswith("curl ") and "-X GET" in mailboxes
+    assert "/v1/discovery/mailboxes" in mailboxes
 
     assert agent_mailbox.main([
         "discover", "--url", "https://relay.example", "users",

@@ -27,7 +27,7 @@ class SlackAdapter:
         self.bot_user_ids: dict[str, str] = {}
         self.latest_ts: dict[tuple[str, str], str] = {}
         self.status: dict[str, Any] = {
-            "enabled": False, "connected": False, "lastError": None, "mailboxs": [],
+            "enabled": False, "connected": False, "lastError": None, "mailboxes": [],
         }
 
     @staticmethod
@@ -55,7 +55,7 @@ class SlackAdapter:
         self.status.update({
             "enabled": bool(self.connectors) and not missing,
             "connected": False,
-            "mailboxs": list(dict.fromkeys(
+            "mailboxes": list(dict.fromkeys(
                 mailbox for item in self.connectors for mailbox in item.get("mailbox_ids", [])
             )),
             "lastError": f"Missing Slack tokens for: {', '.join(missing)}" if missing else None,

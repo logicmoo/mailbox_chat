@@ -18,9 +18,9 @@ dependencies = [
 dev = ["pytest>=8"]
 
 [project.scripts]
-mailbox-server = "mailbox_mailboxs.server:main"
-mailbox-client = "mailbox_mailboxs.agent_mailbox:main"
-mailbox-console = "mailbox_mailboxs.console_client:main"
+mailbox-server = "mailbox_chat.server:main"
+mailbox-client = "mailbox_chat.agent_mailbox:main"
+mailbox-console = "mailbox_chat.console_client:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -30,7 +30,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-mailbox_mailboxs = ["resources/*"]
+mailbox_chat = ["resources/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

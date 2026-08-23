@@ -1,7 +1,7 @@
 """Shared test fixtures for the mailbox/registry store.
 
 The runtime keeps all durable state as per-mailbox JSON documents under a single
-mailbox root (message mailboxs plus ``server_registry_*`` id-keyed registries).
+mailbox root (message mailboxes plus ``server_registry_*`` id-keyed registries).
 These helpers seed that store so tests need not hand-craft registry documents.
 """
 
@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from mailbox_mailboxs import mailbox_store
+from mailbox_chat import mailbox_store
 
 
 @pytest.fixture(autouse=True)
@@ -46,12 +46,12 @@ def seed_connectors(root: Path, connectors: list[dict[str, Any]]) -> None:
         mailbox_store.put_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id, payload)
 
 
-def seed_mailboxs(root: Path, mailboxs: list[dict[str, Any]]) -> None:
-    for mailbox in mailboxs:
+def seed_mailboxes(root: Path, mailboxes: list[dict[str, Any]]) -> None:
+    for mailbox in mailboxes:
         mailbox_id = str(mailbox["id"])
         payload = {"kind": "mailbox", "subscribers": [],
                    **{key: value for key, value in mailbox.items() if key != "id"}}
-        mailbox_store.put_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id, payload)
+        mailbox_store.put_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id, payload)
 
 
 def seed_relays(root: Path, relays: list[dict[str, Any]]) -> None:
@@ -75,7 +75,7 @@ def seed_store(root: Path, *, agents: list[dict[str, Any]] | None = None,
     root.mkdir(parents=True, exist_ok=True)
     seed_agents(root, agents or [])
     seed_connectors(root, connectors or [])
-    seed_mailboxs(root, subscriptions or [])
+    seed_mailboxes(root, subscriptions or [])
     seed_relays(root, relays or [])
     return root
 

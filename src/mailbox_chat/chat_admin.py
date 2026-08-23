@@ -69,16 +69,16 @@ def parser() -> argparse.ArgumentParser:
                       help="IRC PING token/server; ignored by Mattermost")
     commands.add_parser("teams", help="list visible teams (Mattermost)")
     listing = commands.add_parser(
-        "list", help="list mailboxs across all providers, or one selected with --on",
+        "list", help="list mailboxes across all providers, or one selected with --on",
     )
     listing.add_argument("--team", help="limit Mattermost results to a team ID or name")
     listing.add_argument(
         "--bot", nargs="?", const="", metavar="BOTNICK",
-        help="list Mattermost mailboxs the bot (or BOTNICK) has joined instead of discovering all",
+        help="list Mattermost mailboxes the bot (or BOTNICK) has joined instead of discovering all",
     )
     listing.add_argument("--page", type=int, help="Mattermost discovery start page (default 0; discovery pages to the end)")
     listing.add_argument("--per-page", "--per_page", dest="per_page", type=int,
-                         help="Mattermost mailboxs per discovery page (default 100)")
+                         help="Mattermost mailboxes per discovery page (default 100)")
     names = commands.add_parser(
         "names", help="list mailbox users by registered name, ID, address, or platform URL",
     )
@@ -172,13 +172,13 @@ def _remote_irc_list(url: str, token: str) -> dict:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     with urllib.request.urlopen(urllib.request.Request(
-        f"{url.rstrip('/')}/v1/discovery/mailboxs?{query}", headers=headers,
+        f"{url.rstrip('/')}/v1/discovery/mailboxes?{query}", headers=headers,
     ), timeout=35) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
-    """List mailboxs from every configured, enabled provider with discovery support."""
+    """List mailboxes from every configured, enabled provider with discovery support."""
     connectors = [item for item in load_connectors() if item["enabled"]]
     providers: list[dict] = []
     new_entries = 0
@@ -198,7 +198,7 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
                 providers.append({"provider": "mm", "result": response.get("result", response)})
             elif adapter == "irc":
                 response = _remote_irc_list(args.url, token)
-                providers.append({"provider": "irc", "result": response.get("mailboxs", response)})
+                providers.append({"provider": "irc", "result": response.get("mailboxes", response)})
             else:
                 providers.append({"provider": adapter,
                                   "error": "mailbox listing is not implemented by this adapter"})
@@ -225,7 +225,7 @@ def _command_curl(args: argparse.Namespace, token: str, platform: str,
     if args.command in {"teams", "threads"}:
         raise ValueError(f"{args.command} is not available on IRC")
     if args.command == "list":
-        return _discovery_curl(base, token, "mailboxs", 30.0)
+        return _discovery_curl(base, token, "mailboxes", 30.0)
     if args.command == "names":
         return _discovery_curl(base, token, "users", 15.0, args.mailbox)
     return curl_command("POST", f"{base}/v1/irc/command", token=token,
@@ -246,7 +246,7 @@ def _list_all_curl(args: argparse.Namespace, token: str) -> list[str]:
                 payload={"command": "list", "arguments": mm_arguments}))
         elif adapter == "irc":
             query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "mailbox": ""})
-            lines.append(curl_command("GET", f"{base}/v1/discovery/mailboxs?{query}", token=token))
+            lines.append(curl_command("GET", f"{base}/v1/discovery/mailboxes?{query}", token=token))
     return lines
 
 
@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"list", "names"}:
         from .discovery_admin import main as discover
         nested = ["--url", args.url, "--format", args.format,
-                  "mailboxs" if args.command == "list" else "users",
+                  "mailboxes" if args.command == "list" else "users",
                   "--platform", "irc"]
         if args.command == "names":
             nested.extend(["--mailbox", args.mailbox])

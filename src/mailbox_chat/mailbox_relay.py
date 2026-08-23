@@ -21,15 +21,15 @@ from .adapters.discourse_adapter import DiscourseAdapter
 from .adapters.whatsapp_personal_adapter import WhatsAppPersonalAdapter
 from .delivery_ledger import DeliveryLedger, endpoint_id, origin_id
 from .connector_registry import connectors_for
-from .subscriptions import SERVER_EVENTS_CHANNEL, subscribers
+from .subscriptions import SERVER_EVENTS_MAILBOX, subscribers
 from .endpoint_address import endpoint_instance, parse_endpoint
 
 
 RELAY_RECIPIENT = "server_outbound_relay_agent_to_mailbox"
-SUPPORTED_CHANNEL_TYPES = ("mattermost", "irc", "discord", "matrix", "slack", "telegram",
+SUPPORTED_MAILBOX_TYPES = ("mattermost", "irc", "discord", "matrix", "slack", "telegram",
                            "whatsapp", "whatsapp_personal", "facebook_messenger", "viber", "line",
                            "discourse")
-PLANNED_CHANNEL_TYPES: tuple[str, ...] = ()
+PLANNED_MAILBOX_TYPES: tuple[str, ...] = ()
 ADAPTER_CAPABILITIES = {
     # ghost.tier: full = real, unbadged user; display = per-message name+avatar but bot-attributed;
     # none = one fixed identity per account/connection.
@@ -37,7 +37,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "single", "threads": True, "attachments": True,
         "ghost": {"tier": "display", "mechanism": "webhook", "permission": "server_setting"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": True, "users": True},
+        "discovery": {"mailboxes": True, "users": True},
         "auth_methods": ["bot_token", "incoming_webhook"],
         "official": True,
         "notes": "webhook override_username/icon gated by EnablePostUsernameOverride/IconOverride "
@@ -48,7 +48,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "single", "threads": False, "attachments": False,
         "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
         "dm_cold_initiate": True,
-        "discovery": {"mailboxs": True, "users": True},
+        "discovery": {"mailboxes": True, "users": True},
         "auth_methods": ["sasl_plain", "sasl_external", "nickserv", "quakenet_q"],
         "official": True,
         "notes": "one real nick per TCP connection; no threads/native files (URLs/DCC only); "
@@ -59,7 +59,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "single", "threads": True, "attachments": True,
         "ghost": {"tier": "display", "mechanism": "webhook", "permission": "manage_webhooks"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": True, "users": True},
+        "discovery": {"mailboxes": True, "users": True},
         "auth_methods": ["bot_token", "webhook_token"],
         "official": True,
         "notes": "webhooks set per-message username+avatar (needs Manage Webhooks) but cannot DM "
@@ -69,7 +69,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "multiple", "threads": True, "attachments": True,
         "ghost": {"tier": "full", "mechanism": "appservice", "permission": "homeserver_admin"},
         "dm_cold_initiate": True,
-        "discovery": {"mailboxs": True, "users": True},
+        "discovery": {"mailboxes": True, "users": True},
         "auth_methods": ["access_token", "appservice"],
         "official": True,
         "notes": "application service masquerades as ghost users via ?user_id= within its users "
@@ -80,7 +80,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "multiple", "threads": True, "attachments": True, "interaction": "forum",
         "ghost": {"tier": "full", "mechanism": "admin_post_as", "permission": "admin_api_key"},
         "dm_cold_initiate": True,
-        "discovery": {"mailboxs": True, "users": True},
+        "discovery": {"mailboxes": True, "users": True},
         "auth_methods": ["api_key"],
         "official": True,
         "notes": "admin API key + Api-Username posts AS any existing user with no badge "
@@ -90,7 +90,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "multiple", "threads": True, "attachments": True,
         "ghost": {"tier": "display", "mechanism": "webhook", "permission": "none"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": True, "users": True},
+        "discovery": {"mailboxes": True, "users": True},
         "auth_methods": ["bot_token", "app_token", "incoming_webhook"],
         "official": True,
         "notes": "incoming webhook or chat:write.customize overrides display name+icon "
@@ -101,7 +101,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "single", "threads": True, "attachments": True,
         "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": False, "users": False},
+        "discovery": {"mailboxes": False, "users": False},
         "auth_methods": ["bot_token"],
         "official": True,
         "notes": "no sender override (author_signature is cosmetic); message_thread_id forum topics; "
@@ -111,7 +111,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "single", "threads": False, "attachments": True, "interaction": "business",
         "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": False, "users": False},
+        "discovery": {"mailboxes": False, "users": False},
         "auth_methods": ["system_user_token"],
         "official": True,
         "notes": "Cloud API; fixed business phone number (no ghosting); 24h customer-service window, "
@@ -122,7 +122,7 @@ ADAPTER_CAPABILITIES = {
         "interaction": "unofficial-web-companion",
         "ghost": {"tier": "none", "mechanism": "none", "permission": "none"},
         "dm_cold_initiate": True,
-        "discovery": {"mailboxs": False, "users": False},
+        "discovery": {"mailboxes": False, "users": False},
         "auth_methods": ["qr_pairing"],
         "official": False,
         "notes": "unofficial web-companion (Baileys/whatsapp-web.js) — against WhatsApp ToS, ban "
@@ -132,7 +132,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "multiple", "threads": False, "attachments": True, "interaction": "page",
         "ghost": {"tier": "display", "mechanism": "personas", "permission": "none"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": False, "users": False},
+        "discovery": {"mailboxes": False, "users": False},
         "auth_methods": ["page_token"],
         "official": True,
         "notes": "Personas API sends with a custom persona name+avatar within a Page; 24h window + "
@@ -142,7 +142,7 @@ ADAPTER_CAPABILITIES = {
         "presence": "single", "threads": False, "attachments": True, "interaction": "bot",
         "ghost": {"tier": "display", "mechanism": "sender_override", "permission": "none"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": False, "users": False},
+        "discovery": {"mailboxes": False, "users": False},
         "auth_methods": ["auth_token"],
         "official": True,
         "notes": "per-message sender.name+sender.avatar override (no extra permission); new bots are "
@@ -153,7 +153,7 @@ ADAPTER_CAPABILITIES = {
         "interaction": "user-group-room",
         "ghost": {"tier": "display", "mechanism": "sender_override", "permission": "none"},
         "dm_cold_initiate": False,
-        "discovery": {"mailboxs": False, "users": False},
+        "discovery": {"mailboxes": False, "users": False},
         "auth_methods": ["mailbox_access_token"],
         "official": True,
         "notes": "per-message sender.name (<=20 chars)+iconUrl override; reply token single-use ~1min "
@@ -271,8 +271,8 @@ class ChannelRelay(MattermostRelay):
         self._adapter_event_states[name] = state
         mailbox = self._mailbox()
         recipients = list(dict.fromkeys([
-            SERVER_EVENTS_CHANNEL,
-            *subscribers(SERVER_EVENTS_CHANNEL), *self._adapter_recipients(name, adapter),
+            SERVER_EVENTS_MAILBOX,
+            *subscribers(SERVER_EVENTS_MAILBOX), *self._adapter_recipients(name, adapter),
         ]))
         for recipient in recipients:
             try:
@@ -499,7 +499,7 @@ class ChannelRelay(MattermostRelay):
                 )
             base_url = self.base_url
             try:
-                self._refresh_direct_mailboxs(base_url)
+                self._refresh_direct_mailboxes(base_url)
                 self._poll_inbound(base_url)
             except Exception as error:
                 safe_error = self._safe_error(error)
@@ -595,7 +595,7 @@ class ChannelRelay(MattermostRelay):
                     posted = self._send_mattermost_message(
                         self.base_url, message,
                     )
-                    if not address or address.identifier in set(self._mailboxs()):
+                    if not address or address.identifier in set(self._mailboxes()):
                         self._fanout_mattermost_outbound(message, posted)
                 elif mailbox_type == "irc" and self._irc_enabled():
                     self._select_irc_adapter(message).send_message(message)
@@ -700,12 +700,12 @@ class ChannelRelay(MattermostRelay):
                 raise ValueError(
                     f"Mattermost endpoint server {address.instance} does not match {active_instance}"
                 )
-            configured_mailboxs = set(self._mailboxs())
-            if address.identifier in configured_mailboxs:
+            configured_mailboxes = set(self._mailboxes())
+            if address.identifier in configured_mailboxes:
                 mailbox_id = address.identifier
             else:
                 response = self.session.post(
-                    f"{base_url}/api/v4/mailboxs/direct",
+                    f"{base_url}/api/v4/mailboxes/direct",
                     json=[self._bot_user_id, address.identifier], timeout=15,
                 )
                 response.raise_for_status()
@@ -728,6 +728,6 @@ class ChannelRelay(MattermostRelay):
 
 
 __all__ = [
-    "ADAPTER_CAPABILITIES", "ChannelRelay", "PLANNED_CHANNEL_TYPES", "RELAY_PORT", "RELAY_RECIPIENT",
-    "SUPPORTED_CHANNEL_TYPES",
+    "ADAPTER_CAPABILITIES", "ChannelRelay", "PLANNED_MAILBOX_TYPES", "RELAY_PORT", "RELAY_RECIPIENT",
+    "SUPPORTED_MAILBOX_TYPES",
 ]

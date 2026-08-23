@@ -1,7 +1,7 @@
 import base64
 import struct
 
-from mailbox_mailboxs.websocket_chat import accept_value, encode_frame, read_frame
+from mailbox_chat.websocket_chat import accept_value, encode_frame, read_frame
 
 
 class FakeConnection:
