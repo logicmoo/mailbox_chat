@@ -9,10 +9,10 @@ import sys
 import urllib.parse
 import urllib.request
 
-from .admin_io import load_input, normalize_options, render
+from .admin_io import curl_command, load_input, normalize_options, render
 from .agent_mailbox import CHAT_COMMANDS
 from .endpoint_address import parse_endpoint
-from .listener_registry import load_listeners
+from .connector_registry import load_connectors
 from .adapters.irc_adapter import post_relay_command as post_irc_command, protocol_line
 from .adapters.mattermost_adapter import (
     arguments_from_namespace as mattermost_arguments,
@@ -61,6 +61,8 @@ def parser() -> argparse.ArgumentParser:
                         help="interpret --input as text or JSON (default: text)")
     result.add_argument("--format", choices=("jsonl", "json", "text"), default="json",
                         help="output format (default: json)")
+    result.add_argument("--curl", action="store_true",
+                        help="print the equivalent REST curl command without executing it")
     commands = result.add_subparsers(dest="command", required=True)
     ping = commands.add_parser("ping", help="check connectivity to the selected platform")
     ping.add_argument("token", nargs="?", default="mailbox-client",
@@ -70,6 +72,13 @@ def parser() -> argparse.ArgumentParser:
         "list", help="list channels across all providers, or one selected with --on",
     )
     listing.add_argument("--team", help="limit Mattermost results to a team ID or name")
+    listing.add_argument(
+        "--bot", nargs="?", const="", metavar="BOTNICK",
+        help="list Mattermost channels the bot (or BOTNICK) has joined instead of discovering all",
+    )
+    listing.add_argument("--page", type=int, help="Mattermost discovery start page (default 0; discovery pages to the end)")
+    listing.add_argument("--per-page", "--per_page", dest="per_page", type=int,
+                         help="Mattermost channels per discovery page (default 100)")
     names = commands.add_parser(
         "names", help="list channel users by registered name, ID, address, or platform URL",
     )
@@ -81,6 +90,10 @@ def parser() -> argparse.ArgumentParser:
     join = commands.add_parser("join", help="join or create a channel")
     join.add_argument("channel", help="qualified channel address or IRC channel name")
     join.add_argument("key", nargs="?", help="optional channel key")
+    join.add_argument(
+        "--subscribe-all", action="store_true",
+        help="subscribe every registered agent to the joined channel (Mattermost)",
+    )
     part = commands.add_parser("part", help="leave a channel")
     part.add_argument("channel", help="qualified channel address or IRC channel name")
     part.add_argument("message", nargs="?", help="optional part message")
@@ -117,6 +130,10 @@ def parser() -> argparse.ArgumentParser:
         command_parser.add_argument(
             "--on", metavar="TYPE/INSTANCE", default=argparse.SUPPRESS,
             help="select a platform instance when no qualified address determines it",
+        )
+        command_parser.add_argument(
+            "--curl", action="store_true", default=argparse.SUPPRESS,
+            help="print the equivalent REST curl command without executing it",
         )
     return result
 
@@ -162,13 +179,19 @@ def _remote_irc_list(url: str, token: str) -> dict:
 
 def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
     """List channels from every configured, enabled provider with discovery support."""
-    listeners = [item for item in load_listeners() if item["enabled"]]
+    connectors = [item for item in load_connectors() if item["enabled"]]
     providers: list[dict] = []
     new_entries = 0
-    for adapter in dict.fromkeys(str(item["adapter"]) for item in listeners):
+    mm_arguments = {
+        "team": getattr(args, "team", None),
+        "bot": getattr(args, "bot", None),
+        "page": getattr(args, "page", None),
+        "per_page": getattr(args, "per_page", None),
+    }
+    for adapter in dict.fromkeys(str(item["adapter"]) for item in connectors):
         try:
             if adapter == "mattermost":
-                response = post_mattermost_command(args.url, token, "list", {"team": None})
+                response = post_mattermost_command(args.url, token, "list", mm_arguments)
                 registry = response.get("registry") if isinstance(response, dict) else None
                 if isinstance(registry, dict):
                     new_entries += int(registry.get("new_entries") or 0)
@@ -185,10 +208,57 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
     return {"providers": providers}, new_entries
 
 
+def _discovery_curl(base: str, token: str, resource: str, timeout: float,
+                    channel: str = "") -> str:
+    query = urllib.parse.urlencode({"platform": "irc", "timeout": timeout,
+                                    "channel": channel, "instance": ""})
+    return curl_command("GET", f"{base}/v1/discovery/{resource}?{query}", token=token)
+
+
+def _command_curl(args: argparse.Namespace, token: str, platform: str,
+                  loaded: object | None) -> str:
+    """Render the single REST curl equivalent for one platform command."""
+    base = args.url.rstrip("/")
+    if platform == "mm":
+        payload = {"command": args.command, "arguments": mattermost_arguments(args, loaded)}
+        return curl_command("POST", f"{base}/v1/mm/command", token=token, payload=payload)
+    if args.command in {"teams", "threads"}:
+        raise ValueError(f"{args.command} is not available on IRC")
+    if args.command == "list":
+        return _discovery_curl(base, token, "channels", 30.0)
+    if args.command == "names":
+        return _discovery_curl(base, token, "users", 15.0, args.channel)
+    return curl_command("POST", f"{base}/v1/irc/command", token=token,
+                        payload={"line": protocol_line(args)})
+
+
+def _list_all_curl(args: argparse.Namespace, token: str) -> list[str]:
+    """Render one curl per enabled discovery-capable provider (list without --on)."""
+    base = args.url.rstrip("/")
+    mm_arguments = {"team": getattr(args, "team", None), "bot": getattr(args, "bot", None),
+                    "page": getattr(args, "page", None), "per_page": getattr(args, "per_page", None)}
+    lines: list[str] = []
+    for adapter in dict.fromkeys(str(item["adapter"]) for item in load_connectors()
+                                 if item["enabled"]):
+        if adapter == "mattermost":
+            lines.append(curl_command(
+                "POST", f"{base}/v1/mm/command", token=token,
+                payload={"command": "list", "arguments": mm_arguments}))
+        elif adapter == "irc":
+            query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "channel": ""})
+            lines.append(curl_command("GET", f"{base}/v1/discovery/channels?{query}", token=token))
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(normalize_options(list(sys.argv[1:] if argv is None else argv)))
     token = args.token or os.environ.get("AGENT_MAILBOX_TOKEN", "")
+    curl = getattr(args, "curl", False)
     if args.command == "list" and not args.on:
+        if curl:
+            for line in _list_all_curl(args, token):
+                print(line)
+            return 0
         result, count = _list_providers(args, token)
         print(render(result, args.format))
         print(f"[registry] {count} new entr{'y' if count == 1 else 'ies'} found",
@@ -210,10 +280,19 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"{args.command} requires inline content or --input FILE")
     else:
         loaded = None
+    if curl:
+        print(_command_curl(args, token, platform, loaded))
+        return 0
     if platform == "mm":
         result = post_mattermost_command(args.url, token, args.command,
                                          mattermost_arguments(args, loaded))
-        print(render(result.get("result", result), args.format))
+        displayed = result.get("result", result)
+        if isinstance(result, dict) and result.get("subscriptions") is not None:
+            displayed = {
+                "result": displayed,
+                "subscriptions": result["subscriptions"],
+            }
+        print(render(displayed, args.format))
         registry = result.get("registry") if isinstance(result, dict) else None
         if isinstance(registry, dict):
             count = int(registry.get("new_entries") or 0)

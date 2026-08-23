@@ -25,21 +25,21 @@ class Mailbox:
 
 
 def test_personal_whatsapp_signed_group_and_send(monkeypatch, tmp_path: Path) -> None:
-    listener = {"id": "personal", "direction": "bidirectional", "channel_ids": ["group@g.us"],
+    connector = {"id": "personal", "direction": "bidirectional", "channel_ids": ["group@g.us"],
                 "include_groups": True, "bridge_agent": "wa-agent", "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("WHATSAPP_PERSONAL_COMPANION_TOKEN", "token")
     monkeypatch.setenv("WHATSAPP_PERSONAL_WEBHOOK_SECRET", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.whatsapp_personal_adapter.listeners_for",
-                        lambda adapter: [listener])
+    monkeypatch.setattr("mailbox_channels.adapters.whatsapp_personal_adapter.connectors_for",
+                        lambda adapter: [connector])
     session, mailbox = Session(), Mailbox(tmp_path); adapter = WhatsAppPersonalAdapter(session=session)
     assert adapter.configure()
     payload = {"message_id": "msg-1", "chat_id": "group@g.us", "chat_name": "Family",
                "is_group": True, "author_id": "1555@c.us", "author_name": "Douglas", "text": "hello"}
     body = json.dumps(payload).encode(); signature = "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
-    assert adapter.authenticate_webhook(body, signature) == listener
-    adapter.handle_webhook(payload, mailbox, listener)
+    assert adapter.authenticate_webhook(body, signature) == connector
+    adapter.handle_webhook(payload, mailbox, connector)
     assert [item[0] for item in mailbox.sent] == ["wa-agent", "worker"]
     assert mailbox.sent[0][2]["channel_id"] == "group@g.us"
-    adapter.send_message({"listener_id": "personal", "channel_id": "group@g.us", "text": "reply"})
+    adapter.send_message({"connector_id": "personal", "channel_id": "group@g.us", "text": "reply"})
     assert session.posts[-1][0].endswith("/send")
     assert session.posts[-1][1]["headers"]["Authorization"] == "Bearer token"

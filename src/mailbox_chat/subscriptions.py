@@ -1,60 +1,112 @@
-"""Durable subscriptions for fully qualified conversation addresses."""
+"""Durable subscriptions for fully qualified conversation addresses.
+
+Channels live in the ``server_registry_channels`` registry. Each entry's
+payload holds ``{subscribers, aliases, kind, ...}`` plus any connector/endpoint
+metadata; the registry id is the canonical channel id.
+"""
 
 from __future__ import annotations
 
-import json
-import os
-import re
-import tempfile
-import threading
 from pathlib import Path
 from typing import Any
 
-from .listener_registry import relays_file
+from . import channel_store
+from .connector_registry import store_root
 
 
-SERVER_EVENTS_CHANNEL = "local/0/server_events"
-SERVER_EVENTS_BUS = "mailbox-server-events-bus"
-SERVER_AGENT_TO_AGENT_BUS = "mailbox-server-agent-to-agent-bus"
-SERVER_AGENT_TO_CHANNEL_BUS = "mailbox-server-agent-to-channel-bus"
-SERVER_AUDIT_BUSES = {SERVER_AGENT_TO_AGENT_BUS, SERVER_AGENT_TO_CHANNEL_BUS}
-_SUBSCRIPTION_LOCK = threading.Lock()
+SERVER_EVENTS_CHANNEL = "server_events_log"
+SERVER_AGENT_TO_AGENT_CHANNEL = "server_outbound_relay_agent_to_agent"
+SERVER_AGENT_TO_CHANNEL_CHANNEL = "server_outbound_relay_agent_to_channel"
+BUILTIN_CHANNELS = {
+    SERVER_EVENTS_CHANNEL, SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL,
+}
 
 
-def canonical_channel(value: str) -> str:
-    from .endpoint_address import parse_endpoint
+def _payload(record: dict[str, Any]) -> dict[str, Any]:
+    payload = record.get("payload")
+    return dict(payload) if isinstance(payload, dict) else {}
 
+
+def canonical_channel(value: str, path: Path | None = None) -> str:
+    from .endpoint_address import channel_resource_id, parse_endpoint
+
+    value = value.strip()
+    if "/" not in value:
+        if not value:
+            raise ValueError("channel must be non-empty")
+        return value
     address = parse_endpoint(value)
     if address is None:
         raise ValueError("channel must use TYPE/INSTANCE/IDENTIFIER addressing")
-    return address.canonical
+    root = store_root(path)
+    equivalent_ids: list[str] = []
+    for record in channel_store.registry_entries(root, channel_store.CHANNELS_REGISTRY):
+        payload = _payload(record)
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        aliases = [
+            *(payload.get("aliases") or []),
+            payload.get("external_address"),
+            metadata.get("external_address"),
+        ]
+        configured_id = str(record.get("id") or "").strip()
+        if value in aliases and configured_id:
+            return configured_id
+        for alias in aliases:
+            try:
+                alias_address = parse_endpoint(str(alias or ""))
+            except ValueError:
+                alias_address = None
+            if (alias_address and alias_address.adapter == address.adapter
+                    and alias_address.identifier == address.identifier
+                    and (alias_address.instance == address.instance
+                         or address.instance.isdigit())):
+                if configured_id:
+                    equivalent_ids.append(configured_id)
+    equivalent_ids = list(dict.fromkeys(equivalent_ids))
+    if len(equivalent_ids) == 1:
+        return equivalent_ids[0]
+    if len(equivalent_ids) > 1:
+        raise ValueError(f"channel alias is ambiguous: {value}")
+    return channel_resource_id(address.adapter, address.instance, address.identifier)
+
+
+def _channel_record(payload: dict[str, Any], channel_id: str) -> dict[str, Any]:
+    metadata = dict(payload.get("metadata") or {})
+    aliases = list(dict.fromkeys(
+        str(value).strip() for value in [
+            *(payload.get("aliases") or []),
+            payload.get("external_address"), payload.get("channel_name"),
+            metadata.get("external_address"), metadata.get("channel_name"),
+        ] if str(value or "").strip()
+    ))
+    return {
+        **payload, "kind": "channel", "id": channel_id,
+        "aliases": aliases,
+        "subscribers": list(dict.fromkeys(
+            str(item).strip() for item in payload.get("subscribers") or [] if str(item).strip()
+        )),
+    }
 
 
 def channels(path: Path | None = None) -> list[dict[str, Any]]:
-    target = path or relays_file()
-    payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
-    configured = payload.get("subscriptions") or []
+    root = store_root(path)
     result = []
     seen = set()
-    for raw in configured:
-        channel_id = canonical_channel(str(raw.get("id") or ""))
+    for record in channel_store.registry_entries(root, channel_store.CHANNELS_REGISTRY):
+        channel_id = canonical_channel(str(record.get("id") or ""), root)
         if not channel_id or channel_id in seen:
             raise ValueError("subscription addresses must be non-empty and unique")
         seen.add(channel_id)
-        result.append({
-            **raw, "id": channel_id,
-            "subscribers": list(dict.fromkeys(
-                str(item).strip() for item in raw.get("subscribers") or [] if str(item).strip()
-            )),
-        })
+        result.append(_channel_record(_payload(record), channel_id))
     if SERVER_EVENTS_CHANNEL not in seen:
         result.append({"id": SERVER_EVENTS_CHANNEL, "subscribers": []})
     return result
 
 
 def subscribers(channel_id: str, path: Path | None = None) -> list[str]:
-    channel_id = canonical_channel(channel_id)
-    match = next((item for item in channels(path) if item["id"] == channel_id), None)
+    root = store_root(path)
+    channel_id = canonical_channel(channel_id, root)
+    match = next((item for item in channels(root) if item["id"] == channel_id), None)
     return list(match["subscribers"]) if match else []
 
 
@@ -62,129 +114,151 @@ def subscriptions(identity: str, path: Path | None = None) -> list[str]:
     return [item["id"] for item in channels(path) if identity in item["subscribers"]]
 
 
-def _bus_slug(value: str) -> str:
-    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", str(value).lower())).strip("-")
+def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
+    """List subscribable channels with stable IDs and explicit kinds."""
+    from .connector_registry import load_agents, load_connectors
 
+    root = store_root(path)
+    configured_connectors = load_connectors(root)
+    connector_adapters = {item["id"]: item["adapter"] for item in configured_connectors}
 
-def _mattermost_namespace(instance: str) -> str:
-    """Turn a Mattermost endpoint into its short, stable server namespace."""
-    host = str(instance).lower().split(":", 1)[0].strip(".")
-    return _bus_slug(host) or "mattermost"
+    def source_kind(item: dict[str, Any]) -> str:
+        channel_id = item["id"]
+        if channel_id == SERVER_EVENTS_CHANNEL:
+            return "system"
+        if channel_id in {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}:
+            return "audit"
+        connector_id = str(item.get("connector")
+                           or (item.get("metadata") or {}).get("connector") or "")
+        return str(connector_adapters.get(connector_id) or "local")
 
-
-def channel_bus(channel_id: str, *, workspace: str = "", channel_name: str = "") -> str:
-    """Return the stable retained mailbox bus for one qualified conversation."""
-    canonical = canonical_channel(channel_id)
-    if canonical == SERVER_EVENTS_CHANNEL:
-        return SERVER_EVENTS_BUS
-    address = canonical.split("/", 2)
-    adapter = "mm" if address[0] == "mm" else address[0].replace("_", "-")
-    identifier = _bus_slug(channel_name or address[2]) or "channel"
-    if address[0] == "mm":
-        namespace = _mattermost_namespace(address[1])
-        workspace_slug = _bus_slug(workspace)
-        middle = f"{workspace_slug}-{identifier}" if workspace_slug else identifier
-        return f"{namespace}-{adapter}-{middle}-bus"
-    return f"snet-{adapter}-{identifier}-bus"
-
-
-def available_buses(path: Path | None = None) -> list[dict[str, Any]]:
     result = [
-        {"channel": item["id"],
-         "bus": str((item.get("metadata") or {}).get("bus") or channel_bus(item["id"])),
-         "metadata": dict(item.get("metadata") or {})}
-        for item in channels(path)
+        {
+            "id": item["id"],
+            "kind": "mailbox",
+            "channel_type": source_kind(item),
+            "aliases": list(item.get("aliases") or []),
+            "subscribers": list(item["subscribers"]),
+            "metadata": dict(item.get("metadata") or {}),
+        }
+        for item in channels(root)
     ]
-    seen = {item["channel"] for item in result}
-    result.extend([
-        {"channel": "local/0/agent_to_agent", "bus": SERVER_AGENT_TO_AGENT_BUS,
-         "metadata": {"kind": "server_audit", "scope": "direct_agent"}},
-        {"channel": "local/0/agent_to_channel", "bus": SERVER_AGENT_TO_CHANNEL_BUS,
-         "metadata": {"kind": "server_audit", "scope": "all_sends"}},
-    ])
-    from .endpoint_address import EndpointAddress, endpoint_instance
-    from .listener_registry import agent_presence_bus, load_agents, load_listeners
-    result.extend([
-        {"channel": f"local/0/presence_to/{item['agent_id']}",
-         "bus": agent_presence_bus(str(item["agent_id"])),
-         "metadata": {"kind": "agent_presence_ingress", "agent_id": item["agent_id"]}}
-        for item in load_agents(path)
-    ])
-    for listener in load_listeners(path):
-        if not listener.get("enabled") or listener.get("direction") not in {"inbound", "bidirectional"}:
+    seen = {item["id"] for item in result}
+    for audit in [
+        {"id": SERVER_AGENT_TO_AGENT_CHANNEL, "kind": "mailbox", "channel_type": "audit",
+         "aliases": [], "subscribers": [],
+         "metadata": {"scope": "direct_agent"}},
+        {"id": SERVER_AGENT_TO_CHANNEL_CHANNEL, "kind": "mailbox", "channel_type": "audit",
+         "aliases": [], "subscribers": [],
+         "metadata": {"scope": "all_sends"}},
+    ]:
+        existing = next((item for item in result if item["id"] == audit["id"]), None)
+        if existing is None:
+            result.append(audit)
+            seen.add(audit["id"])
+        else:
+            existing["metadata"] = {**existing["metadata"], **audit["metadata"]}
+    for agent in load_agents(root):
+        channel = str(agent["mailbox"])
+        if channel not in seen:
+            result.append({
+                "id": channel,
+                "kind": "mailbox",
+                "channel_type": "agent_direct",
+                "aliases": [],
+                "subscribers": [],
+                "metadata": {"agent_id": agent["agent_id"]},
+            })
+            seen.add(channel)
+    for connector in configured_connectors:
+        if not connector.get("enabled") or connector.get("direction") not in {"inbound", "bidirectional"}:
             continue
-        for identifier in listener.get("channel_ids") or []:
+        for identifier in connector.get("channel_ids") or []:
             if not identifier:
                 continue
-            channel = EndpointAddress(
-                str(listener["adapter"]), endpoint_instance(str(listener["adapter"]), listener),
+            from .endpoint_address import channel_resource_id, endpoint_instance
+            channel = channel_resource_id(
+                str(connector["adapter"]),
+                endpoint_instance(str(connector["adapter"]), connector),
                 str(identifier),
-            ).canonical
+            )
             if channel not in seen:
-                result.append({"channel": channel, "bus": channel_bus(
-                    channel, workspace=str(listener.get("workspace_name") or ""),
-                ),
-                               "metadata": {"listener": listener["id"]}})
+                result.append({
+                    "id": channel,
+                    "kind": "mailbox",
+                    "channel_type": ("mattermost" if connector["adapter"] == "mattermost"
+                                     else connector["adapter"]),
+                    "aliases": [str(identifier)],
+                    "subscribers": [],
+                    "metadata": {"connector": connector["id"]},
+                })
                 seen.add(channel)
     return result
 
 
 def ensure_channel(channel_id: str, *, path: Path | None = None,
-                   metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+                   metadata: dict[str, Any] | None = None,
+                   aliases: list[str] | None = None) -> dict[str, Any]:
     """Create a qualified subscription address without requiring a subscriber."""
-    channel_id = canonical_channel(channel_id)
-    target = path or relays_file()
-    with _SUBSCRIPTION_LOCK:
-        payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
-        records = payload.setdefault("subscriptions", [])
-        record = next((item for item in records if str(item.get("id") or "") == channel_id), None)
-        if record is None:
-            record = {"id": channel_id, "subscribers": []}
-            records.append(record)
+    root = store_root(path)
+    channel_id = canonical_channel(channel_id, root)
+    with channel_store.STORE_LOCK:
+        record = channel_store.get_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
+        payload = _payload(record) if record else {"kind": "channel", "subscribers": []}
         if metadata:
-            record["metadata"] = {**dict(record.get("metadata") or {}), **metadata}
-        target.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent, text=True)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(payload, stream, ensure_ascii=False, indent=2)
-                stream.write("\n")
-            os.replace(temporary, target)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
-    return record
+            payload.update(metadata)
+            payload["aliases"] = list(dict.fromkeys(
+                str(value).strip() for value in [
+                    *(payload.get("aliases") or []),
+                    metadata.get("external_address"), metadata.get("channel_name"),
+                ] if str(value or "").strip()
+            ))
+        if aliases:
+            payload["aliases"] = list(dict.fromkeys([
+                *(payload.get("aliases") or []),
+                *(str(value).strip() for value in aliases if str(value).strip()),
+            ]))
+        payload.setdefault("kind", "channel")
+        payload.setdefault("subscribers", [])
+        channel_store.put_entry(root, channel_store.CHANNELS_REGISTRY, channel_id, payload)
+    return {"kind": "channel", "id": channel_id, **payload}
+
+
+def delete_channel(channel_id: str, *, force: bool = False,
+                   path: Path | None = None) -> dict[str, Any]:
+    """Delete a configured channel, protecting subscribers unless forced."""
+    root = store_root(path)
+    channel_id = canonical_channel(channel_id, root)
+    if channel_id in BUILTIN_CHANNELS:
+        raise ValueError(f"built-in channel cannot be deleted: {channel_id}")
+    with channel_store.STORE_LOCK:
+        record = channel_store.get_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
+        if record is None:
+            return {"id": channel_id, "deleted": False}
+        members = list(_payload(record).get("subscribers") or [])
+        if members and not force:
+            raise ValueError("channel has subscribers; unsubscribe them or use --force")
+        channel_store.delete_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
+    return {"id": channel_id, "deleted": True, "removed_subscribers": members}
 
 
 def set_subscription(channel_id: str, identity: str, *, enabled: bool,
                      path: Path | None = None) -> dict[str, Any]:
-    channel_id, identity = canonical_channel(channel_id), identity.strip()
+    root = store_root(path)
+    channel_id, identity = canonical_channel(channel_id, root), identity.strip()
     if not channel_id or not identity:
         raise ValueError("channel and identity are required")
-    target = path or relays_file()
-    with _SUBSCRIPTION_LOCK:
-        payload = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {"version": 1}
-        records = payload.setdefault("subscriptions", [])
-        record = next((item for item in records if str(item.get("id") or "") == channel_id), None)
-        if record is None:
-            record = {"id": channel_id, "subscribers": []}
-            records.append(record)
+    with channel_store.STORE_LOCK:
+        record = channel_store.get_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
+        payload = _payload(record) if record else {"kind": "channel", "subscribers": []}
         members = list(dict.fromkeys(
-            str(item).strip() for item in record.get("subscribers") or [] if str(item).strip()
+            str(item).strip() for item in payload.get("subscribers") or [] if str(item).strip()
         ))
         if enabled and identity not in members:
             members.append(identity)
         if not enabled:
             members = [item for item in members if item != identity]
-        record["subscribers"] = members
-        target.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent, text=True)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(payload, stream, ensure_ascii=False, indent=2)
-                stream.write("\n")
-            os.replace(temporary, target)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        payload["subscribers"] = members
+        payload.setdefault("kind", "channel")
+        channel_store.put_entry(root, channel_store.CHANNELS_REGISTRY, channel_id, payload)
     return {"channel": channel_id, "identity": identity, "subscribed": enabled}

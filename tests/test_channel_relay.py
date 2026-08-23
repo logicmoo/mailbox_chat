@@ -1,15 +1,28 @@
 from pathlib import Path
 
+import pytest
+
 from mailbox_channels import agent_mailbox
 from mailbox_channels.adapters.mattermost_adapter import MattermostRelay
 from mailbox_channels.channel_relay import ChannelRelay, RELAY_RECIPIENT
-from mailbox_channels.subscriptions import set_subscription
+from mailbox_channels.subscriptions import SERVER_EVENTS_CHANNEL, set_subscription
+
+
+@pytest.fixture(autouse=True)
+def isolate_relay_config(tmp_path: Path, monkeypatch) -> None:
+    config = tmp_path / "pytest-tmp-666-agent-config"
+    config.mkdir()
+    (config / "relays.json").write_text(
+        '{"version":1,"agents":[],"subscriptions":[],"connectors":[]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
 
 
 class FailingAdapter:
     def __init__(self) -> None:
         self.status = {"enabled": True, "connected": False, "lastError": None}
-        self.listeners = [{
+        self.connectors = [{
             "id": "discord-main", "direction": "bidirectional", "channel_ids": ["ops"],
             "bridge_agent": "discord-agent", "mailbox_recipients": ["worker"],
         }]
@@ -66,21 +79,21 @@ class NamedMattermostSession(Session):
         return super().get(url, **kwargs)
 
 
-def test_mattermost_channel_bus_uses_resolved_workspace_name(tmp_path: Path, monkeypatch) -> None:
+def test_mattermost_channel_uses_resource_id_and_keeps_address_alias(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
     monkeypatch.setenv("MM_URL", "https://chat.singularitynet.io")
     monkeypatch.setenv("MM_BOT_TOKEN", "token")
     monkeypatch.setenv("MM_CHANNEL_ID", "channel")
     monkeypatch.setenv("MM_CHANNEL_IDS", "channel")
-    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "local-agent")
-    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for",
+    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "pytest-tmp-666-agent")
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.connectors_for",
                         lambda *_args, **_kwargs: [])
     relay = MattermostRelay(session=NamedMattermostSession())
     assert relay.configure() is True
 
     recipients = relay._inbound_recipients("channel")
 
-    assert "chat-singularitynet-io-mm-opencog-test-bus" in recipients
+    assert "mm-chat-singularitynet-io-channel" in recipients
 
 
 def test_mattermost_inbound_event_contains_workspace_identity(
@@ -90,8 +103,8 @@ def test_mattermost_inbound_event_contains_workspace_identity(
     monkeypatch.setenv("MM_BOT_TOKEN", "token")
     monkeypatch.setenv("MM_CHANNEL_ID", "channel")
     monkeypatch.setenv("MM_CHANNEL_IDS", "channel")
-    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "local-agent")
-    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for",
+    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "pytest-tmp-666-agent")
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.connectors_for",
                         lambda *_args, **_kwargs: [])
     relay = MattermostRelay(session=NamedMattermostSession())
     assert relay.configure() is True
@@ -104,7 +117,7 @@ def test_mattermost_inbound_event_contains_workspace_identity(
     relay._poll_inbound(relay.base_url)
 
     event = next(
-        item for item in agent_mailbox.receive("local-agent", root=tmp_path)
+        item for item in agent_mailbox.receive("pytest-tmp-666-agent", root=tmp_path)
         if item["type"] == "mattermost_message"
     )
     assert event["workspace_id"] == "team-1"
@@ -118,7 +131,9 @@ def test_mattermost_adapter_uses_shared_envelope(tmp_path: Path, monkeypatch) ->
     monkeypatch.setenv("MM_URL", "https://mattermost.example")
     monkeypatch.setenv("MM_BOT_TOKEN", "token")
     monkeypatch.setenv("MM_CHANNEL_ID", "channel")
-    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "local-agent")
+    monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "pytest-tmp-666-agent")
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.connectors_for",
+                        lambda *_args, **_kwargs: [])
     session = Session()
     relay = ChannelRelay(session=session)
     relay.configure()
@@ -126,9 +141,10 @@ def test_mattermost_adapter_uses_shared_envelope(tmp_path: Path, monkeypatch) ->
     relay._latest_create_at["channel"] = 0
     agent_mailbox.send(RELAY_RECIPIENT, "done", channel_type="mattermost", channel_id="channel", root=tmp_path)
     relay.cycle()
-    received = agent_mailbox.receive("local-agent", root=tmp_path)
+    received = agent_mailbox.receive("pytest-tmp-666-agent", root=tmp_path)
     assert next(message for message in received if message["type"] == "mattermost_message")["text"] == "hello"
-    assert next(message for message in received if message["type"] == "chat_server_status")["from"] == (
+    status_events = agent_mailbox.receive(SERVER_EVENTS_CHANNEL, root=tmp_path)
+    assert next(message for message in status_events if message["type"] == "chat_server_status")["from"] == (
         "local-mattermost-server"
     )
     assert session.posts[0]["message"] == "done"
@@ -143,19 +159,19 @@ def test_agent_channel_post_fans_out_to_other_subscribers_once(tmp_path: Path, m
         "MATTERMOST_RELAY_RECIPIENTS",
         "symbolic-workbench-codex,omegaclaw-core-codex,omegaclaw-min",
     )
-    listener = {
+    connector = {
         "id": "mattermost-main", "direction": "bidirectional", "channel_ids": ["channel"],
         "bridge_agent": "", "mailbox_recipients": [
             "symbolic-workbench-codex", "omegaclaw-core-codex", "omegaclaw-min",
         ],
     }
     monkeypatch.setattr(
-        "mailbox_channels.adapters.mattermost_adapter.listeners_for",
-        lambda adapter, **_kwargs: [listener] if adapter == "mattermost" else [],
+        "mailbox_channels.adapters.mattermost_adapter.connectors_for",
+        lambda adapter, **_kwargs: [connector] if adapter == "mattermost" else [],
     )
     monkeypatch.setattr(
-        "mailbox_channels.channel_relay.listeners_for",
-        lambda adapter, **_kwargs: [listener] if adapter == "mattermost" else [],
+        "mailbox_channels.channel_relay.connectors_for",
+        lambda adapter, **_kwargs: [connector] if adapter == "mattermost" else [],
     )
     session = Session()
     relay = ChannelRelay(session=session)
@@ -193,14 +209,14 @@ def test_agent_channel_post_fans_out_to_other_subscribers_once(tmp_path: Path, m
     assert agent_mailbox.receive("omegaclaw-core-codex", root=tmp_path) == []
 
 
-def test_adapter_state_is_always_published_to_server_events(tmp_path: Path, monkeypatch) -> None:
+def test_adapter_state_is_always_published_to_server_events_log(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
     config = tmp_path / "config"
     config.mkdir()
     relays = config / "relays.json"
-    relays.write_text('{"version":1,"listeners":[],"subscriptions":[]}', encoding="utf-8")
+    relays.write_text('{"version":1,"connectors":[],"subscriptions":[]}', encoding="utf-8")
     monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
-    set_subscription("local/0/server_events", "symbolic-workbench-codex", enabled=True)
+    set_subscription("server_events_log", "symbolic-workbench-codex", enabled=True)
     relay = ChannelRelay.__new__(ChannelRelay)
     relay._adapter_event_states = {}
     relay._publish_adapter_event(
@@ -213,8 +229,8 @@ def test_adapter_state_is_always_published_to_server_events(tmp_path: Path, monk
     assert event["type"] == "chat_server_status"
     assert event["connection_state"] == "connection_failed"
     assert event["diagnostic"]["error_message"] == "offline"
-    assert agent_mailbox.receive("mailbox-server-events-bus", root=tmp_path)[0]["id"] != event["id"]
-    assert agent_mailbox.receive("local/0/server_events", root=tmp_path) == []
+    assert agent_mailbox.receive("server_events_log", root=tmp_path)[0]["id"] != event["id"]
+    assert agent_mailbox.receive("server_events_log", root=tmp_path) == []
 
 
 def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_path: Path, monkeypatch) -> None:
@@ -223,7 +239,7 @@ def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_pa
     monkeypatch.setenv("MM_BOT_TOKEN", "token")
     monkeypatch.setenv("MM_CHANNEL_ID", "public-channel")
     monkeypatch.setenv("MATTERMOST_RELAY_RECIPIENTS", "omegaclaw-core-codex")
-    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.connectors_for", lambda *_args, **_kwargs: [])
     session = Session()
     session.empty_channel = True
     relay = ChannelRelay(session=session)
@@ -243,18 +259,18 @@ def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_pa
     assert agent_mailbox.receive("omegaclaw-core-codex", root=tmp_path) == []
 
 
-def test_mattermost_connection_comes_from_json_listener(tmp_path: Path, monkeypatch) -> None:
+def test_mattermost_connection_comes_from_json_connector(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
     monkeypatch.delenv("MM_URL", raising=False)
     monkeypatch.delenv("MM_CHANNEL_ID", raising=False)
     monkeypatch.setenv("CUSTOM_MM_TOKEN", "secret")
-    listener = {
+    connector = {
         "id": "singularitynet", "adapter": "mattermost", "enabled": True,
         "instance": "chat.singularitynet.io", "base_url": "https://chat.singularitynet.io",
         "token_env": "CUSTOM_MM_TOKEN", "channel_ids": ["channel-from-json"],
     }
-    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.listeners_for",
-                        lambda *_args, **_kwargs: [listener])
+    monkeypatch.setattr("mailbox_channels.adapters.mattermost_adapter.connectors_for",
+                        lambda *_args, **_kwargs: [connector])
     relay = ChannelRelay(session=Session())
 
     assert relay.configure() is True
@@ -285,7 +301,7 @@ def test_adapter_failure_names_service_for_supervisor_retry(tmp_path: Path, monk
     assert event["local_chat_server"] is True
     assert event["service_context"] == {
         "adapter": "discord",
-        "listener_ids": ["discord-main"],
+        "connector_ids": ["discord-main"],
         "channel_ids": ["ops"],
         "directions": ["bidirectional"],
         "enabled": True,
@@ -346,3 +362,39 @@ def test_status_tracks_repeated_verbose_message_count(monkeypatch) -> None:
 
     assert relay.status["lastVerboseMessage"] == "mattermost adapter poll completed"
     assert relay.status["lastVerboseMessageRepeatCount"] == 20
+
+
+def test_relay_configures_one_irc_adapter_per_server_and_routes_outbound(monkeypatch) -> None:
+    quakenet = {
+        "id": "irc-primary", "adapter": "irc", "direction": "bidirectional", "enabled": True,
+        "server": "irc.quakenet.org", "channel_ids": ["##logicmoo"], "nickname": "jllykifsh",
+        "bridge_agent": "", "mailbox_recipients": [],
+    }
+    libera = {
+        "id": "irc-libera", "adapter": "irc", "direction": "bidirectional", "enabled": True,
+        "server": "irc.libera.chat", "channel_ids": [], "nickname": "prologmud",
+        "bridge_agent": "", "mailbox_recipients": [],
+    }
+    monkeypatch.setattr(
+        "mailbox_channels.adapters.mattermost_adapter.connectors_for",
+        lambda adapter, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "mailbox_channels.channel_relay.connectors_for",
+        lambda adapter, **_kwargs: [quakenet, libera] if adapter == "irc" else [],
+    )
+    relay = ChannelRelay(session=Session())
+    relay.configure()
+
+    assert [adapter.connector_id for adapter in relay.irc_adapters] == ["irc-primary", "irc-libera"]
+    # Route by explicit connector_id.
+    assert relay._select_irc_adapter(
+        {"connector_id": "irc-libera", "channel_id": "#x"}).connector_id == "irc-libera"
+    # Route by endpoint instance (server host) when no connector_id is present.
+    assert relay._select_irc_adapter(
+        {"endpoint_address": "irc/irc.quakenet.org/##logicmoo", "channel_id": "##logicmoo"}
+    ).connector_id == "irc-primary"
+    # Command routing helper resolves by instance too.
+    assert relay.irc_adapter_for(instance="irc.libera.chat").connector_id == "irc-libera"
+    summary = relay._irc_status_summary()
+    assert {server["connector_id"] for server in summary["servers"]} == {"irc-primary", "irc-libera"}

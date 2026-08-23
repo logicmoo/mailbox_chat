@@ -6,8 +6,10 @@ import argparse
 import json
 import mimetypes
 import os
+import shlex
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -25,12 +27,15 @@ DEFAULT_HOST = "127.0.0.1"
 HOST_ENV = "MAILBOX_RELAY_HOST"
 PORT_ENV = "MAILBOX_RELAY_PORT"
 TOKEN_ENV = "MAILBOX_RELAY_TOKEN"
+# Exit code the server returns to ask its supervisor loop to quit instead of
+# relaunching. Any other exit is treated by mailbox-server-loop as "restart".
+SHUTDOWN_EXIT_CODE = 42
 from .channel_relay import (
     ADAPTER_CAPABILITIES, ChannelRelay, PLANNED_CHANNEL_TYPES, RELAY_PORT, RELAY_RECIPIENT,
     SUPPORTED_CHANNEL_TYPES,
 )
 from . import agent_mailbox
-from .listener_registry import CONFIG_DIR_ENV, config_dir, load_routes, public_registry
+from .connector_registry import CONFIG_DIR_ENV, config_dir, public_registry
 from .websocket_chat import accept_value, handle_chat
 from .attachment_gateway import ATTACHMENT_PREFIX, PUBLIC_URL_ENV
 from .attachment_storage import (
@@ -39,7 +44,6 @@ from .attachment_storage import (
 from .sqlite_limits import DEFAULT_MAX_SQLITE_BYTES, MAX_SQLITE_ENV
 from .identifier_directory import IdentifierDirectory
 from .meta_webhooks import verify_challenge, verify_signature
-from .route_admin import attach as attach_route, detach as detach_route
 from .subscriptions import set_subscription, subscriptions
 from .cmd_client_page import (
     command_status, render_cmd_client_page, start_mailbox_client, stop_mailbox_client,
@@ -75,8 +79,12 @@ def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep, verbose: int 
             if not configured:
                 relay.configure()
                 configured = True
-            if relay.status.get("enabled"):
-                relay.cycle()
+            if relay.status.get("enabled") and not relay.status.get("maintenancePaused"):
+                relay.status["cycleActive"] = True
+                try:
+                    relay.cycle()
+                finally:
+                    relay.status["cycleActive"] = False
             retry_delay = 1.0
             relay.status["supervisorError"] = None
             _safe_write_status(relay)
@@ -120,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"server TCP port (environment: {PORT_ENV}; default: {RELAY_PORT})",
     )
     parser.add_argument("--mailbox-dir", type=Path, help="mailbox data directory")
-    parser.add_argument("--config-dir", type=Path, help="directory containing .env, relays.json, and mailboxes.json")
+    parser.add_argument("--config-dir", type=Path, help="directory containing .env and mailboxes.json")
     parser.add_argument(
         "--public-address", "--public-url", dest="public_url", default=os.environ.get(PUBLIC_URL_ENV),
         help=f"externally reachable base URL advertised to clients and used for attachment links "
@@ -147,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-jsonl-mb", type=int,
         default=int(os.environ.get(agent_mailbox.MAX_JSONL_ENV, agent_mailbox.DEFAULT_MAX_JSONL_BYTES))
         // (1024 * 1024),
-        help=f"maximum messages.jsonl size in MiB (environment: {agent_mailbox.MAX_JSONL_ENV}; default: 5120)",
+        help=f"maximum JSON message store size in MiB (environment: {agent_mailbox.MAX_JSONL_ENV}; default: 5120)",
     )
     parser.add_argument(
         "--max-sqlite-mb", type=int,
@@ -201,7 +209,11 @@ def main(argv: list[str] | None = None) -> int:
         "maxJsonlBytes": arguments.max_jsonl_mb * 1024 * 1024,
         "maxSqliteBytes": arguments.max_sqlite_mb * 1024 * 1024,
         "verboseLevel": arguments.verbose,
+        "maintenancePaused": False,
+        "cycleActive": False,
     })
+
+    restart_state = {"exit_code": 0}
 
     class HealthHandler(BaseHTTPRequestHandler):
         def _authorized(self) -> bool:
@@ -237,6 +249,21 @@ def main(argv: list[str] | None = None) -> int:
             self.end_headers()
             self.wfile.write(body)
 
+        def _request_exit(self, exit_code: int, payload: dict) -> None:
+            # Ack first, then ask the supervisor to return so the process exits.
+            # Under mailbox-server-loop, exit code 0 relaunches a fresh process
+            # (reimporting every module, so edited code takes effect); the
+            # shutdown code tells the loop to quit instead of relaunching.
+            restart_state["exit_code"] = exit_code
+            relay.status["restartRequested"] = (exit_code == 0)
+            _safe_write_status(relay)
+            self._json(200, {**payload, "pid": os.getpid()})
+            try:
+                self.wfile.flush()
+            except OSError:
+                pass
+            relay.stop()
+
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path in {"/v1/webhooks/whatsapp", "/v1/webhooks/facebook-messenger"}:
@@ -253,6 +280,16 @@ def main(argv: list[str] | None = None) -> int:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if parsed.path in {"/api/restart", "/api/shutdown"}:
+                if not self._authorized():
+                    return
+                if parsed.path == "/api/restart":
+                    self._request_exit(0, {"restarting": True,
+                        "note": "process exits now; loop relaunches with the updated code"})
+                else:
+                    self._request_exit(SHUTDOWN_EXIT_CODE, {"stopping": True,
+                        "note": "process exits now; loop quits"})
                 return
             if parsed.path.startswith(ATTACHMENT_PREFIX):
                 relative_text = unquote(parsed.path[len(ATTACHMENT_PREFIX):])
@@ -272,16 +309,33 @@ def main(argv: list[str] | None = None) -> int:
             if parsed.path == "/agent_mailbox.py":
                 self._file(PACKAGE_ROOT / "agent_mailbox.py", "text/x-python; charset=utf-8")
                 return
-            if parsed.path == "/AUTOMATION_PROMPT.md":
-                self._file(RESOURCE_ROOT / "AUTOMATION_PROMPT.md", "text/markdown; charset=utf-8")
+            if parsed.path == "/channel_store.py":
+                self._file(PACKAGE_ROOT / "channel_store.py", "text/x-python; charset=utf-8")
                 return
-            if parsed.path == "/INSTALL_WITH_CODEX.md":
-                self._file(RESOURCE_ROOT / "INSTALL_WITH_CODEX.md", "text/markdown; charset=utf-8")
+            if parsed.path in {"/CODEX_AUTOMATION.md", "/AUTOMATION_PROMPT.md"}:
+                self._file(RESOURCE_ROOT / "CODEX_AUTOMATION.md", "text/markdown; charset=utf-8")
+                return
+            if parsed.path in {"/CODEX_INSTALL.md", "/INSTALL_WITH_CODEX.md"}:
+                # Install is consolidated into CODEX_AUTOMATION.md; keep these
+                # paths as backward-compatible aliases.
+                self._file(RESOURCE_ROOT / "CODEX_AUTOMATION.md", "text/markdown; charset=utf-8")
+                return
+            if parsed.path.endswith(".md") and parsed.path.count("/") == 1:
+                name = parsed.path[1:]
+                candidate = (RESOURCE_ROOT / name).resolve()
+                if candidate.parent == RESOURCE_ROOT.resolve() and candidate.is_file():
+                    self._file(candidate, "text/markdown; charset=utf-8")
+                else:
+                    self._json(404, {"error": "not found"})
                 return
             if parsed.path in {"/page-demo", "/page-demo/", "/chat", "/chat/"}:
                 self._file(RESOURCE_ROOT / "special_websocket_client.html", "text/html; charset=utf-8")
                 return
             if not self._authorized():
+                return
+            if (relay.status.get("maintenancePaused")
+                    and parsed.path not in {"/", "/health", "/v1/status"}):
+                self._json(423, {"error": "mailbox server is paused for maintenance"})
                 return
             if parsed.path in {"/cmd-client", "/cmd-client/"}:
                 arguments = parse_qs(parsed.query, keep_blank_values=True).get("args", [""])[0]
@@ -342,13 +396,14 @@ def main(argv: list[str] | None = None) -> int:
             if parsed.path == "/v1/discovery/channels":
                 query = parse_qs(parsed.query)
                 platform = query.get("platform", [""])[0].strip().lower()
+                instance = query.get("instance", [""])[0].strip()
                 try:
                     timeout = float(query.get("timeout", ["30"])[0])
                     if platform != "irc":
                         raise ValueError("channel discovery currently supports platform=irc")
                     from .discovery_admin import discover_irc_channels
                     self._json(200, {"platform": platform,
-                                     "channels": discover_irc_channels(timeout=timeout)})
+                                     "channels": discover_irc_channels(instance=instance, timeout=timeout)})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
@@ -356,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
                 query = parse_qs(parsed.query)
                 platform = query.get("platform", [""])[0].strip().lower()
                 channel = query.get("channel", [""])[0].strip()
+                instance = query.get("instance", [""])[0].strip()
                 try:
                     timeout = float(query.get("timeout", ["15"])[0])
                     if platform != "irc":
@@ -364,19 +420,13 @@ def main(argv: list[str] | None = None) -> int:
                         raise ValueError("channel is required")
                     from .discovery_admin import discover_irc_users
                     self._json(200, {"platform": platform, "channel": channel,
-                                     "users": discover_irc_users(channel, timeout=timeout)})
+                                     "users": discover_irc_users(channel, instance=instance, timeout=timeout)})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
-            if parsed.path == "/v1/listeners":
+            if parsed.path == "/v1/registry":
                 try:
                     self._json(200, public_registry())
-                except (OSError, ValueError, json.JSONDecodeError) as error:
-                    self._json(500, {"error": str(error)})
-                return
-            if parsed.path == "/v1/routes":
-                try:
-                    self._json(200, {"routes": load_routes()})
                 except (OSError, ValueError, json.JSONDecodeError) as error:
                     self._json(500, {"error": str(error)})
                 return
@@ -386,10 +436,6 @@ def main(argv: list[str] | None = None) -> int:
                     self._json(400, {"error": "identity is required"})
                     return
                 self._json(200, {"identity": identity, "channels": subscriptions(identity)})
-                return
-            if parsed.path == "/v1/poll-sources":
-                from .subscriptions import available_buses
-                self._json(200, {"sources": available_buses()})
                 return
             if parsed.path == "/v1/cursors":
                 cursor = parse_qs(parsed.query).get("cursor", [""])[0].strip()
@@ -462,14 +508,14 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/viber":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.viber.authenticate_webhook(
+                connector = relay.viber.authenticate_webhook(
                     body, self.headers.get("X-Viber-Content-Signature", ""),
                 )
-                if listener is None:
+                if connector is None:
                     self._json(401, {"error": "invalid Viber webhook signature"})
                     return
                 try:
-                    relay.viber.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, listener)
+                    relay.viber.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, connector)
                 except (ValueError, OSError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
                     return
@@ -478,12 +524,12 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/line":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.line.authenticate_webhook(body, self.headers.get("X-Line-Signature", ""))
-                if listener is None:
+                connector = relay.line.authenticate_webhook(body, self.headers.get("X-Line-Signature", ""))
+                if connector is None:
                     self._json(401, {"error": "invalid LINE webhook signature"})
                     return
                 try:
-                    relay.line.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, listener)
+                    relay.line.handle_webhook(json.loads(body.decode("utf-8")), agent_mailbox, connector)
                 except (ValueError, OSError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
                     return
@@ -492,15 +538,15 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/discourse":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.discourse.authenticate_webhook(
+                connector = relay.discourse.authenticate_webhook(
                     body, self.headers.get("X-Discourse-Event-Signature", ""),
                 )
-                if listener is None:
+                if connector is None:
                     self._json(401, {"error": "invalid Discourse webhook signature"})
                     return
                 try:
                     relay.discourse.handle_webhook(
-                        json.loads(body.decode("utf-8")), agent_mailbox, listener,
+                        json.loads(body.decode("utf-8")), agent_mailbox, connector,
                         event_id=self.headers.get("X-Discourse-Event-Id", ""),
                         event_name=self.headers.get("X-Discourse-Event", ""),
                     )
@@ -512,15 +558,15 @@ def main(argv: list[str] | None = None) -> int:
             if request_path == "/v1/webhooks/whatsapp-personal":
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
-                listener = relay.whatsapp_personal.authenticate_webhook(
+                connector = relay.whatsapp_personal.authenticate_webhook(
                     body, self.headers.get("X-WhatsApp-Personal-Signature", ""),
                 )
-                if listener is None:
+                if connector is None:
                     self._json(401, {"error": "invalid WhatsApp Personal webhook signature"})
                     return
                 try:
                     relay.whatsapp_personal.handle_webhook(
-                        json.loads(body.decode("utf-8")), agent_mailbox, listener,
+                        json.loads(body.decode("utf-8")), agent_mailbox, connector,
                     )
                 except (ValueError, OSError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
@@ -529,14 +575,85 @@ def main(argv: list[str] | None = None) -> int:
                 return
             if not self._authorized():
                 return
+            if request_path == "/v1/maintenance/pause":
+                relay.status["maintenancePaused"] = True
+                deadline = time.monotonic() + 40
+                while relay.status.get("cycleActive") and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                if relay.status.get("cycleActive"):
+                    self._json(503, {"error": "relay cycle did not quiesce before timeout"})
+                    return
+                _safe_write_status(relay)
+                self._json(200, {"paused": True, "cycleActive": False})
+                return
+            if request_path == "/v1/maintenance/resume":
+                relay.status["maintenancePaused"] = False
+                _safe_write_status(relay)
+                self._json(200, {"paused": False})
+                return
+            if request_path in {"/api/restart", "/api/shutdown"}:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length:
+                    self.rfile.read(length)
+                if request_path == "/api/restart":
+                    self._request_exit(0, {"restarting": True,
+                        "note": "process exits now; loop relaunches with the updated code"})
+                else:
+                    self._request_exit(SHUTDOWN_EXIT_CODE, {"stopping": True,
+                        "note": "process exits now; loop quits"})
+                return
+            if request_path in {
+                "/v1/maintenance/trim", "/v1/maintenance/trim-before",
+                "/v1/maintenance/trim-to-size",
+            }:
+                if not relay.status.get("maintenancePaused") or relay.status.get("cycleActive"):
+                    self._json(409, {"error": "pause and quiesce the server before trimming"})
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                    from datetime import datetime, timedelta, timezone
+                    cutoff = None
+                    max_bytes = None
+                    if request_path != "/v1/maintenance/trim-to-size" and payload.get("before"):
+                        cutoff = datetime.fromisoformat(
+                            str(payload["before"]).replace("Z", "+00:00")
+                        )
+                    elif request_path != "/v1/maintenance/trim-to-size" and (
+                        request_path == "/v1/maintenance/trim-before"
+                        or payload.get("older_than_seconds") is not None
+                    ):
+                        cutoff = datetime.now(timezone.utc) - timedelta(
+                            seconds=float(payload.get("older_than_seconds", 172800))
+                        )
+                    elif request_path == "/v1/maintenance/trim" and payload.get("max_bytes") is None:
+                        cutoff = datetime.now(timezone.utc) - timedelta(seconds=172800)
+                    if request_path == "/v1/maintenance/trim-to-size" or payload.get("max_bytes") is not None:
+                        max_bytes = int(payload.get("max_bytes"))
+                    channels = payload.get("channels") or []
+                    if not isinstance(channels, list):
+                        raise ValueError("channels must be an array; omit it to trim all channels")
+                    result = agent_mailbox.trim_messages(
+                        cutoff=cutoff, max_bytes=max_bytes,
+                        channels={str(item) for item in channels},
+                    )
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    self._json(400, {"error": str(error)})
+                    return
+                self._json(200, result)
+                return
+            if relay.status.get("maintenancePaused"):
+                self._json(423, {"error": "mailbox server is paused for maintenance"})
+                return
             if request_path == "/cmd-client/stop":
                 session_id = parse_qs(urlparse(self.path).query).get("session", [""])[0]
                 self._json(200, {"stopped": stop_mailbox_client(session_id)})
                 return
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/cursors", "/v1/agents", "/v1/identifiers",
-                                     "/v1/identifier-resolution-requests", "/v1/routes",
-                                     "/v1/subscriptions", "/v1/channels", "/v1/irc/command",
-                                     "/v1/mm/command"}:
+                                     "/v1/identifier-resolution-requests",
+                                     "/v1/subscriptions", "/v1/irc/command",
+                                     "/v1/mm/command", "/v1/connectors", "/v1/channels",
+                                     "/v1/relays", "/v1/mailboxes", "/v1/exec"}:
                 self._json(404, {"error": "not found"})
                 return
             try:
@@ -554,50 +671,67 @@ def main(argv: list[str] | None = None) -> int:
                                      session=relay.session,
                                      base_url=relay.base_url,
                                      directory=identifiers)
+                    subscription_result = None
+                    arguments = dict(payload.get("arguments") or {})
+                    if (str(payload.get("command") or "") == "join"
+                            and bool(arguments.get("subscribe_all"))):
+                        from .adapters.mattermost_adapter import resolve_address
+                        from .connector_registry import load_agents
+                        from .connector_registry import add_connector_channel
+                        from .endpoint_address import channel_resource_id, endpoint_instance
+                        from .subscriptions import ensure_channel, set_subscription
+
+                        address = resolve_address(
+                            str(arguments.get("channel") or ""), identifiers,
+                            base_url=relay.base_url,
+                        )
+                        channel_id = address.rsplit("/", 1)[-1]
+                        add_connector_channel("mattermost", "0", channel_id)
+                        identity = relay._mattermost_channel_identity(channel_id)
+                        instance = endpoint_instance("mattermost", relay.connector)
+                        resource_id = channel_resource_id(
+                            "mattermost", instance, channel_id,
+                        )
+                        ensure_channel(resource_id, metadata={
+                            "connector": relay.connector.get("id", ""),
+                            "endpoint": instance,
+                            "external_address": f"mm/{instance}/{channel_id}",
+                            **identity,
+                        })
+                        agent_ids = [agent["agent_id"] for agent in load_agents()]
+                        for agent_id in agent_ids:
+                            set_subscription(resource_id, agent_id, enabled=True)
+                            agent_mailbox.ensure_cursor(
+                                resource_id, cursor=agent_id, start="now",
+                            )
+                        subscription_result = {
+                            "channel": resource_id,
+                            "subscribed_agents": agent_ids,
+                            "count": len(agent_ids),
+                        }
                     remember_named_ids(identifiers, relay.base_url, result)
                     registry_count_after = identifiers.entry_count()
                     self._json(200, {"result": result, "registry": {
                         "new_entries": registry_count_after - registry_count_before,
                         "total_entries": registry_count_after,
-                    }})
+                    }, **({"subscriptions": subscription_result}
+                          if subscription_result is not None else {})})
                     return
                 if request_path == "/v1/irc/command":
                     line = str(payload.get("line") or "").replace("\r", " ").replace("\n", " ").strip()
                     if not line:
                         raise ValueError("IRC command line is required")
-                    if not relay.irc.status.get("enabled"):
+                    adapter = relay.irc_adapter_for(
+                        connector_id=str(payload.get("connector_id") or ""),
+                        instance=str(payload.get("instance") or ""),
+                    )
+                    if adapter is None or not adapter.status.get("enabled"):
                         raise ValueError("IRC adapter is not enabled")
-                    if not relay.irc.connection:
-                        relay.irc.connect()
-                    relay.irc._write(line)
+                    if not adapter.connection:
+                        adapter.connect()
+                    adapter._write(line)
                     self._json(202, {"accepted": True, "line": line.split(" ", 1)[0].upper()})
                     return
-                if request_path == "/v1/channels":
-                    from .channel_admin import create_channel
-                    channel = create_channel(
-                        str(payload.get("address") or ""), title=str(payload.get("title") or ""),
-                        topic=str(payload.get("topic") or ""), private=bool(payload.get("private")),
-                        container=str(payload.get("container") or ""),
-                    )
-                    self._json(201, {"channel": channel})
-                    return
-                if request_path == "/v1/routes":
-                    action = str(payload.get("action") or "")
-                    if action == "attach":
-                        route = attach_route(
-                            str(payload.get("source_listener") or ""),
-                            str(payload.get("source_channel") or ""),
-                            str(payload.get("destination_listener") or ""),
-                            str(payload.get("destination_channel") or ""),
-                            controller=str(payload.get("controller") or "presence"),
-                            route_id=str(payload.get("route_id") or ""),
-                        )
-                        self._json(201, {"route": route})
-                        return
-                    if action == "detach":
-                        self._json(200, {"detached": detach_route(str(payload.get("route_id") or ""))})
-                        return
-                    raise ValueError("route action must be attach or detach")
                 if request_path == "/v1/subscriptions":
                     channel = str(payload.get("channel") or "")
                     if channel.lower().startswith(("mm/", "mattermost/")):
@@ -652,7 +786,7 @@ def main(argv: list[str] | None = None) -> int:
                     ))
                     return
                 if request_path == "/v1/agents":
-                    from .listener_registry import register_agent, unregister_agent
+                    from .connector_registry import register_agent, unregister_agent
                     if str(payload.get("action") or "").lower() == "delete":
                         result = unregister_agent(
                             str(payload.get("agent_id") or ""),
@@ -665,13 +799,131 @@ def main(argv: list[str] | None = None) -> int:
                         result = register_agent(
                             str(payload.get("agent_id") or ""),
                             presence_id=str(payload.get("presence_id") or ""),
-                            kind=str(payload.get("kind") or "mailbox"),
                             dry_run=bool(payload.get("dry_run", False)),
                         )
                         created = bool(
                             result.get("agent_created") or result.get("presence_created")
                         )
                         self._json(201 if created else 200, result)
+                    return
+                if request_path == "/v1/connectors":
+                    from .connector_registry import register_connector, unregister_connector
+                    if str(payload.get("action") or "").lower() == "delete":
+                        self._json(200, unregister_connector(
+                            str(payload.get("connector_id") or ""),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        ))
+                    else:
+                        result = register_connector(
+                            str(payload.get("connector_id") or ""),
+                            str(payload.get("kind") or ""),
+                            direction=str(payload.get("direction") or "bidirectional"),
+                            instance=str(payload.get("instance") or ""),
+                            channel_ids=list(payload.get("channel_ids") or []),
+                            config=dict(payload.get("config") or {}),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        )
+                        self._json(200 if payload.get("dry_run") else 201, result)
+                    return
+                if request_path == "/v1/channels":
+                    from .subscriptions import delete_channel, ensure_channel, set_subscription
+                    from .connector_registry import add_connector_channel, load_agents
+                    from .endpoint_address import parse_endpoint
+                    channel_id = str(payload.get("channel_id") or "")
+                    if str(payload.get("action") or "").lower() == "delete":
+                        self._json(200, delete_channel(
+                            channel_id, force=bool(payload.get("force", False)),
+                        ))
+                        return
+                    metadata = dict(payload.get("metadata") or {})
+                    aliases = [str(item) for item in (payload.get("aliases") or [])]
+                    endpoint = parse_endpoint(channel_id)
+                    monitored = (add_connector_channel(
+                        endpoint.adapter, endpoint.instance, endpoint.identifier,
+                    ) if endpoint else None)
+                    channel = ensure_channel(channel_id, metadata=metadata, aliases=aliases)
+                    result = channel
+                    if bool(payload.get("subscribe_all", False)):
+                        agent_ids = [agent["agent_id"] for agent in load_agents()]
+                        for agent_id in agent_ids:
+                            set_subscription(channel["id"], agent_id, enabled=True)
+                            agent_mailbox.ensure_cursor(channel["id"], cursor=agent_id, start="now")
+                        result = {
+                            "channel": channel,
+                            **({"connector": monitored} if monitored else {}),
+                            "subscribed_agents": agent_ids, "count": len(agent_ids),
+                        }
+                    self._json(201, result)
+                    return
+                if request_path == "/v1/relays":
+                    from .retained_relay import add_relay, delete_relay
+                    if str(payload.get("action") or "").lower() == "delete":
+                        self._json(200, delete_relay(
+                            str(payload.get("relay_id") or ""),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        ))
+                    else:
+                        result = add_relay(
+                            str(payload.get("source_channel") or ""),
+                            str(payload.get("destination") or ""),
+                            relay_id=str(payload.get("relay_id") or ""),
+                            start=str(payload.get("start") or "now"),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        )
+                        self._json(200 if payload.get("dry_run") else 201, result)
+                    return
+                if request_path == "/v1/mailboxes":
+                    from .mailbox_registry import register_mailbox, unregister_mailbox
+                    if str(payload.get("action") or "").lower() == "delete":
+                        self._json(200, unregister_mailbox(
+                            str(payload.get("mailbox_id") or ""),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        ))
+                    else:
+                        result = register_mailbox(
+                            str(payload.get("mailbox_id") or ""),
+                            str(payload.get("location") or ""),
+                            dry_run=bool(payload.get("dry_run", False)),
+                        )
+                        self._json(200 if payload.get("dry_run") else 201, result)
+                    return
+                if request_path == "/v1/exec":
+                    program = str(payload.get("program") or "mailbox-client")
+                    argv = [str(item) for item in (payload.get("argv") or [])]
+                    priority = str(payload.get("priority") or "now").lower()
+                    exec_env = {str(key): str(value)
+                                for key, value in (payload.get("env") or {}).items()}
+                    exec_cwd = str(payload.get("cwd") or "")
+                    if priority in {"enque", "follow-enque"}:
+                        record = agent_mailbox.send(
+                            agent_mailbox.SERVER_WORKER_QUEUE,
+                            shlex.join(argv), message_type="work_item",
+                            extra_fields={"program": program, "argv": argv, "priority": "enque",
+                                          **({"env": exec_env} if exec_env else {}),
+                                          **({"cwd": exec_cwd} if exec_cwd else {})},
+                        )
+                        self._json(201, {"enqueued": True,
+                                         "queue": agent_mailbox.SERVER_WORKER_QUEUE,
+                                         "message": record})
+                        return
+                    if program != "mailbox-client":
+                        self._json(400, {"error": f"unsupported exec program: {program}"})
+                        return
+                    from .cmd_client_page import run_mailbox_client_argv
+                    try:
+                        result = run_mailbox_client_argv(
+                            argv, relay_url=str(relay.status["publicUrl"]),
+                            token=os.environ.get(TOKEN_ENV, ""), env=exec_env,
+                            cwd=exec_cwd or None,
+                            timeout=float(payload.get("timeout") or 120),
+                        )
+                    except subprocess.TimeoutExpired as error:
+                        self._json(504, {"error": f"exec timed out: {error}"})
+                        return
+                    except (OSError, ValueError) as error:
+                        self._json(400, {"error": f"exec failed: {error}"})
+                        return
+                    self._json(200, result)
                     return
                 recipient = str(payload.get("to") or "").strip()
                 if not recipient:
@@ -724,7 +976,7 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, stop)
     try:
         run_relay_supervisor(relay, verbose=arguments.verbose)
-        return 0
+        return restart_state["exit_code"]
     finally:
         try:
             health_server.shutdown()

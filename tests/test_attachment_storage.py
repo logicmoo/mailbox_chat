@@ -28,7 +28,7 @@ def test_rejects_attachment_when_total_storage_quota_is_full(tmp_path: Path, mon
         agent_mailbox.send("agent", "second", attachments=[second], root=root)
 
 
-def test_rejects_message_when_jsonl_quota_is_full(tmp_path: Path, monkeypatch) -> None:
+def test_rejects_message_when_json_store_quota_is_full(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAX_JSONL_ENV, "1")
-    with pytest.raises(ValueError, match="JSONL mailbox quota exceeded"):
+    with pytest.raises(ValueError, match="mailbox quota exceeded"):
         agent_mailbox.send("agent", "too large", root=tmp_path / "mailbox")

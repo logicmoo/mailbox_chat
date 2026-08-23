@@ -25,7 +25,7 @@ class FakeSocket:
         return
 
 
-def listener() -> dict:
+def connector() -> dict:
     return {
         "id": "irc-test", "adapter": "irc", "enabled": True,
         "direction": "bidirectional", "server": "irc.example", "port": 6667,
@@ -36,7 +36,7 @@ def listener() -> dict:
 
 def test_irc_registration_ping_join_and_inbound_mailbox(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
-    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     connection = FakeSocket()
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
     assert adapter.configure()
@@ -54,7 +54,7 @@ def test_irc_registration_ping_join_and_inbound_mailbox(tmp_path: Path, monkeypa
 
 
 def test_irc_outbound_privmsg(monkeypatch) -> None:
-    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     connection = FakeSocket()
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
     adapter.configure()
@@ -67,7 +67,7 @@ def test_irc_outbound_privmsg(monkeypatch) -> None:
 def test_irc_publishes_attachment_urls(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
     monkeypatch.setenv("MAILBOX_RELAY_PUBLIC_URL", "https://relay.example")
-    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     source = tmp_path / "image name.png"
     source.write_bytes(b"png")
     message = agent_mailbox.send("unused", "image", attachments=[source], root=tmp_path)
@@ -81,7 +81,7 @@ def test_irc_publishes_attachment_urls(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_irc_list_channels_collects_names_counts_and_topics(monkeypatch) -> None:
-    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     connection = FakeSocket()
     connection.chunks.append(
         b":server 001 relay :welcome\r\n"
@@ -101,7 +101,7 @@ def test_irc_list_channels_collects_names_counts_and_topics(monkeypatch) -> None
 
 
 def test_irc_names_lists_channel_users_and_status(monkeypatch) -> None:
-    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     connection = FakeSocket()
     connection.chunks.append(
         b":server 001 relay :welcome\r\n"
@@ -118,10 +118,10 @@ def test_irc_names_lists_channel_users_and_status(monkeypatch) -> None:
 
 def test_irc_status_address_receives_server_notices(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
-    monkeypatch.setattr(irc_adapter, "listeners_for", lambda *_args, **_kwargs: [listener()])
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     monkeypatch.setattr(
         irc_adapter, "subscription_recipients",
-        lambda adapter, _listener, identifier: ["observer"]
+        lambda adapter, _connector, identifier: ["observer"]
         if (adapter, identifier) == ("irc", "status") else [],
     )
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: FakeSocket())

@@ -20,22 +20,28 @@ def test_zero_instance_is_canonical_default_instance(monkeypatch) -> None:
     assert endpoint.canonical == "mm/0/channel-1"
     monkeypatch.setattr(
         "mailbox_channels.subscriptions.subscribers",
-        lambda address: ["default-agent"] if address == "mm/0/channel-1" else ["specific-agent"],
+        lambda address: ["specific-agent"] if address == "mm-chat-snt-channel-1" else [],
     )
     assert subscription_recipients(
         "mattermost", {"id": "primary", "instance": "chat.snt"}, "channel-1",
-    ) == ["specific-agent", "default-agent"]
+    ) == ["specific-agent"]
+
+
+def test_mattermost_address_infers_user_and_channel_by_sigil() -> None:
+    user = parse_endpoint("mm/chat.snt/@alice")
+    assert user is not None and user.inferred_type == "user"
+    assert user.canonical == "mm/chat.snt/@alice"
+    channel = parse_endpoint("mm/chat.snt/~general")
+    assert channel is not None and channel.inferred_type == "channel"
+    assert channel.canonical == "mm/chat.snt/~general"
+    bare = parse_endpoint("mm/chat.snt/general")
+    assert bare is not None and bare.inferred_type == "channel"
 
 
 def test_endpoint_descriptions_have_common_typed_properties() -> None:
     status = parse_endpoint("irc/0/status")
-    channel = parse_endpoint("local/0/debug-console")
     assert status is not None and status.describe()["type"] == "status"
-    assert channel is not None and channel.describe(properties={"topic": "debug"}) == {
-        "address": "local/0/debug-console", "platform": "local", "adapter": "local",
-        "instance": "0", "id": "debug-console", "type": "channel",
-        "properties": {"topic": "debug"},
-    }
+    assert parse_endpoint("debug-console") is None
 
 
 def test_every_platform_endpoint_type_round_trips() -> None:
@@ -57,16 +63,13 @@ def test_every_platform_endpoint_type_round_trips() -> None:
 
 
 def test_remote_from_subscribes_as_local_identity(tmp_path, monkeypatch, capsys) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "relays.json").write_text('{"version":1,"listeners":[]}', encoding="utf-8")
-    monkeypatch.setenv("MAILBOX_RELAY_CONFIG_DIR", str(config))
+    mailbox = tmp_path / "mailbox"
     assert agent_mailbox.main([
-        "--dir", str(tmp_path / "mailbox"), "poll", "--as", "symbolic-workbench-codex",
+        "--dir", str(mailbox), "poll", "--as", "symbolic-workbench-codex",
         "--from", "mm/chat.snt/channel-1", "--checks", "1",
     ]) == 0
     capsys.readouterr()
-    assert subscriptions("symbolic-workbench-codex") == ["mm/chat.snt/channel-1"]
+    assert subscriptions("symbolic-workbench-codex", mailbox) == ["mm-chat-snt-channel-1"]
 
 
 def test_remote_to_becomes_channel_relay_request(tmp_path, capsys) -> None:
@@ -76,7 +79,7 @@ def test_remote_to_becomes_channel_relay_request(tmp_path, capsys) -> None:
     ]) == 0
     sent = json.loads(capsys.readouterr().out)
     assert sent["from"] == "symbolic-workbench-codex"
-    assert sent["to"] == "channel-relay"
+    assert sent["to"] == "server_outbound_relay_agent_to_channel"
     assert sent["channel_type"] == "mattermost"
     assert sent["channel_id"] == "person-1"
     assert sent["endpoint_address"] == "mm/chat.snt/person-1"

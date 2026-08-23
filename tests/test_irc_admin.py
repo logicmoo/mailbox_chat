@@ -83,8 +83,32 @@ def test_mattermost_command_reports_new_registry_entries(monkeypatch, capsys) ->
     assert "[registry] 3 new entries found" in captured.err
 
 
+def test_join_subscribe_all_is_sent_to_mattermost_server(monkeypatch, capsys) -> None:
+    captured = {}
+
+    def post(_url, _token, command, arguments):
+        captured.update({"command": command, "arguments": arguments})
+        return {
+            "result": {"ok": True},
+            "subscriptions": {
+                "channel": "mm-chat-example-team-channel-id",
+                "subscribed_agents": ["one", "two"],
+                "count": 2,
+            },
+        }
+
+    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command", post)
+
+    assert main(["join", "mm/0/channel-id", "--subscribe-all"]) == 0
+    assert captured == {
+        "command": "join",
+        "arguments": {"channel": "mm/0/channel-id", "subscribe_all": True},
+    }
+    assert '"count": 2' in capsys.readouterr().out
+
+
 def test_bare_list_loops_through_configured_providers(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("mailbox_channels.chat_admin.load_listeners", lambda: [
+    monkeypatch.setattr("mailbox_channels.chat_admin.load_connectors", lambda: [
         {"enabled": True, "adapter": "mattermost"},
         {"enabled": True, "adapter": "irc"},
         {"enabled": True, "adapter": "mattermost"},
@@ -103,3 +127,29 @@ def test_bare_list_loops_through_configured_providers(monkeypatch, capsys) -> No
     assert '"provider": "irc"' in captured.out
     assert captured.out.count('"provider": "mm"') == 1
     assert "[registry] 2 new entries found" in captured.err
+
+
+def test_list_bot_flag_maps_to_membership_arguments() -> None:
+    args = parser().parse_args(normalize_options(["list", "--bot"]))
+    assert arguments_from_namespace(args, None) == {
+        "team": None, "bot": "", "page": None, "per_page": None,
+    }
+
+
+def test_bare_list_forwards_discovery_paging_to_mattermost(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr("mailbox_channels.chat_admin.load_connectors", lambda: [
+        {"enabled": True, "adapter": "mattermost"},
+    ])
+
+    def post(_url, _token, command, arguments):
+        captured.update({"command": command, "arguments": arguments})
+        return {"result": []}
+
+    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command", post)
+
+    assert main(["list", "--page", "0", "--per_page", "1000"]) == 0
+    assert captured["command"] == "list"
+    assert captured["arguments"]["page"] == 0
+    assert captured["arguments"]["per_page"] == 1000
+    assert captured["arguments"]["bot"] is None

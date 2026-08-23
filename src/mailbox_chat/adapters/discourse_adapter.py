@@ -11,47 +11,46 @@ from typing import Any
 import requests
 
 from ..attachment_gateway import attachment_url
-from ..channel_routes import dispatch_routes
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..endpoint_address import subscription_recipients
 from ..identifier_directory import IdentifierDirectory
-from ..listener_registry import listeners_for
+from ..connector_registry import connectors_for
 
 
 class DiscourseAdapter:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
-        self.listeners: list[dict[str, Any]] = []
+        self.connectors: list[dict[str, Any]] = []
         self.status = {"enabled": False, "connected": False, "lastError": None, "sites": []}
 
     @staticmethod
-    def _environment(listener: dict[str, Any], field: str, default: str) -> str:
-        return os.environ.get(str(listener.get(field) or default), "").strip()
+    def _environment(connector: dict[str, Any], field: str, default: str) -> str:
+        return os.environ.get(str(connector.get(field) or default), "").strip()
 
-    def _api_key(self, listener: dict[str, Any]) -> str:
-        return self._environment(listener, "api_key_env", "DISCOURSE_API_KEY")
+    def _api_key(self, connector: dict[str, Any]) -> str:
+        return self._environment(connector, "api_key_env", "DISCOURSE_API_KEY")
 
-    def _webhook_secret(self, listener: dict[str, Any]) -> str:
-        return self._environment(listener, "webhook_secret_env", "DISCOURSE_WEBHOOK_SECRET")
+    def _webhook_secret(self, connector: dict[str, Any]) -> str:
+        return self._environment(connector, "webhook_secret_env", "DISCOURSE_WEBHOOK_SECRET")
 
     @staticmethod
-    def _base_url(listener: dict[str, Any]) -> str:
-        value = str(listener.get("base_url") or "")
+    def _base_url(connector: dict[str, Any]) -> str:
+        value = str(connector.get("base_url") or "")
         if value.startswith("$"):
             value = os.environ.get(value[1:], "")
         return value.rstrip("/")
 
-    def _headers(self, listener: dict[str, Any]) -> dict[str, str]:
-        return {"Api-Key": self._api_key(listener),
-                "Api-Username": str(listener.get("api_username") or "system"),
+    def _headers(self, connector: dict[str, Any]) -> dict[str, str]:
+        return {"Api-Key": self._api_key(connector),
+                "Api-Username": str(connector.get("api_username") or "system"),
                 "Accept": "application/json"}
 
     def configure(self) -> bool:
-        self.listeners = listeners_for("discourse")
-        missing = [item["id"] for item in self.listeners
+        self.connectors = connectors_for("discourse")
+        missing = [item["id"] for item in self.connectors
                    if not self._base_url(item) or not self._api_key(item) or not self._webhook_secret(item)]
-        self.status.update({"enabled": bool(self.listeners) and not missing, "connected": False,
-                            "sites": [self._base_url(item) for item in self.listeners],
+        self.status.update({"enabled": bool(self.connectors) and not missing, "connected": False,
+                            "sites": [self._base_url(item) for item in self.connectors],
                             "lastError": f"Missing Discourse configuration for: {', '.join(missing)}"
                             if missing else None})
         return bool(self.status["enabled"])
@@ -64,18 +63,18 @@ class DiscourseAdapter:
             self.status.update({"connected": True, "lastError": None, "lastCycleAt": time.time()})
 
     def authenticate_webhook(self, body: bytes, signature: str) -> dict[str, Any] | None:
-        for listener in self.listeners:
-            secret = self._webhook_secret(listener)
+        for connector in self.connectors:
+            secret = self._webhook_secret(connector)
             if not secret:
                 continue
             expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
             if signature and hmac.compare_digest(signature, expected):
-                return listener
+                return connector
         return None
 
-    def handle_webhook(self, payload: dict[str, Any], mailbox: Any, listener: dict[str, Any],
+    def handle_webhook(self, payload: dict[str, Any], mailbox: Any, connector: dict[str, Any],
                        *, event_id: str = "", event_name: str = "") -> None:
-        if listener["direction"] not in {"inbound", "bidirectional"}:
+        if connector["direction"] not in {"inbound", "bidirectional"}:
             return
         post = payload.get("post") or payload.get("topic") or payload
         if not isinstance(post, dict):
@@ -83,8 +82,8 @@ class DiscourseAdapter:
         topic_id = str(post.get("topic_id") or post.get("id") or "")
         post_id = str(post.get("id") or event_id)
         category_id = str(post.get("category_id") or "")
-        allowed_topics = set(str(item) for item in listener.get("channel_ids", []))
-        allowed_categories = set(str(item) for item in listener.get("category_ids", []))
+        allowed_topics = set(str(item) for item in connector.get("channel_ids", []))
+        allowed_categories = set(str(item) for item in connector.get("category_ids", []))
         if allowed_topics and topic_id not in allowed_topics:
             return
         if allowed_categories and category_id and category_id not in allowed_categories:
@@ -98,15 +97,15 @@ class DiscourseAdapter:
         text = str(post.get("raw") or post.get("excerpt") or post.get("cooked") or "")
         source_id = event_id or post_id
         origin = with_origin({"author": username, "author_id": str(post.get("user_id") or username)},
-                             adapter="discourse", listener_id=listener["id"], source_id=source_id,
+                             adapter="discourse", connector_id=connector["id"], source_id=source_id,
                              channel_id=topic_id)
         if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-            "discourse", listener_id=listener["id"], channel_id=topic_id,
+            "discourse", connector_id=connector["id"], channel_id=topic_id,
         )):
             return
-        recipients = list(dict.fromkeys([listener.get("bridge_agent"),
-                                         *listener.get("mailbox_recipients", []),
-                                         *subscription_recipients("discourse", listener, topic_id)]))
+        recipients = list(dict.fromkeys([connector.get("bridge_agent"),
+                                         *connector.get("mailbox_recipients", []),
+                                         *subscription_recipients("discourse", connector, topic_id)]))
         for recipient in filter(None, recipients):
             mailbox.send(recipient, text, sender=f"discourse:{username}",
                          message_type="discourse_post", channel_id=topic_id,
@@ -115,21 +114,19 @@ class DiscourseAdapter:
                          extra_fields={**origin, "discourse_post_id": post_id,
                                        "discourse_post_number": post.get("post_number"),
                                        "discourse_event": event_name, "topic_title": title})
-        dispatch_routes(mailbox, listener_id=listener["id"], channel_id=topic_id,
-                        message={**origin, "text": text, "source_id": source_id})
 
-    def _listener_for(self, message: dict[str, Any]) -> dict[str, Any]:
-        listener_id = str(message.get("listener_id") or "")
-        listener = next((item for item in self.listeners if item["id"] == listener_id), None)
-        if listener is None:
-            eligible = [item for item in self.listeners if item["direction"] in {"outbound", "bidirectional"}]
-            listener = eligible[0] if len(eligible) == 1 else None
-        if listener is None:
-            raise ValueError("Discourse outbound message requires an unambiguous listener_id")
-        return listener
+    def _connector_for(self, message: dict[str, Any]) -> dict[str, Any]:
+        connector_id = str(message.get("connector_id") or "")
+        connector = next((item for item in self.connectors if item["id"] == connector_id), None)
+        if connector is None:
+            eligible = [item for item in self.connectors if item["direction"] in {"outbound", "bidirectional"}]
+            connector = eligible[0] if len(eligible) == 1 else None
+        if connector is None:
+            raise ValueError("Discourse outbound message requires an unambiguous connector_id")
+        return connector
 
     def send_message(self, message: dict[str, Any]) -> None:
-        listener = self._listener_for(message)
+        connector = self._connector_for(message)
         topic_id = str(message.get("channel_id") or "").strip()
         raw = str(message.get("text") or "")
         links = [f"[{record.get('name') or 'Attachment'}]({attachment_url(record)})"
@@ -147,9 +144,9 @@ class DiscourseAdapter:
             if not title:
                 raise ValueError("New Discourse topics require topic_title")
             payload["title"] = title
-            category = message.get("category_id") or listener.get("default_category_id")
+            category = message.get("category_id") or connector.get("default_category_id")
             if category:
                 payload["category"] = int(category)
-        response = self.session.post(f"{self._base_url(listener)}/posts.json",
-                                     headers=self._headers(listener), json=payload, timeout=30)
+        response = self.session.post(f"{self._base_url(connector)}/posts.json",
+                                     headers=self._headers(connector), json=payload, timeout=30)
         response.raise_for_status()

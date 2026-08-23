@@ -56,12 +56,12 @@ class Mailbox:
 
 
 def test_telegram_inbound_outbound_threads_and_attachments(monkeypatch, tmp_path: Path) -> None:
-    listener = {
+    connector = {
         "id": "telegram-one", "direction": "bidirectional", "channel_ids": ["-100123"],
         "bridge_agent": "telegram-agent", "mailbox_recipients": ["worker"],
     }
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.telegram_adapter.listeners_for", lambda adapter: [listener])
+    monkeypatch.setattr("mailbox_channels.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
     session = Session()
     adapter = TelegramAdapter(session=session)
     mailbox = Mailbox(tmp_path)
@@ -77,7 +77,7 @@ def test_telegram_inbound_outbound_threads_and_attachments(monkeypatch, tmp_path
     attachment = tmp_path / "report.txt"
     attachment.write_text("result", encoding="utf-8")
     adapter.send_message({
-        "listener_id": "telegram-one", "channel_id": "-100123", "thread_id": "7",
+        "connector_id": "telegram-one", "channel_id": "-100123", "thread_id": "7",
         "text": "reply", "attachments": [{"path": str(attachment), "mime_type": "text/plain"}],
     })
     assert session.posts[0][0].endswith("/sendMessage")
@@ -87,12 +87,12 @@ def test_telegram_inbound_outbound_threads_and_attachments(monkeypatch, tmp_path
 
 
 def test_telegram_rejects_unconfigured_chat(monkeypatch, tmp_path: Path) -> None:
-    listener = {
+    connector = {
         "id": "telegram-one", "direction": "inbound", "channel_ids": ["allowed"],
         "bridge_agent": "telegram-agent", "mailbox_recipients": [],
     }
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.telegram_adapter.listeners_for", lambda adapter: [listener])
+    monkeypatch.setattr("mailbox_channels.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
     adapter = TelegramAdapter(session=Session())
     mailbox = Mailbox(tmp_path)
     assert adapter.configure()

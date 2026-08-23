@@ -20,7 +20,7 @@ def origin_id(message: dict[str, Any]) -> str:
     origin = message.get("origin") if isinstance(message.get("origin"), dict) else {}
     identity = {
         "adapter": origin.get("adapter") or message.get("channel_type") or "mailbox",
-        "listener": origin.get("listener_id") or message.get("listener_id") or "",
+        "connector": origin.get("connector_id") or message.get("connector_id") or "",
         "source": origin.get("source_id") or message.get("source_id") or message.get("id") or "",
     }
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -30,11 +30,11 @@ def origin_id(message: dict[str, Any]) -> str:
 def endpoint_id(
     adapter: str,
     *,
-    listener_id: str = "",
+    connector_id: str = "",
     channel_id: str = "",
     presence_id: str = "",
 ) -> str:
-    return ":".join((adapter.strip().lower(), listener_id.strip(), presence_id.strip(), channel_id.strip()))
+    return ":".join((adapter.strip().lower(), connector_id.strip(), presence_id.strip(), channel_id.strip()))
 
 
 class DeliveryLedger:
@@ -90,7 +90,7 @@ def with_origin(
     fields: dict[str, Any],
     *,
     adapter: str,
-    listener_id: str,
+    connector_id: str,
     source_id: str,
     channel_id: str,
     presence_id: str = "",
@@ -98,7 +98,7 @@ def with_origin(
     enriched = dict(fields)
     origin = {
         "adapter": adapter,
-        "listener_id": listener_id,
+        "connector_id": connector_id,
         "source_id": source_id,
         "channel_id": channel_id,
         "presence_id": presence_id,
@@ -106,6 +106,6 @@ def with_origin(
     enriched["origin"] = origin
     enriched["origin_id"] = origin_id({"origin": origin})
     enriched["relay_trace"] = [endpoint_id(
-        adapter, listener_id=listener_id, channel_id=channel_id, presence_id=presence_id,
+        adapter, connector_id=connector_id, channel_id=channel_id, presence_id=presence_id,
     )]
     return enriched

@@ -32,16 +32,15 @@ class Mailbox:
 
 
 def test_slack_history_and_send(monkeypatch, tmp_path: Path) -> None:
-    listener = {"id": "slack-one", "direction": "bidirectional", "token_env": "SLACK_TOKEN",
+    connector = {"id": "slack-one", "direction": "bidirectional", "token_env": "SLACK_TOKEN",
                 "channel_ids": ["C1"], "bridge_agent": "slack-agent", "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("SLACK_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.slack_adapter.listeners_for", lambda adapter: [listener])
-    monkeypatch.setattr("mailbox_channels.channel_routes.load_routes", lambda: [])
+    monkeypatch.setattr("mailbox_channels.adapters.slack_adapter.connectors_for", lambda adapter: [connector])
     session, mailbox = Session(), Mailbox(tmp_path)
     adapter = SlackAdapter(session=session)
     assert adapter.configure()
     adapter.cycle(mailbox)
     adapter.cycle(mailbox)
     assert [item[0] for item in mailbox.sent] == ["slack-agent", "worker"]
-    adapter.send_message({"listener_id": "slack-one", "channel_id": "C1", "text": "reply"})
+    adapter.send_message({"connector_id": "slack-one", "channel_id": "C1", "text": "reply"})
     assert any(url.endswith("/chat.postMessage") for url, _kwargs in session.posts)
