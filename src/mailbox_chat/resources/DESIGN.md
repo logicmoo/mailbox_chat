@@ -28,7 +28,7 @@ id/assumption that presumed singularity: `-primary`, one `self.irc`, one bridge 
   none). Presences are first-class and exist independent of agents.
 - Mailbox = a cursor-consumed local stream (agent inboxes, event log, relay outbox, queue).
 - Channel = an external place a presence is on and we are handling.
-- Relay = wiring a mailbox <-> external channel via a specific presence (puppeted by agents).
+- Relay = wiring a mailbox <-> external mailbox via a specific presence (puppeted by agents).
 
 ### Identity graph (the new layer)
 principal (logicmoo@gmail.com)
@@ -66,14 +66,14 @@ Ghosting/virtual-presence sorts into three FIDELITY tiers — the key design axi
 | adapter | auth | ghost tier | ghost mechanism / permission gate | multi | threads | attach | DM cold-init | discovery |
 |---|---|---|---|---|---|---|---|---|
 | matrix | access token / **appservice** registration | FULL | `?user_id=` masquerade within AS `users` namespace; **homeserver-admin** installs AS registration | ✅ unlimited ghosts | ✅ m.thread | ✅ | ✅ (invite/DM room) | rooms/members |
-| discord | bot token (+ intents) / webhook token | DISPLAY | webhook per-msg username+avatar; needs **Manage Webhooks**; webhooks CANNOT DM | ✅ | ✅ | ✅ | ❌ (bot needs shared guild) | guilds/channels/members |
+| discord | bot token (+ intents) / webhook token | DISPLAY | webhook per-msg username+avatar; needs **Manage Webhooks**; webhooks CANNOT DM | ✅ | ✅ | ✅ | ❌ (bot needs shared guild) | guilds/mailboxs/members |
 | discourse | Api-Key + Api-Username | FULL | admin key + `Api-Username: <user>` posts AS that user (no badge); **admin key**; user must exist (can pre-create) | ✅ (one key, N users) | forum topics/posts | ✅ (uploads) | n/a (forum) | categories/users |
-| slack | bot token xoxb (+ app token/Socket Mode) | DISPLAY | webhook or `chat:write.customize` name+icon (bot-attributed) | ✅ | ✅ thread_ts | ✅ | limited | channels/users |
-| mattermost | bot PAT / incoming webhook | DISPLAY | webhook `override_username`/`icon` — gated by **EnablePostUsernameOverride/IconOverride** (admin, default OFF); always **BOT badge**; REST bot posts have NO per-post override | ✅ | ✅ root_id | ✅ | admin-granted | channels/users |
+| slack | bot token xoxb (+ app token/Socket Mode) | DISPLAY | webhook or `chat:write.customize` name+icon (bot-attributed) | ✅ | ✅ thread_ts | ✅ | limited | mailboxs/users |
+| mattermost | bot PAT / incoming webhook | DISPLAY | webhook `override_username`/`icon` — gated by **EnablePostUsernameOverride/IconOverride** (admin, default OFF); always **BOT badge**; REST bot posts have NO per-post override | ✅ | ✅ root_id | ✅ | admin-granted | mailboxs/users |
 | irc | services: **Q** (QuakeNet) / **SASL** (Libera) | NONE | none (one real nick per TCP conn); "<name> text" prefixing only | ✅ = N conns (QuakeNet 5/IP) | ❌ | ❌ (URLs/DCC) | ✅ PRIVMSG | LIST/NAMES/WHO |
 | telegram | bot token (BotFather) | NONE | none (`author_signature` cosmetic only) | ✅ N tokens | ✅ message_thread_id | ✅ 50MB up | ❌ user must /start | ❌ |
 | viber | X-Viber-Auth-Token | DISPLAY | per-msg `sender.name`+`sender.avatar` (no extra perm); **new bots commercial-only since 2024** | ✅ | ❌ | ✅ URL media | ❌ user subscribes first | ❌ no subscriber list |
-| line | channel access token (+ secret) | DISPLAY | per-msg `sender.name`(≤20) + `sender.iconUrl` | ✅ N channels | ❌ | ✅ (2MB body; URL media) | ❌ user must friend | ⚠️ member list = verified/premium |
+| line | mailbox access token (+ secret) | DISPLAY | per-msg `sender.name`(≤20) + `sender.iconUrl` | ✅ N mailboxs | ❌ | ✅ (2MB body; URL media) | ❌ user must friend | ⚠️ member list = verified/premium |
 | whatsapp (cloud) | Meta app + phone_number_id + system token | NONE | none — fixed business number; **24h window + templates** | ✅ per phone number (2→20) | ❌ | ✅ 100MB | ❌ (opt-in/template) | ❌ |
 | whatsapp_personal | QR web-companion pairing (**UNOFFICIAL, ToS risk**) | NONE | none (one real account) | 1/account | ⚠️ | ✅ | within contacts | partial (chats/contacts) |
 | facebook_messenger | Page token (app review) | DISPLAY | **Personas API** (custom persona name+avatar); **24h window** | ✅ personas per Page | ❌ | ✅ | ❌ (opt-in/24h) | ❌ |
@@ -90,7 +90,7 @@ Key per-network IRC facts: QuakeNet = Q auth (`/msg Q@CServe.quakenet.org AUTH`)
   "threads": true|false,
   "attachments": true|false,
   "dm_cold_initiate": true|false,      // can we DM a user who hasn't contacted us?
-  "discovery": { "channels": bool, "users": bool },
+  "discovery": { "mailboxs": bool, "users": bool },
   "auth_methods": ["..."],
   "official": true|false,              // false = unofficial/ToS-risk (whatsapp_personal)
   "notes": "msgid? windows? badges?"
@@ -103,7 +103,7 @@ This makes /v1/adapters advertise not just "what exists" but HOW a presence can 
 A presence can be realized two ways, depending on adapter capability + admin permission:
 - REAL login: an actual account we hold creds for (IRC nick, MM bot token). relay_via_bot.
 - PROJECTED / ghost: a user that isn't really on the platform, rendered by a HOST connector with
-  a puppeting power the channel/server admin granted — Matrix application services, Discord
+  a puppeting power the mailbox/server admin granted — Matrix application services, Discord
   webhooks. relay_via_webhook / relay_via_appservice / relay_via_puppet.
 Consequences:
 - One host connector + permission can project MANY distinct-looking virtual presences with NO
@@ -118,7 +118,7 @@ Consequences:
 
 ## Adapter CATALOG vs configured connectors (discoverability)
 "What adapters exist" is a CODE-DERIVED catalog, separate from configured connectors/presences:
-- Catalog = SUPPORTED_CHANNEL_TYPES + ADAPTER_CAPABILITIES (channel_relay.py), served at
+- Catalog = SUPPORTED_CHANNEL_TYPES + ADAPTER_CAPABILITIES (mailbox_relay.py), served at
   GET /v1/adapters. Lists all 12 implemented adapters (incl. whatsapp, whatsapp_personal) with
   capability flags (presence/threads/attachments/interaction/official). This is "what's possible".
 - Connectors/presences = the LIVE subset we actually operate. "What's configured".
@@ -152,7 +152,7 @@ An operated presence folds in its connection (connector = the "how to log in" of
     "keepalive": { "ping_interval_s": 60, "reconnect_backoff_s": [1,2,5,15,60,120] }
   },
   "availability": { "desired": "online" },// what we make the bot APPEAR as (set, not read)
-  "join": ["irc-quakenet-org-channel-logicmoo"]  // channels to stay in (or derive from membership)
+  "join": ["irc-quakenet-org-mailbox-logicmoo"]  // mailboxs to stay in (or derive from membership)
 }
 ```
 Mattermost operated presence differs only in `connection`:
@@ -167,12 +167,12 @@ NOTE fork: this replaces/renames today's `server_registry_connectors` with per-p
 ### B. Channel config — where ingest lands, how to dedupe, exact wire name
 ```
 {
-  "id": "irc-quakenet-org-channel-logicmoo",
-  "kind": "channel",
+  "id": "irc-quakenet-org-mailbox-logicmoo",
+  "kind": "mailbox",
   "adapter": "irc", "instance": "quakenet.org",
   "external_identifier": "##logicmoo",    // EXACT wire name (sigil preserved; used to JOIN/POST)
   "display": "##logicmoo",
-  "mailbox": "irc-quakenet-org-channel-logicmoo",   // ingested inbound lands here (one per channel)
+  "mailbox": "irc-quakenet-org-mailbox-logicmoo",   // ingested inbound lands here (one per mailbox)
   "members_operated": ["irc-quakenet-org-presence-jllykifsh",
                        "irc-quakenet-org-presence-prologmud"],  // our bots in it (sibling set)
   "dedupe": { "strategy": "msgid_or_heuristic", "window_s": 10 }
@@ -184,14 +184,14 @@ recognition + loop governor (it does NOT ban sibling chatter).
 ### C. Relay config — ONLY for pure mechanical mirrors (no cognition)
 For agent-authored outbound (items already carry target+presence), the flush needs NO relay
 config — it routes by the item's own fields. Relays exist only for static verbatim mirroring
-(mailbox/channel A -> external channel B) that must run with no LLM at all:
+(mailbox/mailbox A -> external mailbox B) that must run with no LLM at all:
 ```
 {
   "id": "mirror-events-to-logicmoo",
   "kind": "relay", "enabled": true,
   "source_mailbox": "server_events_log",
   "destination": { "presence": "irc-quakenet-org-presence-jllykifsh",
-                   "channel": "irc-quakenet-org-channel-logicmoo" },
+                   "mailbox": "irc-quakenet-org-mailbox-logicmoo" },
   "cursor": "mirror-events-to-logicmoo",     // consumption pointer (stored in agents-registry cursors)
   "transform": "verbatim",
   "governors": { "rate_per_min": 20, "max_hops": 8 }
@@ -203,10 +203,10 @@ The worker drains configured outbox mailbox(es) and, per item, selects the prese
 through using the item's own fields (connector/presence id -> instance -> default). Config is
 just the list of outboxes + defaults:
 ```
-{ "outboxes": ["server_outbound_relay_agent_to_channel"],
-  "default_presence_by_channel": { "irc-quakenet-org-channel-logicmoo": "irc-quakenet-org-presence-jllykifsh" } }
+{ "outboxes": ["server_outbound_relay_agent_to_mailbox"],
+  "default_presence_by_mailbox": { "irc-quakenet-org-mailbox-logicmoo": "irc-quakenet-org-presence-jllykifsh" } }
 ```
-An item with no presence uses default_presence_by_channel -> else sole operated member -> else
+An item with no presence uses default_presence_by_mailbox -> else sole operated member -> else
 it is left unsent (a cognition/addressing gap, waits).
 
 ### E. Daemon/global settings + governors
@@ -218,7 +218,7 @@ it is left unsent (a cognition/addressing gap, waits).
   "operate_presences": ["irc-quakenet-org-presence-jllykifsh",
                         "irc-libera-chat-presence-prologmud",
                         "mm-chat-singularitynet-io-presence-min-botnick"],
-  "drain_outboxes": ["server_outbound_relay_agent_to_channel"]
+  "drain_outboxes": ["server_outbound_relay_agent_to_mailbox"]
 }
 ```
 
@@ -234,7 +234,7 @@ claims it.
 ## Do we need a server adapter with no LLM? Yes — but only a thin MECHANICAL one
 LLM agents are on-demand/ephemeral; external reality is continuous. Split into two layers:
 - MECHANICAL (persistent server worker; required when no LLM is around) — a DUMB executor:
-  * Liveness: keep presences connected, reconnect, answer PING, stay in channels. (IRC presence
+  * Liveness: keep presences connected, reconnect, answer PING, stay in mailboxs. (IRC presence
     IS the live socket; you can't lazily reconnect per message without leaving the room.)
   * Ingest: pull inbound into the right mailbox, with dedupe.
   * Flush already-addressed outbound: if an item has target+text+presence, just send it. No
@@ -249,7 +249,7 @@ MECHANICAL liveness+delivery+ingest. This worker already exists: the ChannelRela
 ## The adapter/bridge agent is OPTIONAL (direct presence control)
 Driving a presence (connect / send / poll via its connector) is a CAPABILITY, not the exclusive
 job of a bridge agent. So the adapter agent need not exist:
-- Agents monitor the outbox (server_outbound_relay_agent_to_channel) directly.
+- Agents monitor the outbox (server_outbound_relay_agent_to_mailbox) directly.
 - When a message is unclaimed ("no one cares"), an agent takes DIRECT CONTROL of a presence
   (e.g. min.botnick) and performs the platform send itself using that presence's connector.
 - A bridge/adapter agent, if present, is just a default worker doing the same thing; if absent,
@@ -266,7 +266,7 @@ records; provenance fields are agent-fillable.
 The system enables everything by default and imposes NO hard prohibitions:
 - Any agent may puppet any presence; multiple agents may share a presence; a presence may have
   no agent. Sibling bots MAY talk to each other (a feature, not just a loop to kill).
-- Cross-network delivery, multi-reply, multiple bots in one channel: all allowed.
+- Cross-network delivery, multi-reply, multiple bots in one mailbox: all allowed.
 Safety is achieved with OPT-IN GOVERNORS, never bans:
 - Loop safety: per-message hop/loop counter + relay_trace (already present) with an optional max;
   drop/park only when a configurable limit is exceeded.
@@ -279,7 +279,7 @@ Reply-routing / self-identification for SHARED presences is NOT a rigid protocol
 provides the (agent, presence) outbound path and fans inbound replies to the puppeting agents
 via claim/disown. The codex agents themselves:
 - self-identify in-band ("I'm your UI codex agent, speaking via min.botnick; tag me UI-CODEX"),
-- ask for/relay an ack to confirm the channel works,
+- ask for/relay an ack to confirm the mailbox works,
 - recognize in natural language when a reply is meant for them (claim), else disown.
 No marker grammar or correlation parser is required. Storing an established (agent, presence,
 user) correlation is an OPTIONAL assist for auto-routing, not mandatory machinery. Where the
@@ -317,10 +317,10 @@ FORK A: RESOLVED (user 2026-08-22 "i like the 2 slashed IDs") — SPLIT by id cl
     (irc/quakenet.org/jllykifsh, irc/libera.chat/prologmud,
     mattermost/chat.singularitynet.io/<botuser>). Safe because these are ENTRIES inside
     server_registry_*.json (dict keys), never files on disk.
-  - Channel/mailbox ids = KEEP the hyphen channel_resource_id() slug (former Fork D):
+  - Channel/mailbox ids = KEEP the hyphen mailbox_resource_id() slug (former Fork D):
     irc-quakenet-org-logicmoo, mm-chat-singularitynet-io-... Each is its OWN file
     (<id>.json) so it cannot contain '/'.
-  So slash for registry-entry ids, hyphen-slug for file-backed channel/mailbox ids.
+  So slash for registry-entry ids, hyphen-slug for file-backed mailbox/mailbox ids.
 
 ### 2. Presence vs connector vs principal
 Presence = a per-server user identity (bot OR human). Connector = only exists for presences
@@ -328,13 +328,13 @@ WE operate (our credentials to drive that login); external humans are presences 
 connector. Principal binds presences across networks (email-keyed). Our agents are
 principals too; a bridge agent's bot logins are its presences.
 
-### 3c. Multiple presences in one channel (e.g. two of our bots in ##logicmoo)
-A channel is ONE object/mailbox no matter how many presences sit in it. What multiplies is
-MEMBERSHIP: channel <-> presence is many-to-many, tracked per pair
+### 3c. Multiple presences in one mailbox (e.g. two of our bots in ##logicmoo)
+A mailbox is ONE object/mailbox no matter how many presences sit in it. What multiplies is
+MEMBERSHIP: mailbox <-> presence is many-to-many, tracked per pair
 (joined?, our modes op/voice, last-seen). Consequences (all handled permissively):
-- Inbound dedupe: if two of our bots both witness a channel line, ingest it ONCE into the
-  channel mailbox. Prefer IRCv3 msgid; QuakeNet may lack it, so fall back to heuristic key
-  (channel, source-nick, text, ~time-window). Dedupe is a safety governor, not a block.
+- Inbound dedupe: if two of our bots both witness a mailbox line, ingest it ONCE into the
+  mailbox mailbox. Prefer IRCv3 msgid; QuakeNet may lack it, so fall back to heuristic key
+  (mailbox, source-nick, text, ~time-window). Dedupe is a safety governor, not a block.
 - Sibling recognition: every adapter must know ALL our presences on a network (network-scoped
   "these nicks are us") so a sibling bot's output isn't blindly re-ingested as external. But per
   the permissive principle, sibling-to-sibling chat is ALLOWED; recognition feeds the loop
@@ -343,8 +343,8 @@ MEMBERSHIP: channel <-> presence is many-to-many, tracked per pair
   PRESENCE utters it on the wire. A reply is an (agent, presence) pair; puppeting links
   agent->presence. So agentA speaks as jllykifsh and agentB as prologmud -> the room sees two
   bots answer. Composes with min.botnick (many agents -> one presence).
-- Default speaker: if an outbound to a channel names no presence, use a configured default
-  presence for that channel (else the only member; else error).
+- Default speaker: if an outbound to a mailbox names no presence, use a configured default
+  presence for that mailbox (else the only member; else error).
 
 ### 3. Agent topology
 Agents PUPPET presences (many-to-many). "Ownership" is NOT a system concept — it exists only
@@ -372,39 +372,39 @@ Open: fallback when ALL disown (queue, default agent, or drop with a notice). Op
 order multiple replies; whether agents can see each other's claims before replying.
 
 ### 4. Channel ids MUST be network-qualified
-Two networks can both have `#test`. Use `channel_resource_id(adapter, instance, identifier)`
-(already includes instance) for every mailbox/channel id, e.g. `irc-quakenet-org-logicmoo`.
+Two networks can both have `#test`. Use `mailbox_resource_id(adapter, instance, identifier)`
+(already includes instance) for every mailbox/mailbox id, e.g. `irc-quakenet-org-logicmoo`.
 Cursors keyed by these ids are therefore network-safe.
 
-### 5. Routing (outbound mailbox -> right network+bot+channel)
+### 5. Routing (outbound mailbox -> right network+bot+mailbox)
 Rule: the relay that emits an outbound record STAMPS `connector_id`; the router honors
 connector_id first, then endpoint instance, then first. endpoint_address alone (instance,
 no identity) can't disambiguate two nicks on one network, so connector_id is authoritative.
-(Adapter-per-connector + connector_id/instance routing already built in channel_relay.)
+(Adapter-per-connector + connector_id/instance routing already built in mailbox_relay.)
 
 ### 6. Cursor ownership
 Relay/bridge cursors live under the owning bridge agent's registry entry
-(entries[irc-bridge-agent].cursors = {channel_resource_id: {next, consumed}}), one map
-spanning all its presences' channels. Consistent with mm relays' cursors under the mm bridge.
+(entries[irc-bridge-agent].cursors = {mailbox_resource_id: {next, consumed}}), one map
+spanning all its presences' mailboxs. Consistent with mm relays' cursors under the mm bridge.
 
-### 7. Lifecycle (join/list/leave/channels/mailboxes)
-- list [--on adapter/instance]  -> discovery on that presence; all channels, joined or not.
+### 7. Lifecycle (join/list/leave/mailboxs/mailboxes)
+- list [--on adapter/instance]  -> discovery on that presence; all mailboxs, joined or not.
 - join adapter/instance/#chan   -> full onboarding: select/ensure connector, add #chan to
-  its channel_ids, create the local mailbox (network-qualified id), subscribe relevant
+  its mailbox_ids, create the local mailbox (network-qualified id), subscribe relevant
   agents + init cursors, and tell the live adapter to JOIN. (matches the "join does it all".)
-- channels                      -> channels we hold a presence on and are handling.
+- mailboxs                      -> mailboxs we hold a presence on and are handling.
 - mailboxes                     -> all cursor-consumed local streams.
 - leave/part                    -> PART + unsubscribe (+ optionally stop monitoring).
 
 ### 8. Regeneration (since history is disposable)
 Define a small SEED spec (agents, connectors/presences, relays, subscriptions). A builder
-regenerates server_registry_{agents,connectors,channels,relays} from the seed and drops
-message-history channel files. Registries kept; logs discarded.
+regenerates server_registry_{agents,connectors,mailboxs,relays} from the seed and drops
+message-history mailbox files. Registries kept; logs discarded.
 
 ## Open forks to confirm
 A. RESOLVED (user "i like the 2 slashed IDs"): presence/connector ids use the SLASH
    address form `adapter/instance/identity` (registry entries, never files);
-   channel/mailbox ids keep the hyphen channel_resource_id() slug (they are files on
+   mailbox/mailbox ids keep the hyphen mailbox_resource_id() slug (they are files on
    disk). Slash for entry ids, hyphen-slug for file-backed ids. See Fork I section.
 B. Agent topology: one irc bridge agent owning many presences (recommended) vs one per persona.
 C. Rename irc-bridge-agent -> irc-adapter-agent? (+ mattermost-bridge-agent -> mattermost-adapter-agent?)
@@ -423,31 +423,31 @@ H. Rename our "presence"? [RESOLVED: keep "presence"; availability is an attribu
 I. Replace server_registry_connectors with per-presence records (server_registry_presences),
    folding operated-presence connection/creds into the presence? (operated presence = old connector)
 
-## mm/instance/<name>: user vs channel disambiguation (user question 2026-08-22)
-QUESTION: "some command need to use mm/instance/test but how do we know if its the user or channel?"
+## mm/instance/<name>: user vs mailbox disambiguation (user question 2026-08-22)
+QUESTION: "some command need to use mm/instance/test but how do we know if its the user or mailbox?"
 CURRENT CODE (answer):
   - The address alone is AMBIGUOUS: EndpointAddress.inferred_type returns "unknown" for mattermost
-    (endpoint_address.py:98). IRC disambiguates by sigil (#/&/+/! => channel, else user); MM has none.
+    (endpoint_address.py:98). IRC disambiguates by sigil (#/&/+/! => mailbox, else user); MM has none.
   - Kind comes from COMMAND CONTEXT: each MM subcommand passes explicit kind= to _id()
-    (kind="channel" for channel args, kind="user"/_user_id for user args; mattermost_adapter.py:551,741,664).
+    (kind="mailbox" for mailbox args, kind="user"/_user_id for user args; mattermost_adapter.py:551,741,664).
   - IdentifierDirectory stores a `kind` per entry; _id() filters lookups by it. If a name matches BOTH
     (or is ambiguous), it raises "ambiguous Mattermost name; use mm/INSTANCE/ID" (:543) and you must use
     the opaque 26-char id (:532 treats a 26-char alnum as already-resolved).
-  - FACT: in MM everything posted to is a channel_id; a DM is a channel of type "D". Messaging a user =
-    username -> user_id -> get/create direct channel -> channel_id (_send_outbound always uses channel_id, :331).
+  - FACT: in MM everything posted to is a mailbox_id; a DM is a mailbox of type "D". Messaging a user =
+    username -> user_id -> get/create direct mailbox -> mailbox_id (_send_outbound always uses mailbox_id, :331).
 GAP: typed commands are fine (arg slot implies kind); a GENERIC address field (relay target, bare
   send-to) has no kind and stays ambiguous.
 OPTIONS (address-syntax decision — user steers, NOT chosen yet):
-  A (RECOMMENDED): adopt MM's native sigils in the address — mm/instance/@test = user (=> DM channel),
-    mm/instance/~test or bare mm/instance/test = channel. Self-describing, mirrors IRC, extends
+  A (RECOMMENDED): adopt MM's native sigils in the address — mm/instance/@test = user (=> DM mailbox),
+    mm/instance/~test or bare mm/instance/test = mailbox. Self-describing, mirrors IRC, extends
     inferred_type. Would add MM handling to EndpointAddress.inferred_type + resolution.
   B: keep command-context kind only; generic addresses error when ambiguous (status quo).
-  C: resolution rule (try channel then user; or directory kind), error if both exist.
+  C: resolution rule (try mailbox then user; or directory kind), error if both exist.
 STATUS: analysis recorded; awaiting user's pick before any code.
 
 ## Registry filename convention (user 2026-08-22): CONFIRMED, keep `server_registry_<kind>`
 User: "i love them.. but they need to indicate the kind of thing they register in their names."
-The 5 registry files (channel_store.py:28-32) already comply: server_registry_{agents,channels,
+The 5 registry files (mailbox_store.py:28-32) already comply: server_registry_{agents,mailboxs,
 connectors,identifiers,relays} — each names the KIND it registers. RULE: every registry file is
 `server_registry_<kind>` and must name the kind of thing registered. No renames needed.
 The new Fork I registry therefore MUST be `server_registry_presences` (kind = presences).
@@ -470,7 +470,7 @@ Presence record (superset; connection only when operated; room to grow):
   "principal": null,                // Fork F: bind presence -> person (email/opaque) when known
   "puppeteers": [],                 // agents that may puppet (claim/disown per msg); [] allowed
   "availability": { "desired": "online" },
-  "join": ["<channel-id>", ...],
+  "join": ["<mailbox-id>", ...],
   "connection": { ...creds via *_env... },   // present iff operated (this IS the old connector)
   // GROWTH SLOTS (per user steer): roles/permissions, ghost/projection policy, per-presence
   //   governors (rate/hops), storage handle, capabilities overrides, notes, etc.
@@ -480,13 +480,13 @@ Presence record (superset; connection only when operated; room to grow):
 Migration from today's 3 connectors -> operated presences (SLASH ids):
   irc/libera.chat/prologmud, irc/quakenet.org/jllykifsh, mattermost/chat.singularitynet.io/<botuser>.
   connector.{server,port,tls,nickname,token_env,base_url,...} -> presence.connection;
-  connector.channel_ids -> presence.join (channel/mailbox ids stay hyphen-slug);
+  connector.mailbox_ids -> presence.join (mailbox/mailbox ids stay hyphen-slug);
   connector.bridge_agent -> presence.puppeteers (Fork C may rename *-bridge-agent ->
   *-adapter-agent); adapter/instance carried up to the presence.
 
 BLOCKERS (do NOT implement until resolved — these affect stored field values):
   - Fork A: RESOLVED — presence/connector ids = slash form adapter/instance/identity;
-    channel/mailbox ids stay hyphen-slug (files). NOT a blocker.
+    mailbox/mailbox ids stay hyphen-slug (files). NOT a blocker.
   - Fork C: *-bridge-agent -> *-adapter-agent rename affects puppeteers values.
   - Fork F: principal key (email vs opaque) affects the `principal` field.
   A/C/F note: only C and F remain open. Neither blocks the STRUCTURE (registry, shim,
@@ -494,10 +494,10 @@ BLOCKERS (do NOT implement until resolved — these affect stored field values):
   filled/backfilled once chosen. So stages 1-2 below are technically unblocked.
 
 Staged implementation (structure unblocked; C/F only fix field values), lowest-risk first:
-  1. Add channel_store.PRESENCES_REGISTRY = "server_registry_presences"; write migrated records.
+  1. Add mailbox_store.PRESENCES_REGISTRY = "server_registry_presences"; write migrated records.
   2. Add load_presences(); keep load_connectors()/connectors_for() as a THIN COMPAT SHIM that
      projects presences back to the legacy connector dict shape, so the ~15 adapters +
-     channel_relay/server/subscriptions/chat_admin/discovery_admin keep running UNCHANGED.
+     mailbox_relay/server/subscriptions/chat_admin/discovery_admin keep running UNCHANGED.
   3. Grow presence-native fields + a presences CLI/REST surface incrementally.
   4. (Later, optional) migrate consumers off the shim to a presence-native API; retire connectors.
 Rationale for shim-first: connectors_for/load_connectors is consumed by every adapter; a big-bang

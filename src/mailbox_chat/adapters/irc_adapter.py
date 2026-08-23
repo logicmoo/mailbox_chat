@@ -32,7 +32,7 @@ class IrcAdapter:
             "enabled": False,
             "connected": False,
             "lastError": None,
-            "channels": [],
+            "mailboxs": [],
         }
 
     def configure(self, connector: dict[str, Any] | None = None) -> bool:
@@ -41,7 +41,7 @@ class IrcAdapter:
             connector = configured[0] if configured else None
         self.connector = connector
         self.status["enabled"] = self.connector is not None
-        self.status["channels"] = list(self.connector.get("channel_ids", [])) if self.connector else []
+        self.status["mailboxs"] = list(self.connector.get("mailbox_ids", [])) if self.connector else []
         if self.connector is not None:
             self.status["connector_id"] = self.connector_id
             self.status["instance"] = self.irc_instance
@@ -96,11 +96,11 @@ class IrcAdapter:
             raise ConnectionError("IRC adapter is not connected")
         self.connection.sendall((line.replace("\r", " ").replace("\n", " ") + "\r\n").encode("utf-8"))
 
-    def _join_channels(self) -> None:
+    def _join_mailboxs(self) -> None:
         if self.joined or not self.connector:
             return
-        for channel in self.connector.get("channel_ids", []):
-            self._write(f"JOIN {channel}")
+        for mailbox in self.connector.get("mailbox_ids", []):
+            self._write(f"JOIN {mailbox}")
         self.joined = True
 
     def cycle(self, mailbox: Any) -> None:
@@ -130,7 +130,7 @@ class IrcAdapter:
             self._write("PONG " + line[5:])
             return
         if " 001 " in line:
-            self._join_channels()
+            self._join_mailboxs()
             return
         if " PRIVMSG " not in line or not line.startswith(":"):
             if " NOTICE " in line or line.startswith("ERROR ") or (
@@ -142,7 +142,7 @@ class IrcAdapter:
                 for recipient in subscription_recipients("irc", connector, "status"):
                     mailbox.send(
                         recipient, text, sender="irc:server", message_type="irc_status",
-                        channel_id="status", channel_type="irc",
+                        mailbox_id="status", mailbox_type="irc",
                         extra_fields={"irc_line": line},
                     )
             return
@@ -166,13 +166,13 @@ class IrcAdapter:
             adapter="irc",
             connector_id=str(connector.get("id") or ""),
             source_id=source_id,
-            channel_id=target,
+            mailbox_id=target,
             presence_id=str(connector.get("presence_id") or ""),
         )
         DeliveryLedger(mailbox.mailbox_dir()).claim(
             extra_fields,
             endpoint_id(
-                "irc", connector_id=str(connector.get("id") or ""), channel_id=target,
+                "irc", connector_id=str(connector.get("id") or ""), mailbox_id=target,
                 presence_id=str(connector.get("presence_id") or ""),
             ),
         )
@@ -182,8 +182,8 @@ class IrcAdapter:
                 text,
                 sender=f"irc:{nickname}",
                 message_type="irc_message",
-                channel_id=target,
-                channel_type="irc",
+                mailbox_id=target,
+                mailbox_type="irc",
                 source_id=source_id,
                 extra_fields=extra_fields,
             )
@@ -193,9 +193,9 @@ class IrcAdapter:
             raise RuntimeError("IRC adapter is not enabled")
         if not self.connection:
             self.connect()
-        target = str(message.get("channel_id") or "").strip()
+        target = str(message.get("mailbox_id") or "").strip()
         if not target:
-            raise ValueError("IRC outbound message requires channel_id")
+            raise ValueError("IRC outbound message requires mailbox_id")
         if target == "status":
             raise ValueError("irc/INSTANCE/status is read-only")
         text = str(message.get("text") or "")
@@ -203,15 +203,15 @@ class IrcAdapter:
         for line in [*(text.splitlines() or [""]), *attachment_lines]:
             self._write(f"PRIVMSG {target} :{line}")
 
-    def list_channels(self, *, timeout: float = 30.0) -> list[dict[str, Any]]:
-        """Use IRC LIST (322/323) to discover visible public channels."""
+    def list_mailboxs(self, *, timeout: float = 30.0) -> list[dict[str, Any]]:
+        """Use IRC LIST (322/323) to discover visible public mailboxs."""
         if not self.status["enabled"]:
             raise RuntimeError("IRC adapter is not enabled")
         if not self.connection:
             self.connect()
         deadline = time.monotonic() + timeout
         requested = False
-        channels: list[dict[str, Any]] = []
+        mailboxs: list[dict[str, Any]] = []
         buffer = ""
         while time.monotonic() < deadline:
             try:
@@ -232,22 +232,22 @@ class IrcAdapter:
                 if " 322 " in line:
                     fields = line.split(" ", 5)
                     if len(fields) >= 6:
-                        channels.append({
+                        mailboxs.append({
                             "identifier": fields[3],
                             "text": fields[5].removeprefix(":"),
-                            "kind": "channel",
+                            "kind": "mailbox",
                             "metadata": {"visible_users": int(fields[4])},
                         })
                 if " 323 " in line:
-                    return channels
+                    return mailboxs
         raise TimeoutError("IRC LIST did not complete before the timeout")
 
-    def list_channel_users(self, channel: str, *, timeout: float = 15.0) -> list[dict[str, Any]]:
-        """Use IRC NAMES (353/366) to discover nicknames visible in one channel."""
+    def list_mailbox_users(self, mailbox: str, *, timeout: float = 15.0) -> list[dict[str, Any]]:
+        """Use IRC NAMES (353/366) to discover nicknames visible in one mailbox."""
         if not self.status["enabled"]:
             raise RuntimeError("IRC adapter is not enabled")
-        if not channel.startswith(("#", "&", "+", "!")):
-            channel = f"#{channel}"
+        if not mailbox.startswith(("#", "&", "+", "!")):
+            mailbox = f"#{mailbox}"
         if not self.connection:
             self.connect()
         deadline = time.monotonic() + timeout
@@ -268,7 +268,7 @@ class IrcAdapter:
                 if line.startswith("PING "):
                     self._write("PONG " + line[5:])
                 if " 001 " in line and not requested:
-                    self._write(f"NAMES {channel}")
+                    self._write(f"NAMES {mailbox}")
                     requested = True
                 if " 353 " in line:
                     names = line.partition(" :")[2].split()
@@ -277,7 +277,7 @@ class IrcAdapter:
                         if nickname:
                             users[nickname.casefold()] = {
                                 "identifier": nickname, "text": nickname, "kind": "user",
-                                "metadata": {"channel": channel,
+                                "metadata": {"mailbox": mailbox,
                                              "status_prefix": decorated[:-len(nickname)]},
                             }
                 if " 366 " in line:
@@ -289,11 +289,11 @@ def protocol_line(args: argparse.Namespace) -> str:
     if command == "ping":
         return f"PING :{args.token}"
     if command == "join":
-        return f"JOIN {args.channel}" + (f" {args.key}" if args.key else "")
+        return f"JOIN {args.mailbox}" + (f" {args.key}" if args.key else "")
     if command == "part":
-        return f"PART {args.channel}" + (f" :{args.message}" if args.message else "")
+        return f"PART {args.mailbox}" + (f" :{args.message}" if args.message else "")
     if command == "topic":
-        return f"TOPIC {args.channel}" + (f" :{args.text}" if args.text is not None else "")
+        return f"TOPIC {args.mailbox}" + (f" :{args.text}" if args.text is not None else "")
     if command == "nick":
         return f"NICK {args.nickname}"
     if command == "whois":
@@ -301,9 +301,9 @@ def protocol_line(args: argparse.Namespace) -> str:
     if command == "mode":
         return " ".join(["MODE", args.target, *args.modes])
     if command == "invite":
-        return f"INVITE {args.nickname} {args.channel}"
+        return f"INVITE {args.nickname} {args.mailbox}"
     if command == "kick":
-        return f"KICK {args.channel} {args.nickname}" + (f" :{args.reason}" if args.reason else "")
+        return f"KICK {args.mailbox} {args.nickname}" + (f" :{args.reason}" if args.reason else "")
     if command == "message":
         return f"PRIVMSG {args.target} :{args.text}"
     if command == "notice":

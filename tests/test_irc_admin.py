@@ -1,9 +1,9 @@
-from mailbox_channels.admin_io import normalize_options
-from mailbox_channels.agent_mailbox import CHAT_COMMANDS
-from mailbox_channels.chat_admin import _platform, main, parser
-from mailbox_channels.adapters.irc_adapter import protocol_line
-from mailbox_channels.adapters.mattermost_adapter import arguments_from_namespace
-from mailbox_channels.identifier_directory import IdentifierDirectory
+from mailbox_mailboxs.admin_io import normalize_options
+from mailbox_mailboxs.agent_mailbox import CHAT_COMMANDS
+from mailbox_mailboxs.chat_admin import _platform, main, parser
+from mailbox_mailboxs.adapters.irc_adapter import protocol_line
+from mailbox_mailboxs.adapters.mattermost_adapter import arguments_from_namespace
+from mailbox_mailboxs.identifier_directory import IdentifierDirectory
 
 
 def test_irc_help_lists_normal_commands() -> None:
@@ -37,7 +37,7 @@ def test_qualified_mattermost_address_selects_platform_and_maps_mode() -> None:
     args = parser().parse_args(["mode", "mm/0/town-square", "+o", "alice"])
     assert _platform(args) == "mm"
     assert arguments_from_namespace(args, None) == {
-        "channel": "mm/0/town-square", "setting": "+o", "user": "alice",
+        "mailbox": "mm/0/town-square", "setting": "+o", "user": "alice",
     }
 
 
@@ -56,10 +56,10 @@ def test_downloaded_bare_id_selects_its_registered_platform(tmp_path, monkeypatc
     assert _platform(args) == "mm"
 
 
-def test_downloaded_channel_name_selects_its_registered_platform(tmp_path, monkeypatch) -> None:
+def test_downloaded_mailbox_name_selects_its_registered_platform(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AGENT_MAILBOX_DIR", str(tmp_path))
     IdentifierDirectory(tmp_path).remember(
-        "channel-id", "test", system="mm/chat.singularitynet.io", kind="channel",
+        "mailbox-id", "test", system="mm/chat.singularitynet.io", kind="mailbox",
     )
     args = parser().parse_args(["names", "test"])
     assert _platform(args) == "mm"
@@ -69,13 +69,13 @@ def test_command_help_explains_targets_platform_and_mattermost_modes() -> None:
     choices = next(action for action in parser()._actions
                    if isinstance(action, __import__("argparse")._SubParsersAction)).choices
     mode_help = choices["mode"].format_help()
-    assert "qualified channel/user address" in mode_help
+    assert "qualified mailbox/user address" in mode_help
     assert "Mattermost public/private/+o USER/-o USER" in mode_help
     assert "--on TYPE/INSTANCE" in mode_help
 
 
 def test_mattermost_command_reports_new_registry_entries(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command", lambda *_args, **_kwargs: {
+    monkeypatch.setattr("mailbox_mailboxs.chat_admin.post_mattermost_command", lambda *_args, **_kwargs: {
         "result": [], "registry": {"new_entries": 3, "total_entries": 20},
     })
     assert main(["list", "--on", "mm/0"]) == 0
@@ -91,35 +91,35 @@ def test_join_subscribe_all_is_sent_to_mattermost_server(monkeypatch, capsys) ->
         return {
             "result": {"ok": True},
             "subscriptions": {
-                "channel": "mm-chat-example-team-channel-id",
+                "mailbox": "mm-chat-example-team-mailbox-id",
                 "subscribed_agents": ["one", "two"],
                 "count": 2,
             },
         }
 
-    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command", post)
+    monkeypatch.setattr("mailbox_mailboxs.chat_admin.post_mattermost_command", post)
 
-    assert main(["join", "mm/0/channel-id", "--subscribe-all"]) == 0
+    assert main(["join", "mm/0/mailbox-id", "--subscribe-all"]) == 0
     assert captured == {
         "command": "join",
-        "arguments": {"channel": "mm/0/channel-id", "subscribe_all": True},
+        "arguments": {"mailbox": "mm/0/mailbox-id", "subscribe_all": True},
     }
     assert '"count": 2' in capsys.readouterr().out
 
 
 def test_bare_list_loops_through_configured_providers(monkeypatch, capsys) -> None:
-    monkeypatch.setattr("mailbox_channels.chat_admin.load_connectors", lambda: [
+    monkeypatch.setattr("mailbox_mailboxs.chat_admin.load_connectors", lambda: [
         {"enabled": True, "adapter": "mattermost"},
         {"enabled": True, "adapter": "irc"},
         {"enabled": True, "adapter": "mattermost"},
     ])
-    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command",
+    monkeypatch.setattr("mailbox_mailboxs.chat_admin.post_mattermost_command",
                         lambda *_args, **_kwargs: {
                             "result": [{"address": "mm/chat.example/general"}],
                             "registry": {"new_entries": 2},
                         })
-    monkeypatch.setattr("mailbox_channels.chat_admin._remote_irc_list",
-                        lambda *_args: {"channels": [{"address": "irc/example/#general"}]})
+    monkeypatch.setattr("mailbox_mailboxs.chat_admin._remote_irc_list",
+                        lambda *_args: {"mailboxs": [{"address": "irc/example/#general"}]})
 
     assert main(["list"]) == 0
     captured = capsys.readouterr()
@@ -138,7 +138,7 @@ def test_list_bot_flag_maps_to_membership_arguments() -> None:
 
 def test_bare_list_forwards_discovery_paging_to_mattermost(monkeypatch) -> None:
     captured = {}
-    monkeypatch.setattr("mailbox_channels.chat_admin.load_connectors", lambda: [
+    monkeypatch.setattr("mailbox_mailboxs.chat_admin.load_connectors", lambda: [
         {"enabled": True, "adapter": "mattermost"},
     ])
 
@@ -146,7 +146,7 @@ def test_bare_list_forwards_discovery_paging_to_mattermost(monkeypatch) -> None:
         captured.update({"command": command, "arguments": arguments})
         return {"result": []}
 
-    monkeypatch.setattr("mailbox_channels.chat_admin.post_mattermost_command", post)
+    monkeypatch.setattr("mailbox_mailboxs.chat_admin.post_mattermost_command", post)
 
     assert main(["list", "--page", "0", "--per_page", "1000"]) == 0
     assert captured["command"] == "list"

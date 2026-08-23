@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_channels.token_admin import register_token, token_registered
+from mailbox_mailboxs.token_admin import register_token, token_registered
 
 
 def test_register_token_preserves_env_and_replaces_existing_value(tmp_path: Path) -> None:

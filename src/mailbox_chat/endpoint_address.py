@@ -30,9 +30,9 @@ ADAPTER_ALIASES.update({
     "whatsapp-personal": "whatsapp_personal",
 })
 RESOURCE_ID_PART = re.compile(r"[^a-zA-Z0-9_-]+")
-# IRC channel prefixes are significant: #prolog and ##prolog are DIFFERENT channels.
+# IRC mailbox prefixes are significant: #prolog and ##prolog are DIFFERENT mailboxs.
 # The slug would otherwise strip both to "prolog". Encode the leading sigil run so distinct
-# prefixes yield distinct ids. The common single "#" channel stays clean (no token);
+# prefixes yield distinct ids. The common single "#" mailbox stays clean (no token);
 # other/repeated sigils get a compact token prefix.
 IRC_SIGIL_TOKENS = {"#": "h", "&": "s", "+": "p", "!": "x"}
 
@@ -49,14 +49,14 @@ def _encode_irc_identifier(identifier: str) -> str:
     return name if token == "h" else f"{token}-{name}"
 
 
-def channel_resource_id(adapter: str, instance: str, identifier: str, *, scope: str = "") -> str:
-    """Build a stable non-address channel resource ID.
+def mailbox_resource_id(adapter: str, instance: str, identifier: str, *, scope: str = "") -> str:
+    """Build a stable non-address mailbox resource ID.
 
     If the instance host's leading label duplicates the adapter slug or canonical
     name (e.g. ``irc.quakenet.org`` for ``irc``, or ``mm.snet`` for ``mm``), that
     label is popped so the id reads ``irc-quakenet-org-…`` / ``mm-snet-…`` instead
     of ``irc-irc-…`` / ``mm-mm-…``. A non-duplicating host (``chat.singularitynet.io``)
-    is kept verbatim (``mm-chat-singularitynet-io-…``). IRC channel sigils are encoded so
+    is kept verbatim (``mm-chat-singularitynet-io-…``). IRC mailbox sigils are encoded so
     ``#prolog`` (=> ``…-prolog``) and ``##prolog`` (=> ``…-hh-prolog``) never collide.
     """
     canonical = ADAPTER_ALIASES.get(adapter, adapter)
@@ -90,15 +90,15 @@ class EndpointAddress:
     @property
     def inferred_type(self) -> str:
         if self.adapter == "local":
-            return "channel"
+            return "mailbox"
         if self.adapter == "irc":
             if self.identifier == "status":
                 return "status"
-            return "channel" if self.identifier.startswith(("#", "&", "+", "!")) else "user"
+            return "mailbox" if self.identifier.startswith(("#", "&", "+", "!")) else "user"
         if self.adapter == "mattermost":
             # Mattermost has no id-level sigil, but its markdown addresses users as @name and
-            # channels as ~name. Honor that: @name => user (DM), ~name or bare => channel.
-            return "user" if self.identifier.startswith("@") else "channel"
+            # mailboxs as ~name. Honor that: @name => user (DM), ~name or bare => mailbox.
+            return "user" if self.identifier.startswith("@") else "mailbox"
         return "unknown"
 
     def describe(self, *, resource_type: str = "", properties: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -155,6 +155,6 @@ def endpoint_instance(adapter: str, connector: dict[str, Any]) -> str:
 def subscription_recipients(adapter: str, connector: dict[str, Any], identifier: str) -> list[str]:
     from .subscriptions import subscribers
 
-    return subscribers(channel_resource_id(
+    return subscribers(mailbox_resource_id(
         adapter, endpoint_instance(adapter, connector), str(identifier),
     ))

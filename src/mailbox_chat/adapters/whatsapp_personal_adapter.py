@@ -82,7 +82,7 @@ class WhatsAppPersonalAdapter:
         source_id = str(payload.get("message_id") or "")
         author_id = str(payload.get("author_id") or chat_id)
         is_group = bool(payload.get("is_group"))
-        allowed = set(str(item) for item in connector.get("channel_ids", []))
+        allowed = set(str(item) for item in connector.get("mailbox_ids", []))
         if not chat_id or not source_id or (allowed and chat_id not in allowed):
             return
         if is_group and not connector.get("include_groups", True):
@@ -106,9 +106,9 @@ class WhatsAppPersonalAdapter:
                                 "mime_type": str(media.get("mime_type") or "application/octet-stream"),
                                 "size": len(content), "sha256": hashlib.sha256(content).hexdigest()})
         origin = with_origin({"author": author, "author_id": author_id}, adapter="whatsapp_personal",
-                             connector_id=connector["id"], source_id=source_id, channel_id=chat_id)
+                             connector_id=connector["id"], source_id=source_id, mailbox_id=chat_id)
         if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-            "whatsapp_personal", connector_id=connector["id"], channel_id=chat_id,
+            "whatsapp_personal", connector_id=connector["id"], mailbox_id=chat_id,
         )):
             return
         text = str(payload.get("text") or ("[attachment]" if attachments else ""))
@@ -119,8 +119,8 @@ class WhatsAppPersonalAdapter:
                                          )]))
         for recipient in filter(None, recipients):
             mailbox.send(recipient, text, sender=f"whatsapp-personal:{author}",
-                         message_type="whatsapp_personal_message", channel_id=chat_id,
-                         channel_type="whatsapp_personal", source_id=source_id,
+                         message_type="whatsapp_personal_message", mailbox_id=chat_id,
+                         mailbox_type="whatsapp_personal", source_id=source_id,
                          extra_fields={**origin, "attachments": attachments, "whatsapp_is_group": is_group})
 
     def _connector_for(self, message: dict[str, Any]) -> dict[str, Any]:
@@ -135,9 +135,9 @@ class WhatsAppPersonalAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        chat_id = str(message.get("channel_id") or "").strip()
+        chat_id = str(message.get("mailbox_id") or "").strip()
         if not chat_id:
-            raise ValueError("WhatsApp Personal outbound message requires a chat or group channel_id")
+            raise ValueError("WhatsApp Personal outbound message requires a chat or group mailbox_id")
         payload = {"chat_id": chat_id, "text": str(message.get("text") or ""),
                    "attachments": [str(item.get("path") or "") for item in message.get("attachments") or []]}
         response = self.session.post(f"{self._url(connector)}/send",

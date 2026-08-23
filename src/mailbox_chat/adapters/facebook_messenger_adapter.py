@@ -97,15 +97,15 @@ class FacebookMessengerAdapter:
                 sender_id = str((event.get("sender") or {}).get("id") or "")
                 if not source_id or not sender_id or message.get("is_echo"):
                     continue
-                allowed = set(str(item) for item in connector.get("channel_ids", []))
+                allowed = set(str(item) for item in connector.get("mailbox_ids", []))
                 if allowed and sender_id not in allowed:
                     continue
                 author = self._resolve_sender(mailbox, connector, sender_id)
                 origin = with_origin({"author": author, "author_id": sender_id},
                                      adapter="facebook_messenger", connector_id=connector["id"],
-                                     source_id=source_id, channel_id=sender_id)
+                                     source_id=source_id, mailbox_id=sender_id)
                 if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-                    "facebook_messenger", connector_id=connector["id"], channel_id=sender_id,
+                    "facebook_messenger", connector_id=connector["id"], mailbox_id=sender_id,
                 )):
                     continue
                 text = str(message.get("text") or "")
@@ -116,8 +116,8 @@ class FacebookMessengerAdapter:
                                                   )]))
                 for recipient in filter(None, recipients):
                     mailbox.send(recipient, text, sender=f"facebook:{author}",
-                                 message_type="facebook_messenger_message", channel_id=sender_id,
-                                 channel_type="facebook_messenger", source_id=source_id,
+                                 message_type="facebook_messenger_message", mailbox_id=sender_id,
+                                 mailbox_type="facebook_messenger", source_id=source_id,
                                  extra_fields={**origin, "facebook_attachments": message.get("attachments") or []})
 
     def _connector_for(self, message: dict[str, Any]) -> dict[str, Any]:
@@ -132,9 +132,9 @@ class FacebookMessengerAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        recipient = str(message.get("channel_id") or "").strip()
+        recipient = str(message.get("mailbox_id") or "").strip()
         if not recipient:
-            raise ValueError("Facebook Messenger outbound message requires channel_id (PSID)")
+            raise ValueError("Facebook Messenger outbound message requires mailbox_id (PSID)")
         headers = {"Authorization": f"Bearer {self._token(connector)}"}
         text = str(message.get("text") or "")
         if text:

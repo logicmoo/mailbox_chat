@@ -3,7 +3,7 @@ import hmac
 import json
 from pathlib import Path
 
-from mailbox_channels.adapters.viber_adapter import ViberAdapter
+from mailbox_mailboxs.adapters.viber_adapter import ViberAdapter
 
 
 class Response:
@@ -37,11 +37,11 @@ class Mailbox:
 
 def test_viber_signed_webhook_inbound_and_outbound(monkeypatch, tmp_path: Path) -> None:
     connector = {
-        "id": "viber-one", "direction": "bidirectional", "channel_ids": ["user-1"],
+        "id": "viber-one", "direction": "bidirectional", "mailbox_ids": ["user-1"],
         "bridge_agent": "viber-agent", "mailbox_recipients": ["worker"], "bot_name": "Relay",
     }
     monkeypatch.setenv("VIBER_AUTH_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.viber_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_mailboxs.adapters.viber_adapter.connectors_for",
                         lambda adapter: [connector])
     session = Session()
     adapter = ViberAdapter(session=session)
@@ -58,8 +58,8 @@ def test_viber_signed_webhook_inbound_and_outbound(monkeypatch, tmp_path: Path) 
     assert adapter.authenticate_webhook(body + b"x", signature) is None
     adapter.handle_webhook(payload, mailbox, connector)
     assert [item[0] for item in mailbox.sent] == ["viber-agent", "worker"]
-    assert mailbox.sent[0][2]["channel_type"] == "viber"
-    adapter.send_message({"connector_id": "viber-one", "channel_id": "user-1", "text": "reply"})
+    assert mailbox.sent[0][2]["mailbox_type"] == "viber"
+    adapter.send_message({"connector_id": "viber-one", "mailbox_id": "user-1", "text": "reply"})
     assert session.posts[-1][0].endswith("/send_message")
     assert session.posts[-1][1]["headers"]["X-Viber-Auth-Token"] == "secret"
     assert session.posts[-1][1]["json"]["receiver"] == "user-1"
@@ -68,16 +68,16 @@ def test_viber_signed_webhook_inbound_and_outbound(monkeypatch, tmp_path: Path) 
 def test_viber_outbound_file_uses_public_attachment_url(monkeypatch, tmp_path: Path) -> None:
     connector = {"id": "viber-one", "direction": "outbound", "bot_name": "Relay"}
     monkeypatch.setenv("VIBER_AUTH_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.viber_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_mailboxs.adapters.viber_adapter.connectors_for",
                         lambda adapter: [connector])
-    monkeypatch.setattr("mailbox_channels.adapters.viber_adapter.attachment_url",
+    monkeypatch.setattr("mailbox_mailboxs.adapters.viber_adapter.attachment_url",
                         lambda record: "https://relay.example/v1/attachments/report.txt")
     path = tmp_path / "report.txt"
     path.write_text("result", encoding="utf-8")
     session = Session()
     adapter = ViberAdapter(session=session)
     assert adapter.configure()
-    adapter.send_message({"connector_id": "viber-one", "channel_id": "user-1", "attachments": [{
+    adapter.send_message({"connector_id": "viber-one", "mailbox_id": "user-1", "attachments": [{
         "path": str(path), "name": "report.txt",
     }]})
     assert session.posts[-1][1]["json"]["type"] == "file"

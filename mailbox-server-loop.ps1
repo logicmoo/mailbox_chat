@@ -75,7 +75,7 @@ function Start-Server {
     # is reported reliably -- that is how /api/shutdown's exit code 42 is detected.
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $python
-    $psi.Arguments = ConvertTo-ArgumentString (@('-m', 'mailbox_channels.server') + $serverArgs)
+    $psi.Arguments = ConvertTo-ArgumentString (@('-m', 'mailbox_mailboxs.server') + $serverArgs)
     $psi.UseShellExecute = $false
     return [System.Diagnostics.Process]::Start($psi)
 }

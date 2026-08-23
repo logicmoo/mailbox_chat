@@ -25,7 +25,7 @@ class DiscordAdapter:
         self.bot_ids: dict[str, str] = {}
         self.latest_ids: dict[tuple[str, str], str] = {}
         self.status: dict[str, Any] = {
-            "enabled": False, "connected": False, "lastError": None, "channels": [],
+            "enabled": False, "connected": False, "lastError": None, "mailboxs": [],
         }
 
     @staticmethod
@@ -45,8 +45,8 @@ class DiscordAdapter:
         self.status.update({
             "enabled": bool(self.connectors) and not missing,
             "connected": False,
-            "channels": list(dict.fromkeys(
-                channel for item in self.connectors for channel in item.get("channel_ids", [])
+            "mailboxs": list(dict.fromkeys(
+                mailbox for item in self.connectors for mailbox in item.get("mailbox_ids", [])
             )),
             "lastError": f"Missing Discord tokens for: {', '.join(missing)}" if missing else None,
         })
@@ -57,14 +57,14 @@ class DiscordAdapter:
             response = self.session.get(f"{DISCORD_API}/users/@me", headers=self._headers(connector), timeout=15)
             response.raise_for_status()
             self.bot_ids[connector["id"]] = str(response.json()["id"])
-            for channel_id in connector.get("channel_ids", []):
+            for mailbox_id in connector.get("mailbox_ids", []):
                 latest = self.session.get(
-                    f"{DISCORD_API}/channels/{channel_id}/messages",
+                    f"{DISCORD_API}/mailboxs/{mailbox_id}/messages",
                     headers=self._headers(connector), params={"limit": 1}, timeout=15,
                 )
                 latest.raise_for_status()
                 messages = latest.json()
-                self.latest_ids[(connector["id"], channel_id)] = str(messages[0]["id"]) if messages else "0"
+                self.latest_ids[(connector["id"], mailbox_id)] = str(messages[0]["id"]) if messages else "0"
         self.status.update({"connected": True, "lastError": None})
 
     def close(self) -> None:
@@ -79,22 +79,22 @@ class DiscordAdapter:
         for connector in self.connectors:
             if connector["direction"] not in {"inbound", "bidirectional"}:
                 continue
-            for channel_id in connector.get("channel_ids", []):
-                self._poll_channel(mailbox, connector, channel_id)
+            for mailbox_id in connector.get("mailbox_ids", []):
+                self._poll_mailbox(mailbox, connector, mailbox_id)
         self.status.update({"connected": True, "lastError": None, "lastCycleAt": time.time()})
 
-    def _poll_channel(self, mailbox: Any, connector: dict[str, Any], channel_id: str) -> None:
+    def _poll_mailbox(self, mailbox: Any, connector: dict[str, Any], mailbox_id: str) -> None:
         response = self.session.get(
-            f"{DISCORD_API}/channels/{channel_id}/messages",
+            f"{DISCORD_API}/mailboxs/{mailbox_id}/messages",
             headers=self._headers(connector),
-            params={"limit": 100, "after": self.latest_ids.get((connector["id"], channel_id), "0")},
+            params={"limit": 100, "after": self.latest_ids.get((connector["id"], mailbox_id), "0")},
             timeout=15,
         )
         response.raise_for_status()
         for message in reversed(response.json()):
             source_id = str(message["id"])
-            self.latest_ids[(connector["id"], channel_id)] = max(
-                source_id, self.latest_ids.get((connector["id"], channel_id), "0"), key=int,
+            self.latest_ids[(connector["id"], mailbox_id)] = max(
+                source_id, self.latest_ids.get((connector["id"], mailbox_id), "0"), key=int,
             )
             author = message.get("author") or {}
             if str(author.get("id") or "") == self.bot_ids.get(connector["id"]):
@@ -104,10 +104,10 @@ class DiscordAdapter:
                  "author_id": str(author.get("id") or ""),
                  "discord_guild_id": str(message.get("guild_id") or "")},
                 adapter="discord", connector_id=connector["id"], source_id=source_id,
-                channel_id=channel_id, presence_id=str(connector.get("presence_id") or ""),
+                mailbox_id=mailbox_id, presence_id=str(connector.get("presence_id") or ""),
             )
             claimed = DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-                "discord", connector_id=connector["id"], channel_id=channel_id,
+                "discord", connector_id=connector["id"], mailbox_id=mailbox_id,
                 presence_id=str(connector.get("presence_id") or ""),
             ))
             if not claimed:
@@ -115,14 +115,14 @@ class DiscordAdapter:
             recipients = list(dict.fromkeys([
                 *([connector["bridge_agent"]] if connector.get("bridge_agent") else []),
                 *connector.get("mailbox_recipients", []),
-                *subscription_recipients("discord", connector, channel_id),
+                *subscription_recipients("discord", connector, mailbox_id),
             ]))
             for recipient in recipients:
                 mailbox.send(
                     recipient, str(message.get("content") or ""),
                     sender=f"discord:{author.get('username') or author.get('id') or 'user'}",
-                    message_type="discord_message", channel_id=channel_id,
-                    channel_type="discord", source_id=source_id,
+                    message_type="discord_message", mailbox_id=mailbox_id,
+                    mailbox_type="discord", source_id=source_id,
                     extra_fields=origin,
                 )
 
@@ -134,9 +134,9 @@ class DiscordAdapter:
             connector = eligible[0] if len(eligible) == 1 else None
         if connector is None:
             raise ValueError("Discord outbound message requires an unambiguous connector_id")
-        channel_id = str(message.get("channel_id") or "").strip()
-        if not channel_id:
-            raise ValueError("Discord outbound message requires channel_id")
+        mailbox_id = str(message.get("mailbox_id") or "").strip()
+        if not mailbox_id:
+            raise ValueError("Discord outbound message requires mailbox_id")
         attachments = list(message.get("attachments") or [])
         if attachments:
             opened = []
@@ -148,7 +148,7 @@ class DiscordAdapter:
                     opened.append(stream)
                     files[f"files[{index}]"] = (path.name, stream, record.get("mime_type") or "application/octet-stream")
                 response = self.session.post(
-                    f"{DISCORD_API}/channels/{channel_id}/messages", headers=self._headers(connector),
+                    f"{DISCORD_API}/mailboxs/{mailbox_id}/messages", headers=self._headers(connector),
                     data={"payload_json": json.dumps({"content": str(message.get("text") or "")})},
                     files=files, timeout=60,
                 )
@@ -157,7 +157,7 @@ class DiscordAdapter:
                     stream.close()
         else:
             response = self.session.post(
-                f"{DISCORD_API}/channels/{channel_id}/messages", headers=self._headers(connector),
+                f"{DISCORD_API}/mailboxs/{mailbox_id}/messages", headers=self._headers(connector),
                 json={"content": str(message.get("text") or "")}, timeout=15,
             )
         response.raise_for_status()

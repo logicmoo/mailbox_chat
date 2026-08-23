@@ -29,7 +29,7 @@ class LineAdapter:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
         self.connectors: list[dict[str, Any]] = []
-        self.status = {"enabled": False, "connected": False, "lastError": None, "channels": []}
+        self.status = {"enabled": False, "connected": False, "lastError": None, "mailboxs": []}
 
     @staticmethod
     def _token(connector: dict[str, Any]) -> str:
@@ -46,7 +46,7 @@ class LineAdapter:
         self.connectors = connectors_for("line")
         missing = [item["id"] for item in self.connectors if not self._token(item) or not self._secret(item)]
         self.status.update({"enabled": bool(self.connectors) and not missing, "connected": False,
-                            "channels": [item["id"] for item in self.connectors],
+                            "mailboxs": [item["id"] for item in self.connectors],
                             "lastError": f"Missing LINE credentials for: {', '.join(missing)}" if missing else None})
         return bool(self.status["enabled"])
 
@@ -129,7 +129,7 @@ class LineAdapter:
             user_id = str(source.get("userId") or "")
             if not conversation or not source_id:
                 continue
-            allowed = set(str(item) for item in connector.get("channel_ids", []))
+            allowed = set(str(item) for item in connector.get("mailbox_ids", []))
             if conversation not in allowed and not (kind == "user" and connector.get("include_direct_messages")):
                 continue
             name = self._profile(connector, source, user_id)
@@ -143,9 +143,9 @@ class LineAdapter:
             attachments = self._download(mailbox, connector, message)
             origin = with_origin({"author": name, "author_id": user_id}, adapter="line",
                                  connector_id=connector["id"], source_id=source_id,
-                                 channel_id=conversation)
+                                 mailbox_id=conversation)
             if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-                "line", connector_id=connector["id"], channel_id=conversation,
+                "line", connector_id=connector["id"], mailbox_id=conversation,
             )):
                 continue
             recipients = list(dict.fromkeys([connector.get("bridge_agent"),
@@ -153,7 +153,7 @@ class LineAdapter:
                                               *subscription_recipients("line", connector, conversation)]))
             for recipient in filter(None, recipients):
                 mailbox.send(recipient, text, sender=f"line:{name}", message_type="line_message",
-                             channel_id=conversation, channel_type="line", source_id=source_id,
+                             mailbox_id=conversation, mailbox_type="line", source_id=source_id,
                              thread_id=str(message.get("quotedMessageId") or "") or None,
                              extra_fields={**origin, "attachments": attachments, "line_source_type": kind,
                                            "line_reply_token": str(event.get("replyToken") or "")})
@@ -170,9 +170,9 @@ class LineAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        destination = str(message.get("channel_id") or "").strip()
+        destination = str(message.get("mailbox_id") or "").strip()
         if not destination:
-            raise ValueError("LINE outbound message requires channel_id (user, group, or room ID)")
+            raise ValueError("LINE outbound message requires mailbox_id (user, group, or room ID)")
         messages: list[dict[str, Any]] = []
         text = str(message.get("text") or "")
         messages.extend({"type": "text", "text": text[start:start + 5000]}

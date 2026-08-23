@@ -1,17 +1,17 @@
-"""Primitives for the per-channel JSON document store.
+"""Primitives for the per-mailbox JSON document store.
 
-Every durable record lives in ``<root>/<channel_id>.json``. Two shapes share
-one container format (``kind: "channel"``):
+Every durable record lives in ``<root>/<mailbox_id>.json``. Two shapes share
+one container format (``kind: "mailbox"``):
 
-* message channels: ``{id, kind, sub_kind, count, messages: {entry_N: {...}}}``
-* id-keyed registries (``sub_kind: "ordered_id_channel"``):
+* message mailboxs: ``{id, kind, sub_kind, count, messages: {entry_N: {...}}}``
+* id-keyed registries (``sub_kind: "ordered_id_mailbox"``):
   ``{id, kind, sub_kind, count, ordinal: {entry_N: id}, entries: {id: {...}}}``
 
 ``count`` is a monotonically increasing allocation counter: the next appended
 record always takes ``entry_<count>`` even if earlier entries were trimmed.
 
 Durable cursors are stored only in the ``server_registry_agents`` registry as
-``entries[<owner>].cursors = {"<channel>": {"next": "entry_N", "consumed": N}}``.
+``entries[<owner>].cursors = {"<mailbox>": {"next": "entry_N", "consumed": N}}``.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 AGENTS_REGISTRY = "server_registry_agents"
-CHANNELS_REGISTRY = "server_registry_channels"
+CHANNELS_REGISTRY = "server_registry_mailboxs"
 CONNECTORS_REGISTRY = "server_registry_connectors"
 IDENTIFIERS_REGISTRY = "server_registry_identifiers"
 RELAYS_REGISTRY = "server_registry_relays"
@@ -49,10 +49,10 @@ def entry_index(entry_key: str) -> int:
     return int(match.group(1))
 
 
-def channel_path(root: Path, channel_id: str) -> Path:
-    clean = _SAFE_CHANNEL.sub("_", str(channel_id).strip())
+def mailbox_path(root: Path, mailbox_id: str) -> Path:
+    clean = _SAFE_CHANNEL.sub("_", str(mailbox_id).strip())
     if not clean:
-        raise ValueError("channel id is required")
+        raise ValueError("mailbox id is required")
     return root / f"{clean}.json"
 
 
@@ -66,19 +66,19 @@ def write_document(path: Path, document: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def load_channel(root: Path, channel_id: str, *, sub_kind: str = "") -> dict[str, Any]:
-    """Load a channel document, or return an unsaved empty skeleton."""
-    path = channel_path(root, channel_id)
+def load_mailbox(root: Path, mailbox_id: str, *, sub_kind: str = "") -> dict[str, Any]:
+    """Load a mailbox document, or return an unsaved empty skeleton."""
+    path = mailbox_path(root, mailbox_id)
     if path.exists():
         document = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             raise ValueError(f"{path.name} must contain a JSON object")
         return document
     skeleton: dict[str, Any] = {
-        "id": str(channel_id), "kind": "channel",
-        "sub_kind": sub_kind or "channel", "count": 0,
+        "id": str(mailbox_id), "kind": "mailbox",
+        "sub_kind": sub_kind or "mailbox", "count": 0,
     }
-    if (sub_kind or "") == "ordered_id_channel":
+    if (sub_kind or "") == "ordered_id_mailbox":
         skeleton["ordinal"] = {}
         skeleton["entries"] = {}
     else:
@@ -86,12 +86,12 @@ def load_channel(root: Path, channel_id: str, *, sub_kind: str = "") -> dict[str
     return skeleton
 
 
-def save_channel(root: Path, document: dict[str, Any]) -> None:
-    write_document(channel_path(root, str(document["id"])), document)
+def save_mailbox(root: Path, document: dict[str, Any]) -> None:
+    write_document(mailbox_path(root, str(document["id"])), document)
 
 
-def channel_ids(root: Path) -> list[str]:
-    """All channel ids present in the store."""
+def mailbox_ids(root: Path) -> list[str]:
+    """All mailbox ids present in the store."""
     if not root.is_dir():
         return []
     result = []
@@ -100,7 +100,7 @@ def channel_ids(root: Path) -> list[str]:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             continue
-        if isinstance(document, dict) and document.get("kind") == "channel":
+        if isinstance(document, dict) and document.get("kind") == "mailbox":
             result.append(str(document.get("id") or path.stem))
     return result
 
@@ -121,26 +121,26 @@ def ordered_messages(document: dict[str, Any],
         yield key, record
 
 
-def append_message(root: Path, channel_id: str, record: dict[str, Any],
+def append_message(root: Path, mailbox_id: str, record: dict[str, Any],
                    *, sub_kind: str = "") -> dict[str, Any]:
-    """Durably append one record to a channel, returning the stored record."""
+    """Durably append one record to a mailbox, returning the stored record."""
     with STORE_LOCK:
-        document = load_channel(root, channel_id, sub_kind=sub_kind)
+        document = load_mailbox(root, mailbox_id, sub_kind=sub_kind)
         if "messages" not in document:
-            raise ValueError(f"channel {channel_id} is not a message channel")
+            raise ValueError(f"mailbox {mailbox_id} is not a message mailbox")
         count = int(document.get("count") or 0)
         key = f"entry_{count}"
         stored = {"entry_number": key, **record}
         document["messages"][key] = stored
         document["count"] = count + 1
-        save_channel(root, document)
+        save_mailbox(root, document)
     return stored
 
 
-# --- ordered_id_channel registries -----------------------------------------
+# --- ordered_id_mailbox registries -----------------------------------------
 
 def load_registry(root: Path, registry_id: str) -> dict[str, Any]:
-    return load_channel(root, registry_id, sub_kind="ordered_id_channel")
+    return load_mailbox(root, registry_id, sub_kind="ordered_id_mailbox")
 
 
 def registry_entries(root: Path, registry_id: str) -> list[dict[str, Any]]:
@@ -189,7 +189,7 @@ def put_entry(root: Path, registry_id: str, entry_id: str,
                 "from": "mailbox-server-app",
                 "to": registry_id,
                 "text": "",
-                "channel_id": registry_id,
+                "mailbox_id": registry_id,
                 "entry_number": entry_key,
             }
             ordinal[entry_key] = entry_id
@@ -197,13 +197,13 @@ def put_entry(root: Path, registry_id: str, entry_id: str,
             entries[entry_id] = record
         if envelope:
             record.update({key: value for key, value in envelope.items()
-                           if key not in {"id", "entry_number", "channel_id", "to"}})
+                           if key not in {"id", "entry_number", "mailbox_id", "to"}})
         if payload is not None:
             if merge_payload and isinstance(record.get("payload"), dict):
                 record["payload"] = {**record["payload"], **payload}
             else:
                 record["payload"] = payload
-        save_channel(root, document)
+        save_mailbox(root, document)
         return record
 
 
@@ -219,22 +219,22 @@ def delete_entry(root: Path, registry_id: str, entry_id: str) -> bool:
             key: value for key, value in (document.get("ordinal") or {}).items()
             if str(value) != str(entry_id)
         }
-        save_channel(root, document)
+        save_mailbox(root, document)
     return True
 
 
 # --- durable cursors (server_registry_agents only) --------------------------
 
-def get_cursor(root: Path, owner: str, channel_id: str) -> dict[str, Any] | None:
+def get_cursor(root: Path, owner: str, mailbox_id: str) -> dict[str, Any] | None:
     record = get_entry(root, AGENTS_REGISTRY, owner)
     if not record:
         return None
-    cursor = (record.get("cursors") or {}).get(str(channel_id))
+    cursor = (record.get("cursors") or {}).get(str(mailbox_id))
     return cursor if isinstance(cursor, dict) else None
 
 
-def set_cursor(root: Path, owner: str, channel_id: str, next_index: int) -> dict[str, Any]:
-    """Persist one owner's cursor for a channel; creates the owner if needed."""
+def set_cursor(root: Path, owner: str, mailbox_id: str, next_index: int) -> dict[str, Any]:
+    """Persist one owner's cursor for a mailbox; creates the owner if needed."""
     owner = str(owner).strip()
     if not owner:
         raise ValueError("cursor owner is required")
@@ -248,14 +248,14 @@ def set_cursor(root: Path, owner: str, channel_id: str, next_index: int) -> dict
         cursors = entry.setdefault("cursors", {})
         state = {"next": f"entry_{max(0, int(next_index))}",
                  "consumed": max(0, int(next_index))}
-        cursors[str(channel_id)] = state
-        save_channel(root, document)
+        cursors[str(mailbox_id)] = state
+        save_mailbox(root, document)
     return state
 
 
 def delete_cursors(root: Path, *, owners: set[str] | None = None,
-                   channels: set[str] | None = None) -> int:
-    """Drop cursor state by owner and/or channel; returns removed cursor count."""
+                   mailboxs: set[str] | None = None) -> int:
+    """Drop cursor state by owner and/or mailbox; returns removed cursor count."""
     removed = 0
     with STORE_LOCK:
         document = load_registry(root, AGENTS_REGISTRY)
@@ -266,23 +266,23 @@ def delete_cursors(root: Path, *, owners: set[str] | None = None,
                 removed += len(record["cursors"])
                 record["cursors"] = {}
                 continue
-            if channels:
+            if mailboxs:
                 kept = {key: value for key, value in record["cursors"].items()
-                        if key not in channels}
+                        if key not in mailboxs}
                 removed += len(record["cursors"]) - len(kept)
                 record["cursors"] = kept
-        save_channel(root, document)
+        save_mailbox(root, document)
     return removed
 
 
 def cursor_table(root: Path) -> dict[str, dict[str, dict[str, Any]]]:
-    """Map of owner -> channel -> cursor state."""
+    """Map of owner -> mailbox -> cursor state."""
     result: dict[str, dict[str, dict[str, Any]]] = {}
     for record in registry_entries(root, AGENTS_REGISTRY):
         cursors = record.get("cursors")
         if isinstance(cursors, dict) and cursors:
             result[str(record["id"])] = {
-                str(channel): dict(state) for channel, state in cursors.items()
+                str(mailbox): dict(state) for mailbox, state in cursors.items()
                 if isinstance(state, dict)
             }
     return result

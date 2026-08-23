@@ -3,15 +3,15 @@
 ## Four-kind registry contract
 
 Every top-level managed resource has exactly one of four `kind` values:
-`agent`, `connector`, `channel`, or `relay`. Connector platforms use the
-separate `adapter` field, while channel subtypes use `channel_type`. Relay
+`agent`, `connector`, `mailbox`, or `relay`. Connector platforms use the
+separate `adapter` field, while mailbox subtypes use `mailbox_type`. Relay
 output addresses are fields on relays, not destination resources. Presence
 data is optional nested session/account metadata and does not introduce
 another managed kind.
 
 Channel subscriptions use stable resource IDs rather than transport paths. A
 Mattermost example is
-`mm-chat-singularitynet-io-chat-c83yjesfejgbmdptwtjqgqis9h`. The channel's
+`mm-chat-singularitynet-io-chat-c83yjesfejgbmdptwtjqgqis9h`. The mailbox's
 `aliases` retain its slashed external address and readable platform name.
 
 ## Table of contents
@@ -47,10 +47,10 @@ Mattermost example is
   - [Local JSON store](#local-json-mailbox--implemented)
 - [OpenAI Codex integration](#openai-codex-installation-and-mailbox-integration--implemented)
 - [Compatible agent runtimes](#compatible-agent-runtimes)
-- [Channel-to-channel bridges](#channel-to-channel-bridges)
+- [Channel-to-mailbox bridges](#mailbox-to-mailbox-bridges)
 
 This document is the operational contract for configuring mailbox connectors,
-chat-platform adapters, and channel-to-channel bridges. The daemon owns
+chat-platform adapters, and mailbox-to-mailbox bridges. The daemon owns
 `127.0.0.1:46667`; a successful `GET /health` means an instance is already
 running on this machine.
 
@@ -59,11 +59,11 @@ recipients as `chat_server_status` messages. Their structured `diagnostic`
 object lets an agent such as Codex explain the exception type, error message,
 failed operation, and whether the relay will retry automatically. Credentials
 and authorization headers are never intentionally included in these events.
-The accompanying `service_context` includes safe connector IDs, channel IDs,
+The accompanying `service_context` includes safe connector IDs, mailbox IDs,
 directions, current enabled/connected state, and the bounded retry policy.
 
 The relay also publishes every adapter lifecycle transition and safe diagnostic
-to the built-in local `server_events` channel. Like a Mattermost channel, it
+to the built-in local `server_events` mailbox. Like a Mattermost mailbox, it
 has subscribers: each subscribed agent receives its own mailbox copy and keeps
 its own cursor. Subscribe once, then poll the agent's normal identity:
 
@@ -75,10 +75,10 @@ mailbox-client follow --to symbolic-workbench-codex --format text --nobuffer
 Inspect or remove subscriptions with
 `mailbox-client subscriptions --to symbolic-workbench-codex` and
 `mailbox-client unsubscribe server_events --to symbolic-workbench-codex`.
-Do not poll `--to server_events`: it is a publish/subscribe channel name, not a
+Do not poll `--to server_events`: it is a publish/subscribe mailbox name, not a
 competing-consumer mailbox identity.
 
-The server saves subscription membership in the `server_registry_channels`
+The server saves subscription membership in the `server_registry_mailboxs`
 registry and reloads it after restart:
 
 ```json
@@ -144,7 +144,7 @@ mailbox-client poll --to symbolic-workbench-codex `
   --interval 30 --checks 11
 ```
 
-This means “ensure `symbolic-workbench-codex` is subscribed to these channels,
+This means “ensure `symbolic-workbench-codex` is subscribed to these mailboxs,
 then retrieve messages addressed to it.” Repeating the command does not create
 duplicate subscriptions or deliveries. Ordinary configured
 `mailbox_recipients` and saved endpoint subscribers are combined. The older
@@ -179,7 +179,7 @@ $env:MAILBOX_RELAY_HOST='0.0.0.0'
 address.
 
 Clients must use the matching URL. Runtime PID/status files are separated by
-port under `mailbox/runtime/channel-relay-PORT/`, allowing intentional parallel
+port under `mailbox/runtime/mailbox-relay-PORT/`, allowing intentional parallel
 instances. Configure optional REST Bearer authentication with
 `MAILBOX_RELAY_TOKEN`; clients supply the same secret through
 `AGENT_MAILBOX_TOKEN`. Console and browser clients show a service-unavailable
@@ -198,8 +198,8 @@ configuration. Override either independently:
 ```
 
 Equivalent environment variables are `AGENT_MAILBOX_DIR` and
-`MAILBOX_RELAY_CONFIG_DIR`. The mailbox directory owns the JSON channel/registry
-store (per-channel message documents plus the `server_registry_*` registries),
+`MAILBOX_RELAY_CONFIG_DIR`. The mailbox directory owns the JSON mailbox/registry
+store (per-mailbox message documents plus the `server_registry_*` registries),
 `attachments/`, `runtime/`, and the delivery ledger; cursors live inside
 `server_registry_agents`. The config directory owns `.env` and `mailboxes.json`.
 This permits shared
@@ -210,9 +210,9 @@ instances without state overlap.
 
 - The `server_registry_*` registries under the mailbox root hold non-secret routing configuration.
 - `config/.env` contains tokens, passwords, server URLs, and deployment identifiers.
-- The per-channel message documents, `server_registry_*` registries, `mailbox/attachments/`, and `mailbox/runtime/` are runtime data.
+- The per-mailbox message documents, `server_registry_*` registries, `mailbox/attachments/`, and `mailbox/runtime/` are runtime data.
 - `mailbox/runtime/identifier-directory.sqlite3` durably retains system-scoped
-  UUID, contact, channel, group, and readable-name mappings between runs.
+  UUID, contact, mailbox, group, and readable-name mappings between runs.
 - Attachment storage defaults to 1 GiB per file and 25 GiB total; configure
   `--max-attachment-mb` and `--max-attachment-storage-mb` on the relay server.
 - The JSON message store defaults to a 5 GiB limit and each SQLite database to 1 GiB;
@@ -267,10 +267,10 @@ travel as plaintext.
 Matrix is the adapter/protocol name. Element is one supported Matrix client,
 so connector entries use `"adapter": "matrix"` rather than `"element"`.
 
-Discourse connector entries use `"adapter": "discourse"`. Their channel IDs
+Discourse connector entries use `"adapter": "discourse"`. Their mailbox IDs
 represent topic, category, or tag scopes; inbound delivery should use webhooks
 and outbound delivery uses the Discourse REST API. Configure signed post
-webhooks at `/v1/webhooks/discourse`; topic IDs map to channels and post numbers
+webhooks at `/v1/webhooks/discourse`; topic IDs map to mailboxs and post numbers
 map to reply threads. Outbound messages can reply or create a new topic.
 
 Agent integrations:
@@ -291,9 +291,9 @@ Everything crosses the durable mailbox. The mailbox envelope—not Mattermost,
 IRC, Codex, or any agent framework—is the compatibility layer:
 
 ```text
-external channel <-> adapter <-> endpoint agent <-> JSON/REST mailbox
+external mailbox <-> adapter <-> endpoint agent <-> JSON/REST mailbox
                                                <->
-JSON/REST mailbox <-> endpoint agent <-> adapter <-> external channel
+JSON/REST mailbox <-> endpoint agent <-> adapter <-> external mailbox
 ```
 
 Adapters never call other adapters directly. Agents never need platform SDKs
@@ -309,8 +309,8 @@ adapter, connector, and platform event ID. Relayed mailbox messages retain that
 origin even though each mailbox append has a new `id`. The proxy keeps an
 atomic SQLite traversal ledger under `runtime/`, keyed by `(origin_id,
 endpoint_id)`. An endpoint includes adapter, connector/server, presence, and
-channel. A delivery is allowed once per origin and endpoint; cyclic or repeated
-routes are recorded as `channel_delivery_suppressed`. Failed reservations are
+mailbox. A delivery is allowed once per origin and endpoint; cyclic or repeated
+routes are recorded as `mailbox_delivery_suppressed`. Failed reservations are
 released so transient errors can be retried. This state survives daemon
 restarts and supports concurrent adapter instances without relying on text
 similarity or timestamps.
@@ -337,7 +337,7 @@ is desired.
 | `adapter` | Transport such as `mattermost`, `discord`, or `irc` |
 | `enabled` | Enables routing through this connector |
 | `direction` | `inbound`, `outbound`, or `bidirectional` |
-| `channel_ids` | Platform channel IDs; `$NAME` expands an environment variable |
+| `mailbox_ids` | Platform mailbox IDs; `$NAME` expands an environment variable |
 | `bridge_agent` | Endpoint agent responsible for interpreting and forwarding traffic |
 | `mailbox_recipients` | Local identities receiving inbound messages |
 | `preserve_threads` | Preserve source thread/root IDs when supported |
@@ -349,19 +349,19 @@ require reconnecting the affected adapter.
 
 ## Agent-mediated bridge architecture
 
-Channel-to-channel traffic is never an unconditional raw copy. Every endpoint
+Channel-to-mailbox traffic is never an unconditional raw copy. Every endpoint
 has its own mailbox agent:
 
 ```text
-Mattermost channel ↔ mattermost-bridge-agent
+Mattermost mailbox ↔ mattermost-bridge-agent
                    ↕ durable mailbox
-IRC channel        ↔ irc-bridge-agent
+IRC mailbox        ↔ irc-bridge-agent
 ```
 
 The source adapter mailboxes an inbound envelope to its `bridge_agent`. That
 agent applies endpoint-specific policy and addresses a message to the agent on
-the other end. The destination agent then sends a `channel_send` envelope to
-`outbound_delivery` with the destination `channel_type` and `channel_id`.
+the other end. The destination agent then sends a `mailbox_send` envelope to
+`outbound_delivery` with the destination `mailbox_type` and `mailbox_id`.
 
 Separate endpoint agents are required because platforms differ in identity,
 threading, message length, formatting, attachments, moderation, and rate
@@ -409,7 +409,7 @@ reference only their environment-variable names from connector entries.
 ### Setup
 
 Create a bot account in the Mattermost system console and add it to the
-required channels. Put the instance, URL, and channel IDs in the connector record;
+required mailboxs. Put the instance, URL, and mailbox IDs in the connector record;
 keep only the token in `config/.env` or a secret manager.
 
 ```json
@@ -421,7 +421,7 @@ keep only the token in `config/.env` or a secret manager.
   "token_env": "MM_BOT_TOKEN",
   "enabled": true,
   "direction": "bidirectional",
-  "channel_ids": ["CHANNEL_ID", "ANOTHER_CHANNEL_ID"],
+  "mailbox_ids": ["CHANNEL_ID", "ANOTHER_CHANNEL_ID"],
   "bridge_agent": "mattermost-bridge-agent",
   "mailbox_recipients": ["console-default-agent", "automation-agent"],
   "include_direct_messages": true,
@@ -442,7 +442,7 @@ an optional legacy recipient fallback.
 2. Follow Discord's [bot guide](https://docs.discord.com/developers/quick-start/getting-started), create the bot user, and store its token as `DISCORD_BOT_TOKEN`.
 3. Generate an installation URL with the `bot` scope and install it into the server. See [OAuth2 and permissions](https://docs.discord.com/developers/platform/oauth2-and-permissions).
 4. Grant only View Channel, Read Message History, Send Messages, and Attach Files where needed.
-5. Enable Developer Mode, copy channel IDs into `DISCORD_CHANNEL_IDS`, and enable the connector.
+5. Enable Developer Mode, copy mailbox IDs into `DISCORD_CHANNEL_IDS`, and enable the connector.
 
 A webhook URL is only sufficient for outbound posting and is not the transport
 used by this bidirectional adapter. Never place a bot token in an install URL,
@@ -454,7 +454,7 @@ connector file, mailbox message, or commit.
   "adapter": "discord",
   "enabled": true,
   "direction": "bidirectional",
-  "channel_ids": ["$DISCORD_CHANNEL_IDS"],
+  "mailbox_ids": ["$DISCORD_CHANNEL_IDS"],
   "bridge_agent": "discord-bridge-agent",
   "mailbox_recipients": ["community-agent"],
   "include_direct_messages": false,
@@ -464,7 +464,7 @@ connector file, mailbox message, or commit.
 
 Expected secret: `DISCORD_BOT_TOKEN`.
 
-The adapter polls configured channels through Discord API v10, ignores its own
+The adapter polls configured mailboxs through Discord API v10, ignores its own
 bot messages, records origin and destination identities in the durable ledger,
 emits every inbound post through the mailbox, and supports outbound text and
 file attachments. Set `connector_id` on outbound messages when multiple Discord
@@ -475,9 +475,9 @@ connectors are enabled.
 ### Setup
 
 1. Create a Slack app and bot using Slack's [authentication guide](https://api.slack.com/authentication).
-2. Add `chat:write`, `files:read`, `files:write`, and the applicable `channels:history`, `groups:history`, `im:history`, or `mpim:history` scopes. See [`conversations.history`](https://docs.slack.dev/reference/methods/conversations.history/).
+2. Add `chat:write`, `files:read`, `files:write`, and the applicable `mailboxs:history`, `groups:history`, `im:history`, or `mpim:history` scopes. See [`conversations.history`](https://docs.slack.dev/reference/methods/conversations.history/).
 3. Install or reinstall the app and store its `xoxb-...` token as `SLACK_BOT_TOKEN`. See [OAuth installation](https://api.slack.com/authentication/oauth-v2).
-4. Invite the bot to each required channel, copy channel IDs into `SLACK_CHANNEL_IDS`, and enable the connector.
+4. Invite the bot to each required mailbox, copy mailbox IDs into `SLACK_CHANNEL_IDS`, and enable the connector.
 
 Outbound messages use [`chat.postMessage`](https://docs.slack.dev/reference/methods/chat.postmessage).
 This adapter polls Slack's Web API; it does not use Socket Mode. Create a
@@ -492,7 +492,7 @@ identity or workspace.
   "direction": "bidirectional",
   "workspace_id": "$SLACK_WORKSPACE_ID",
   "token_env": "SLACK_BOT_TOKEN",
-  "channel_ids": ["$SLACK_CHANNEL_IDS"],
+  "mailbox_ids": ["$SLACK_CHANNEL_IDS"],
   "bridge_agent": "slack-bridge-agent",
   "presence_id": "operations-bot",
   "mailbox_recipients": ["operations-agent"],
@@ -525,7 +525,7 @@ decryption is not implemented, so relay rooms must be unencrypted.
   "direction": "bidirectional",
   "homeserver": "$MATRIX_HOMESERVER",
   "token_env": "MATRIX_ACCESS_TOKEN",
-  "channel_ids": ["$MATRIX_ROOM_IDS"],
+  "mailbox_ids": ["$MATRIX_ROOM_IDS"],
   "bridge_agent": "matrix-bridge-agent",
   "mailbox_recipients": ["community-agent"],
   "preserve_threads": true
@@ -553,7 +553,7 @@ the adapter publishes managed files through `/v1/attachments/`.
   "port": 6697,
   "tls": true,
   "nickname": "mailbox-relay",
-  "channel_ids": ["#agents", "#operations"],
+  "mailbox_ids": ["#agents", "#operations"],
   "bridge_agent": "irc-bridge-agent",
   "mailbox_recipients": ["irc-agent"],
   "preserve_threads": false
@@ -573,7 +573,7 @@ token as `WHATSAPP_VERIFY_TOKEN`, and the app secret as `WHATSAPP_APP_SECRET`
 in `config/.env`; register the public HTTPS callback at
 `/v1/webhooks/whatsapp`. Meta template and 24-hour conversation rules apply.
 Accounts approved for the restricted Groups API may set `groups_enabled: true`
-and use approved group IDs as `channel_ids`.
+and use approved group IDs as `mailbox_ids`.
 
 ```json
 {
@@ -582,7 +582,7 @@ and use approved group IDs as `channel_ids`.
   "enabled": true,
   "direction": "bidirectional",
   "phone_number_id": "$WHATSAPP_PHONE_NUMBER_ID",
-  "channel_ids": ["$WHATSAPP_ALLOWED_CONVERSATIONS"],
+  "mailbox_ids": ["$WHATSAPP_ALLOWED_CONVERSATIONS"],
   "bridge_agent": "whatsapp-bridge-agent",
   "mailbox_recipients": ["customer-agent"],
   "groups_enabled": false,
@@ -594,7 +594,7 @@ Expected secrets: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, and
 `WHATSAPP_APP_SECRET`. The adapter accepts signature-verified Cloud API webhooks at
 `/v1/webhooks/whatsapp`, preserves contact and message identifiers, sends text,
 uploads documents, and sends uploaded media by ID. Eligible WhatsApp Business
-Groups API accounts may set `groups_enabled` and use group IDs as channel IDs;
+Groups API accounts may set `groups_enabled` and use group IDs as mailbox IDs;
 group messages preserve both the group ID and participant ID. This does not
 provide access to ordinary personal-account groups.
 
@@ -633,7 +633,7 @@ messaging permissions.
   "enabled": false,
   "direction": "bidirectional",
   "page_id": "$FACEBOOK_PAGE_ID",
-  "channel_ids": ["$FACEBOOK_ALLOWED_CONVERSATIONS"],
+  "mailbox_ids": ["$FACEBOOK_ALLOWED_CONVERSATIONS"],
   "bridge_agent": "facebook-messenger-bridge-agent",
   "mailbox_recipients": ["console-default-agent"],
   "preserve_threads": false
@@ -669,7 +669,7 @@ Viber requires publicly trusted HTTPS and limits outbound files to 50 MiB.
   "enabled": true,
   "direction": "bidirectional",
   "token_env": "VIBER_AUTH_TOKEN",
-  "channel_ids": ["$VIBER_ALLOWED_CONVERSATIONS"],
+  "mailbox_ids": ["$VIBER_ALLOWED_CONVERSATIONS"],
   "bridge_agent": "viber-bridge-agent",
   "mailbox_recipients": ["customer-agent"],
   "include_direct_messages": true,
@@ -690,8 +690,8 @@ trusted certificate; Viber does not accept self-signed webhook certificates.
 ### Setup
 
 1. Create a bot with BotFather and store its token as `TELEGRAM_BOT_TOKEN`.
-2. Add it to each required group, supergroup, or channel with minimum read/send permissions.
-3. Put numeric chat IDs in `TELEGRAM_ALLOWED_CHAT_IDS` and enable the connector. Use the numeric ID even for public channels because inbound updates identify chats numerically.
+2. Add it to each required group, supergroup, or mailbox with minimum read/send permissions.
+3. Put numeric chat IDs in `TELEGRAM_ALLOWED_CHAT_IDS` and enable the connector. Use the numeric ID even for public mailboxs because inbound updates identify chats numerically.
 4. Enable `include_direct_messages` only when private conversations are explicitly in scope.
 
 The adapter uses the [Telegram Bot API](https://core.telegram.org/bots/api),
@@ -704,7 +704,7 @@ topic `message_thread_id` values.
   "adapter": "telegram",
   "enabled": true,
   "direction": "bidirectional",
-  "channel_ids": ["$TELEGRAM_ALLOWED_CHAT_IDS"],
+  "mailbox_ids": ["$TELEGRAM_ALLOWED_CHAT_IDS"],
   "bridge_agent": "telegram-bridge-agent",
   "mailbox_recipients": ["community-agent"],
   "include_direct_messages": true,
@@ -714,7 +714,7 @@ topic `message_thread_id` values.
 
 Expected secret: `TELEGRAM_BOT_TOKEN`. The adapter treats Telegram chat IDs as
 opaque strings, preserves numeric message-thread IDs for forum topics, polls
-inbound messages and channel posts, and sends outbound text and documents. It
+inbound messages and mailbox posts, and sends outbound text and documents. It
 uses `getChat` to glean readable names for configured chat IDs and retains names
 learned from inbound updates in the durable identifier directory.
 
@@ -722,7 +722,7 @@ learned from inbound updates in the durable identifier directory.
 
 ### Setup
 
-Create a LINE Official Account and Messaging API channel. Store its long-lived
+Create a LINE Official Account and Messaging API mailbox. Store its long-lived
 token as `LINE_CHANNEL_ACCESS_TOKEN` and secret as `LINE_CHANNEL_SECRET`.
 Configure `LINE_ALLOWED_SOURCE_IDS`, permit the account to join group and
 multi-person chats, and register this webhook with redelivery enabled:
@@ -739,7 +739,7 @@ https://relay.example.com/v1/webhooks/line
   "direction": "bidirectional",
   "token_env": "LINE_CHANNEL_ACCESS_TOKEN",
   "secret_env": "LINE_CHANNEL_SECRET",
-  "channel_ids": ["$LINE_ALLOWED_SOURCE_IDS"],
+  "mailbox_ids": ["$LINE_ALLOWED_SOURCE_IDS"],
   "bridge_agent": "line-bridge-agent",
   "mailbox_recipients": ["customer-agent"],
   "include_direct_messages": true,
@@ -767,7 +767,7 @@ user; use `category_ids` to filter inbound posts and `default_category_id` when
 creating a new topic.
 
 The Discourse adapter accepts signature-verified post webhooks and sends posts
-through the Discourse API. Topic IDs are channel IDs; post numbers are
+through the Discourse API. Topic IDs are mailbox IDs; post numbers are
 thread/reply IDs. Outbound messages can reply to a topic or create one when
 `topic_title` is supplied.
 
@@ -799,7 +799,7 @@ Identity and endpoint switches have distinct meanings:
 | `--as IDENTITY` | Stable local mailbox identity performing the operation. |
 | `--from ENDPOINT` | External conversation source to subscribe `--as` to. |
 | `--to IDENTITY` | Direct mailbox destination or receiving identity. |
-| `--to ENDPOINT` | External channel/person destination for `send`. |
+| `--to ENDPOINT` | External mailbox/person destination for `send`. |
 
 Mattermost endpoints use `mm/SERVER/ID`. For example:
 
@@ -808,36 +808,36 @@ mailbox-client poll --as symbolic-workbench-codex `
   --from mm/chat.snt/3423423434234 --interval 30 --checks 11
 
 mailbox-client send --as symbolic-workbench-codex `
-  --to mm/chat.snt/3423423434234 "Hello channel or person"
+  --to mm/chat.snt/3423423434234 "Hello mailbox or person"
 ```
 
-Mattermost channel and user IDs have the same shape. If the final ID matches a
-configured channel, the relay posts there. Otherwise it asks Mattermost to
-create or find the bot's direct-message channel with that user and sends the
+Mattermost mailbox and user IDs have the same shape. If the final ID matches a
+configured mailbox, the relay posts there. Otherwise it asks Mattermost to
+create or find the bot's direct-message mailbox with that user and sends the
 message privately. The persistent identifier directory remembers platform ID
 kind and readable names learned from inbound traffic and resolution requests.
 
-Channel discovery also records a channel's display name and URL slug. Once a
-record has been downloaded, all of these forms resolve to the same channel:
+Channel discovery also records a mailbox's display name and URL slug. Once a
+record has been downloaded, all of these forms resolve to the same mailbox:
 
 ```powershell
 mailbox-client names c83yjesfejgbmdptwtjqgqis9h
 mailbox-client names "Image Perception to Recognizable Memory and ARC3"
 mailbox-client names image-perception-to-recognizable-memory-and-arc3
 mailbox-client names mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h
-mailbox-client names --on mm https://chat.singularitynet.io/chat/channels/image-perception-to-recognizable-memory-and-arc3
+mailbox-client names --on mm https://chat.singularitynet.io/chat/mailboxs/image-perception-to-recognizable-memory-and-arc3
 ```
 
 The same inference applies to a downloaded user ID, for example
 `mailbox-client whois j4pok4rbqtfytcrcn8d3nhgkto`. Downloaded users also
 resolve by username, email, nonblank nickname, and combined first/last name.
 A full Mattermost web URL
-must contain `/channels/CHANNEL_SLUG`, and its hostname must match the active
+must contain `/mailboxs/CHANNEL_SLUG`, and its hostname must match the active
 Mattermost connection.
 
 For inbound traffic, `--from mm/chat.snt/ID` is an idempotent subscription. A
-matching configured channel delivers all its posts; a matching Mattermost user
-ID delivers that person's direct/channel posts observed by the connector. The
+matching configured mailbox delivers all its posts; a matching Mattermost user
+ID delivers that person's direct/mailbox posts observed by the connector. The
 client still polls the mailbox named by `--as`.
 
 ### Endpoint address types
@@ -854,7 +854,7 @@ The final component is opaque and keeps the platform's native ID:
 
 | Platform | Type | Instance convention | Example source/destination |
 |---|---|---|---|
-| Mattermost | `mm` | Server DNS name | `mm/chat.snt/4o7...channel-or-user-id` |
+| Mattermost | `mm` | Server DNS name | `mm/chat.snt/4o7...mailbox-or-user-id` |
 | Discord | `discord` | Connector/bot instance | `discord/community/C0123456789` |
 | Slack | `slack` | Workspace ID | `slack/T01234567/C01234567` |
 | Matrix / Element | `matrix` | Homeserver DNS name | `matrix/matrix.example/!room:example` |
@@ -869,10 +869,10 @@ The final component is opaque and keeps the platform's native ID:
 
 Quote addresses containing shell metacharacters. For IRC, percent-encode `#`
 as `%23`; the relay treats the decoded/native destination as the adapter's
-channel ID. For Mattermost, a name can be a channel or a user, so an address may
+mailbox ID. For Mattermost, a name can be a mailbox or a user, so an address may
 carry Mattermost's markdown sigils to disambiguate: `mm/INSTANCE/@name` targets a
-user (resolved to the bot/user direct-message channel) and `mm/INSTANCE/~name` or
-a bare `mm/INSTANCE/name` targets a channel; opaque 26-character IDs are used
+user (resolved to the bot/user direct-message mailbox) and `mm/INSTANCE/~name` or
+a bare `mm/INSTANCE/name` targets a mailbox; opaque 26-character IDs are used
 verbatim. An instance distinguishes accounts, workspaces, homeservers,
 networks, pages, bots, or forum servers when several connectors of one platform
 are configured. The server retains the complete canonical address in its
@@ -883,14 +883,14 @@ returned by that platform:
 
 | Platform | User | Group | Channel / room / topic | Thread or reply | Direct message |
 |---|---|---|---|---|---|
-| Mattermost | `mm/chat.snt/USER_ID` | `mm/chat.snt/GROUP_DM_CHANNEL_ID` | `mm/chat.snt/CHANNEL_ID` | Channel address plus `--thread-id ROOT_POST_ID` | A user address is resolved to the bot/user DM channel. |
-| Discord | User IDs are author metadata; creating a DM from one is not implemented | `discord/community/GROUP_DM_CHANNEL_ID` when accessible | `discord/community/CHANNEL_ID` | `discord/community/THREAD_CHANNEL_ID`; a Discord thread is a channel | `discord/community/DM_CHANNEL_ID` |
+| Mattermost | `mm/chat.snt/USER_ID` | `mm/chat.snt/GROUP_DM_CHANNEL_ID` | `mm/chat.snt/CHANNEL_ID` | Channel address plus `--thread-id ROOT_POST_ID` | A user address is resolved to the bot/user DM mailbox. |
+| Discord | User IDs are author metadata; creating a DM from one is not implemented | `discord/community/GROUP_DM_CHANNEL_ID` when accessible | `discord/community/CHANNEL_ID` | `discord/community/THREAD_CHANNEL_ID`; a Discord thread is a mailbox | `discord/community/DM_CHANNEL_ID` |
 | Slack | User ID is author metadata, not a send destination | `slack/T01234567/GROUP_DM_ID` (`G...`) | `slack/T01234567/CHANNEL_ID` (`C...`) | Conversation address plus `--thread-id PARENT_MESSAGE_TS` | `slack/T01234567/DM_ID` (`D...`) |
 | Matrix / Element | `@alice:example` is author/invite metadata | Group conversations are rooms | `matrix/matrix.example/!ROOM_ID:example` | Room address plus root event ID in `--thread-id` | DMs are rooms; use their `!ROOM_ID:example` |
 | IRC | `irc/irc.quakenet.org/nepthreal` | No distinct persistent group-DM object | `irc/irc.quakenet.org/%23agents` | Unsupported | A nickname address such as `irc/irc.quakenet.org/nepthreal` |
 | Telegram | `telegram/community-bot/USER_CHAT_ID` | `telegram/community-bot/-GROUP_CHAT_ID` | `telegram/community-bot/-100CHANNEL_ID` | Chat address plus `--thread-id MESSAGE_THREAD_ID` for forum topics | Private chat ID, normally the user's numeric ID |
-| WhatsApp Business | `wab/PHONE_NUMBER_ID/15551234567` | `wab/PHONE_NUMBER_ID/GROUP_ID` for approved Groups API accounts | No public channel concept | Unsupported by this adapter | Customer E.164 digits without `+` |
-| Personal WhatsApp | `wa/local/15551234567@c.us` | `wa/local/FAMILY_GROUP_ID@g.us` | No public channel concept | Reply metadata is preserved where supplied | A `PHONE@c.us` chat ID |
+| WhatsApp Business | `wab/PHONE_NUMBER_ID/15551234567` | `wab/PHONE_NUMBER_ID/GROUP_ID` for approved Groups API accounts | No public mailbox concept | Unsupported by this adapter | Customer E.164 digits without `+` |
+| Personal WhatsApp | `wa/local/15551234567@c.us` | `wa/local/FAMILY_GROUP_ID@g.us` | No public mailbox concept | Reply metadata is preserved where supplied | A `PHONE@c.us` chat ID |
 | Facebook Messenger | `facebook/PAGE_ID/PSID` | Ordinary Facebook group chat is unavailable to this Page adapter | Page conversation identified by PSID | No separate thread address | Page-scoped user ID (`PSID`) |
 | Viber | `viber/support-bot/USER_ID` | Group/community addressing is not implemented | Bot conversation identified by Viber user ID | Unsupported | Viber bot subscriber user ID |
 | LINE | `line/support/USER_ID` | `line/support/GROUP_ID` | `line/support/ROOM_ID` for a multi-person room | No separate thread address | LINE user ID |
@@ -915,9 +915,9 @@ mailbox-client poll --as symbolic-workbench-codex `
 
 `--thread-id` and `--root-id` are envelope metadata, not extra path segments.
 This keeps an address stable while preserving the platform's native reply or
-thread identifier. Discord is the exception: its threads are channel objects,
-so their channel ID is the final address component. [Discord's channel model](https://docs.discord.com/developers/resources/channel)
-defines guild channels, DMs, group DMs, and thread channels; Slack replies use
+thread identifier. Discord is the exception: its threads are mailbox objects,
+so their mailbox ID is the final address component. [Discord's mailbox model](https://docs.discord.com/developers/resources/mailbox)
+defines guild mailboxs, DMs, group DMs, and thread mailboxs; Slack replies use
 the conversation plus [`thread_ts`](https://api.slack.com/methods/chat.postMessage).
 
 The CLI works through the REST server or directly against a local JSON mailbox:
@@ -948,7 +948,7 @@ The client supports:
 - `--token` or `AGENT_MAILBOX_TOKEN` for REST authentication;
 - `--curl` anywhere before `--` to print a token-redacted equivalent REST call
   without sending it; it covers every REST-backed command (messages, cursors,
-  agents, connectors, channels, relays, subscriptions, and registry listings),
+  agents, connectors, mailboxs, relays, subscriptions, and registry listings),
   the chat/platform commands (`/v1/mm/command`, `/v1/irc/command`), and
   discovery (`/v1/discovery/*`), and errors for commands that have no REST
   equivalent;
@@ -971,8 +971,8 @@ Example command document:
   "url": "https://relay.example.com",
   "recipient": "agent-beta",
   "text": "Finished --curl verification",
-  "channel_type": "telegram",
-  "channel_id": "123"
+  "mailbox_type": "telegram",
+  "mailbox_id": "123"
 }
 ```
 
@@ -983,12 +983,12 @@ independent consumer; `peek` and `--no-advance` do not persist progress, while
 `ack` advances through a specific message ID.
 
 Download the matching standalone client from a running relay. Fetch it fresh
-whenever you want the latest code; grab `channel_store.py` alongside it (the
-client imports it) unless the `mailbox_channels` package is already installed:
+whenever you want the latest code; grab `mailbox_store.py` alongside it (the
+client imports it) unless the `mailbox_mailboxs` package is already installed:
 
 ```powershell
 Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox.py
-Invoke-WebRequest http://127.0.0.1:46667/channel_store.py -OutFile channel_store.py
+Invoke-WebRequest http://127.0.0.1:46667/mailbox_store.py -OutFile mailbox_store.py
 ```
 
 ### Running and enqueuing commands
@@ -1042,7 +1042,7 @@ mailbox-client mailbox-del research
 ```
 
 Over REST these use `POST /v1/mailboxes`. `load_mailboxes` also reports every
-stored channel document, since each per-channel `.json` file is a mailbox.
+stored mailbox document, since each per-mailbox `.json` file is a mailbox.
 
 ### Choosing an agent identity
 
@@ -1094,7 +1094,7 @@ mailbox-client --url <MAILBOX_URL> send --as <AGENT_ID> --to <RECIPIENT> "text"
 ```
 
 Each received record carries `id`, `from`, `to`, `type`, `text`, and routing
-fields (`channel_id`, `channel_type`, `thread_id`, `root_id`, `source_id`,
+fields (`mailbox_id`, `mailbox_type`, `thread_id`, `root_id`, `source_id`,
 `correlation_id`); echo them back on replies so responses route correctly. Give
 each concurrent consumer a unique identity or `--cursor` so cursors do not
 collide.
@@ -1176,9 +1176,9 @@ many new registry aliases were learned. Relationship IDs without their own
 label are kept in metadata but are not incorrectly paired with the containing
 object's display name.
 
-For IRC, `mailbox-client discover users --platform irc --channel irc/0/testing`
-uses `NAMES` replies to list visible channel members and stores their nicknames,
-channel context, and status prefixes in the registry. The same operation is
+For IRC, `mailbox-client discover users --platform irc --mailbox irc/0/testing`
+uses `NAMES` replies to list visible mailbox members and stores their nicknames,
+mailbox context, and status prefixes in the registry. The same operation is
 available as `/discover users ...` inside `mailbox-console`.
 | WebSocket chat | No | Yes | Connect to `/v1/chat/ws`. |
 | Platform webhook ingestion | No | Yes | Platform adapters expose their webhook routes on the server. |
@@ -1264,7 +1264,7 @@ identity used when it connected.
 
 From the command line, `mailbox-client join mm/INSTANCE/CHANNEL --subscribe-all`
 joins the configured Mattermost bot and subscribes every registered agent to
-the channel's stable mailbox resource ID.
+the mailbox's stable mailbox resource ID.
 
 ### Browser demonstration
 
@@ -1305,7 +1305,7 @@ The running relay serves it at `/CODEX_AUTOMATION.md` (and the legacy
 After installing and signing in to Codex, install this proxy in PowerShell:
 
 ```powershell
-cd C:\path\to\mailbox_channels
+cd C:\path\to\mailbox_mailboxs
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 Copy-Item config\.env.example config\.env
@@ -1316,7 +1316,7 @@ Give every concurrent Codex task a unique mailbox identity:
 
 ```powershell
 $env:AGENT_MAILBOX_URL='http://127.0.0.1:46667'
-& C:\path\to\mailbox_channels\mailbox-client.cmd `
+& C:\path\to\mailbox_mailboxs\mailbox-client.cmd `
   poll --to my-codex-project --interval 30 --checks 10 --require-port 46667
 ```
 
@@ -1333,8 +1333,8 @@ document current Codex support through WSL2 and installing Codex inside Linux:
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
 codex
 
-git clone YOUR_PROXY_REPOSITORY_URL ~/code/mailbox_channels
-cd ~/code/mailbox_channels
+git clone YOUR_PROXY_REPOSITORY_URL ~/code/mailbox_mailboxs
+cd ~/code/mailbox_mailboxs
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 ```
@@ -1349,7 +1349,7 @@ cp config/.env.example config/.env
 Leave that terminal running. In a second WSL terminal:
 
 ```bash
-cd ~/code/mailbox_channels
+cd ~/code/mailbox_mailboxs
 export AGENT_MAILBOX_URL=http://127.0.0.1:46667
 ./mailbox-client status
 ```
@@ -1400,9 +1400,9 @@ mailbox-client ack --as symbolic-workbench-codex MESSAGE_ID
 ```
 
 Names such as `mattermost-bridge-agent`, `irc-bridge-agent`, and
-`channel-relay` elsewhere in this document are infrastructure roles. They are
+`mailbox-relay` elsewhere in this document are infrastructure roles. They are
 not extra human-facing agent runtimes: bridge agents mediate a configured
-platform connector, while `channel-relay` is the deterministic outbound routing
+platform connector, while `mailbox-relay` is the deterministic outbound routing
 address.
 
 Applications with local-store or HTTP clients can use stable, transport-neutral
@@ -1416,7 +1416,7 @@ only appropriate when the consumer and relay intentionally share the same
 native filesystem and mailbox directory; do not use it across Windows/WSL
 mounts or network shares.
 The client translates an external `--to ADAPTER/SERVER/ID` endpoint into the
-internal `outbound_delivery` envelope with `channel_type` and `channel_id`.
+internal `outbound_delivery` envelope with `mailbox_type` and `mailbox_id`.
 Low-level REST clients may construct that envelope directly. Forwarders should preserve
 `thread_id`/`root_id`, `source_id`, attachments, and workflow/run correlation
 fields. Python-and-HTTP clients do not require another application's repository
@@ -1428,9 +1428,9 @@ as:
 
 ```text
 GET  http://127.0.0.1:8000/api/system/services
-POST http://127.0.0.1:8000/api/system/services/channel-relay/start
-POST http://127.0.0.1:8000/api/system/services/channel-relay/stop
-POST http://127.0.0.1:8000/api/system/services/channel-relay/restart
+POST http://127.0.0.1:8000/api/system/services/mailbox-relay/start
+POST http://127.0.0.1:8000/api/system/services/mailbox-relay/stop
+POST http://127.0.0.1:8000/api/system/services/mailbox-relay/restart
 ```
 
 These are illustrative external-manager routes, not mailbox-relay API routes.
@@ -1444,14 +1444,14 @@ mailbox-client --url http://127.0.0.1:46667 send `
   --as symbolic-workbench-codex --to omegaclaw-core-codex 'Please inspect this run'
 ```
 
-## Channel-to-channel bridges
+## Channel-to-mailbox bridges
 
 A bridge combines two agent-mediated connector endpoints. The endpoint agents
-must preserve `source_id`, `channel_type`, `channel_id`, `thread_id`, `root_id`,
+must preserve `source_id`, `mailbox_type`, `mailbox_id`, `thread_id`, `root_id`,
 attachments, and correlation fields whenever the destination supports them.
 Every adapter must suppress its own outbound echoes to prevent relay loops.
 
-Cursor-driven relays in the `server_registry_relays` registry consume retained channels and send
+Cursor-driven relays in the `server_registry_relays` registry consume retained mailboxs and send
 to complete external destination addresses. Manage them with `relays`,
 `relay-add`, and `relay-del`.
 
@@ -1463,7 +1463,7 @@ A future generic adapter entry starts disabled until implementation exists:
   "adapter": "platform-name",
   "enabled": false,
   "direction": "bidirectional",
-  "channel_ids": ["$PLATFORM_CHANNEL_IDS"],
+  "mailbox_ids": ["$PLATFORM_CHANNEL_IDS"],
   "bridge_agent": "platform-bridge-agent",
   "mailbox_recipients": ["local-consumer"],
   "preserve_threads": true

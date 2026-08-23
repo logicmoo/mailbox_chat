@@ -6,24 +6,24 @@ Output:
 ## Managed resource kinds
 
 The registry has exactly four top-level managed kinds: `agent`, `connector`,
-`channel`, and `relay`. Every returned resource carries one of those `kind`
-values. Platform details belong in `adapter`; channel details belong in
-`channel_type`; a relay's external output is an address on the relay rather
+`mailbox`, and `relay`. Every returned resource carries one of those `kind`
+values. Platform details belong in `adapter`; mailbox details belong in
+`mailbox_type`; a relay's external output is an address on the relay rather
 than a separate destination resource. A presence, when needed, is nested
 session/account metadata and is never a fifth managed kind.
 
-External channel resources use stable, non-address IDs. For example,
+External mailbox resources use stable, non-address IDs. For example,
 `mm-chat-singularitynet-io-chat-c83yjesfejgbmdptwtjqgqis9h` identifies a
-Mattermost channel. Its `aliases` include the external address
+Mattermost mailbox. Its `aliases` include the external address
 `mm/chat.singularitynet.io/c83yjesfejgbmdptwtjqgqis9h` and its readable
-channel name. Subscriptions and cursors always use the resource ID; slashed
+mailbox name. Subscriptions and cursors always use the resource ID; slashed
 addresses are reserved for external send/relay targets.
 
-Python package/repository name: `mailbox_channels`.
+Python package/repository name: `mailbox_mailboxs`.
 
 Mailbox Channel Relay Bridging Proxy is a standalone, transport-neutral daemon for
-relaying messages between mailboxes and chat channels. It can serve automated
-consumers, agent runtimes, or ordinary channel-to-channel bridges without
+relaying messages between mailboxes and chat mailboxs. It can serve automated
+consumers, agent runtimes, or ordinary mailbox-to-mailbox bridges without
 making any of those systems part of the daemon's identity. It
 owns loopback port `46667`. If `GET /health` answers, another instance must not
 be started on that machine.
@@ -40,14 +40,14 @@ The REST mailbox remains available when no external chat adapter is configured.
 Because the relay bridges the durable mailbox to Mattermost, IRC, Discord,
 Slack, Matrix/Element, Telegram, WhatsApp, Facebook Messenger, Viber, LINE, and
 Discourse, you can reach your coding and chat agents from whatever client you
-already use — desktop, mobile, or web. Message a bridged channel or the agent's
+already use — desktop, mobile, or web. Message a bridged mailbox or the agent's
 bot presence and your Copilot/Codex worker receives it in its mailbox, does the
-work in your repository, and replies back through the same channel, preserving
+work in your repository, and replies back through the same mailbox, preserving
 threads and correlation. In practice that means: kick off or check on a task
-from your phone, review an agent's progress in a team channel where colleagues
+from your phone, review an agent's progress in a team mailbox where colleagues
 can follow along, or let several agents and people share one conversation. The
 agent side is just `mailbox-client poll`/`receive`/`send` (see
-[`REFERENCE.md`](src/mailbox_channels/resources/REFERENCE.md)); the chat side is
+[`REFERENCE.md`](src/mailbox_mailboxs/resources/REFERENCE.md)); the chat side is
 whatever platform you connect through a configured adapter.
 
 **Run many agents at once and let a facilitator distribute the work.** Give
@@ -56,17 +56,17 @@ all work with you simultaneously — each polls its own inbox on its own cursor,
 so tasks never collide. A coordinating *facilitator* agent (by convention the
 default sender `symbolic-workbench-facilitator-codex`) fans work out to those
 workers: it sends each task to a worker's identity (or posts to a shared
-channel several workers watch), correlates replies by `correlation_id`, and
+mailbox several workers watch), correlates replies by `correlation_id`, and
 aggregates the results back to you. For deferred or bursty work the facilitator
 can enqueue tasks to the server worker pool with `exec --priority=enque`, or
 `--priority=follow-enque` to have a run scheduled in your console, instead of
 running everything inline. "Facilitator" is a role you set up, not a hard-coded
 component: any agent can drive this fan-out, and because every task and reply
 crosses the same durable mailbox, you and your colleagues can follow the whole
-exchange from one shared chat channel.
+exchange from one shared chat mailbox.
 
 Other common uses: automated consumers and agent runtimes that never touch a
-chat platform (REST/local mailbox only), and plain channel-to-channel bridges
+chat platform (REST/local mailbox only), and plain mailbox-to-mailbox bridges
 between two external platforms.
 
 ## Start and control
@@ -100,16 +100,16 @@ each connector's bridge agent and mailbox recipients as durable
 observe or forward service state without scraping process logs. Failure
 messages include a structured `diagnostic` object with the safe exception type
 and message, failed operation, enabled state, and automatic-retry flags. A
-`service_context` object supplies safe connector IDs, channel IDs, directions,
+`service_context` object supplies safe connector IDs, mailbox IDs, directions,
 connection state, and retry policy.
 
 `mailbox-client receive`, `peek`, `poll`, and `follow` retain these objects in
 their default JSONL output. With `--format text`, the client prints a compact
-diagnostic summary including the service, state, connector/channel IDs, failed
+diagnostic summary including the service, state, connector/mailbox IDs, failed
 operation, error type/message, and whether another attempt will occur.
 
 The daemon is independent of FastAPI and survives development API reloads.
-Runtime PID, status, and logs are under `mailbox/runtime/channel-relay-PORT/`.
+Runtime PID, status, and logs are under `mailbox/runtime/mailbox-relay-PORT/`.
 
 ## REST mailbox API on port 46667
 
@@ -123,7 +123,7 @@ GET  /v1/cursors?cursor=AGENT_ID
 GET  /v1/messages?recipient=IDENTITY
 POST /v1/agents
 POST /v1/connectors
-POST /v1/channels
+POST /v1/mailboxs
 POST /v1/relays
 POST /v1/cursors
 POST /v1/messages
@@ -135,7 +135,7 @@ GET  /cmd-client/?args=ARGUMENTS
 
 Every `mailbox-client` action has a REST equivalent, so a remote client (`--url`)
 can do everything a local one can. The registry-mutating commands map to
-`POST /v1/connectors`, `POST /v1/channels`, and `POST /v1/relays` (each accepts
+`POST /v1/connectors`, `POST /v1/mailboxs`, and `POST /v1/relays` (each accepts
 `{"action":"delete", …}` to remove); they edit the server's own configuration
 rather than the caller's disk.
 
@@ -164,10 +164,10 @@ Example send:
 $body = @{
   from = 'worker-1'
   to = 'outbound_delivery'
-  type = 'channel_send'
+  type = 'mailbox_send'
   text = 'Workflow completed'
-  channel_type = 'mattermost'
-  channel_id = 'CHANNEL_ID'
+  mailbox_type = 'mattermost'
+  mailbox_id = 'CHANNEL_ID'
   workflow_run_id = 'run-123'
 } | ConvertTo-Json
 Invoke-RestMethod http://127.0.0.1:46667/v1/messages `
@@ -236,12 +236,12 @@ Invoke-RestMethod http://127.0.0.1:46667/v1/agents `
   -Method Post -ContentType application/json -Body $registration
 ```
 
-The server exposes retained operational channels:
+The server exposes retained operational mailboxs:
 
 - `server_events` contains server lifecycle and adapter events.
 - `agent_to_agent` contains copies of sends whose target is
   a registered agent.
-- `agent_to_channel` contains a copy of every ordinary
+- `agent_to_mailbox` contains a copy of every ordinary
   send.
 - The agent ID itself is its writable mailbox. Messages addressed through one
   of its presences are copied to that mailbox. For example,
@@ -249,7 +249,7 @@ The server exposes retained operational channels:
 
 Addressing a presence does not rewrite the original envelope. If `codex.star`
 is registered to `workspace-codex-agent`, the original record still says
-`to: "codex.star"`. Its per-agent channel copy adds
+`to: "codex.star"`. Its per-agent mailbox copy adds
 `addressed_presence_id: "codex.star"` and
 `resolved_agent_id: "workspace-codex-agent"`, allowing the owning agent to
 recognize and consume the message without losing the precise address used by
@@ -257,14 +257,14 @@ the sender.
 
 An original record and all of its audit copies share `dedupe_id`. Audit copies
 also contain `audit_of` (the original record ID) and `audit_recipient` (the
-original destination). The audit channels do not copy themselves, preventing
+original destination). The audit mailboxs do not copy themselves, preventing
 recursive records.
 
 Agents can discover all retained sources, initialize each cursor exactly once
 at a caller-selected position, and poll every saved source in one command:
 
 ```powershell
-mailbox-client --url http://127.0.0.1:46667 channels
+mailbox-client --url http://127.0.0.1:46667 mailboxs
 mailbox-client --url http://127.0.0.1:46667 mailboxes
 mailbox-client --url http://127.0.0.1:46667 agents
 mailbox-client --url http://127.0.0.1:46667 agent-add review-agent `
@@ -277,30 +277,30 @@ mailbox-client --url http://127.0.0.1:46667 agent-del review-agent `
 mailbox-client --url http://127.0.0.1:46667 cursors --cursor symbolic-workbench-codex
 mailbox-client --url http://127.0.0.1:46667 cursor-init `
   server_events agent_to_agent `
-  agent_to_channel --cursor symbolic-workbench-codex --start now
+  agent_to_mailbox --cursor symbolic-workbench-codex --start now
 mailbox-client --url http://127.0.0.1:46667 --as symbolic-workbench-codex `
   poll --subscriptions --interval 30 --checks 11
 ```
 
-`channels` lists external channels we hold a presence on and are handling
+`mailboxs` lists external mailboxs we hold a presence on and are handling
 (IRC/Mattermost/etc.). `mailboxes` is the full local catalog of cursor-consumed
 streams: agent inboxes, server/audit streams, and the local mailbox view of
-external channels. To discover channels we are *not* on, use the chat `list`
+external mailboxs. To discover mailboxs we are *not* on, use the chat `list`
 command. `agents` lists
 all registered messageable agents, including their presences. Each entry also
 includes its private `agent_mailbox` and a flat
-`subscriptions` list. Every subscription is the saved cursor state for one channel
-(`channel`, `cursor`, and byte `offset`); there is no second polling-subscription
+`subscriptions` list. Every subscription is the saved cursor state for one mailbox
+(`mailbox`, `cursor`, and byte `offset`); there is no second polling-subscription
 layer. Listing agents never advances a subscription. `agent-add`
 creates a stable agent and can add one presence. Repeating the same registration
 is safe and reports that nothing new was created. Registration also exposes
-the agent's mailbox in `channels`. `agent-del` removes one
+the agent's mailbox in `mailboxs`. `agent-del` removes one
 presence when `--presence` is supplied, or the entire agent otherwise. It
-retains private channel history and cursor files unless `--purge` is supplied.
-Use `--purge --dry-run` to see exactly which channels, records, and cursor files
+retains private mailbox history and cursor files unless `--purge` is supplied.
+Use `--purge --dry-run` to see exactly which mailboxs, records, and cursor files
 would be deleted without changing anything. It refuses removals that would
 leave a connector pointing at a missing identity. `cursors`
-reports which of those channels have already been initialized for one cursor and
+reports which of those mailboxs have already been initialized for one cursor and
 the current byte offset of each. The listing does not hide other agents'
 pollable sources.
 
@@ -309,7 +309,7 @@ There is no server-defined age cutoff. Initial cursor positions may be
 such as `7d`. Retained history can be queried independently of live cursors
 with `mailbox-client history CHANNEL... --since 7d`.
 
-Subscribed channels fan events out to those identities. For
+Subscribed mailboxs fan events out to those identities. For
 example, subscribe an agent to server diagnostics and continue polling the
 agent's own mailbox:
 
@@ -325,21 +325,21 @@ mailbox-client poll --to symbolic-workbench-codex `
   --subscribed server_events,mm/chat.snt/MATTERMOST_CHANNEL_ID
 ```
 
-These memberships are saved by the server in the `server_registry_channels`
-registry under each channel's `subscribers` and survive relay restarts.
+These memberships are saved by the server in the `server_registry_mailboxs`
+registry under each mailbox's `subscribers` and survive relay restarts.
 
 Mattermost messages are retained directly under their canonical address, such
-as `mm/chat.singularitynet.io/opaque-channel-id`. There is no generated alias
-or separate mapping. The immutable channel ID keeps the address stable if its
+as `mm/chat.singularitynet.io/opaque-mailbox-id`. There is no generated alias
+or separate mapping. The immutable mailbox ID keeps the address stable if its
 display name changes.
 
-A Mattermost name can be a channel or a user, so addresses may carry Mattermost's
+A Mattermost name can be a mailbox or a user, so addresses may carry Mattermost's
 own markdown sigils to disambiguate: `mm/INSTANCE/@name` targets a user (the bot
-opens or reuses a direct-message channel), while `mm/INSTANCE/~name` or a bare
-`mm/INSTANCE/name` targets a channel. Opaque 26-character IDs are used verbatim.
+opens or reuses a direct-message mailbox), while `mm/INSTANCE/~name` or a bare
+`mm/INSTANCE/name` targets a mailbox. Opaque 26-character IDs are used verbatim.
 
 Every inbound Mattermost JSONL event also carries `workspace_id` (the original
-Mattermost `team_id`), `team_id`, `workspace_name`, and `channel_name`. The
+Mattermost `team_id`), `team_id`, `workspace_name`, and `mailbox_name`. The
 event is therefore self-describing even when it is read without access to the
 subscription or identifier registries.
 
@@ -363,41 +363,41 @@ Inside `mailbox-console`, emulate a presence in any addressable conversation:
 ```
 
 `/join irc/0/testing` creates a persistent subscription. `/console` creates a
-temporary subscription and automatically unsubscribes that temporary channel
+temporary subscription and automatically unsubscribes that temporary mailbox
 when the console switches elsewhere. Both make the selected conversation the
 default source and destination. `/leave` explicitly removes either kind.
 
-List channels visible to the configured IRC account with the IRC `LIST`
+List mailboxs visible to the configured IRC account with the IRC `LIST`
 protocol and save their names, topics, and visible-user counts in the registry:
 
 ```powershell
-mailbox-client discover channels --platform irc
-mailbox-client discover users --platform irc --channel irc/0/testing
+mailbox-client discover mailboxs --platform irc
+mailbox-client discover users --platform irc --mailbox irc/0/testing
 ```
 
-From a console connected to the server, use `/discover channels --platform
-irc` or `/discover users --platform irc --channel irc/0/testing`. User discovery
+From a console connected to the server, use `/discover mailboxs --platform
+irc` or `/discover users --platform irc --mailbox irc/0/testing`. User discovery
 uses IRC `NAMES`, retains status prefixes such as operator (`@`) and voice (`+`),
-and saves each nickname in the registry with its channel context. Some IRC
-networks restrict or throttle full channel lists; use
+and saves each nickname in the registry with its mailbox context. Some IRC
+networks restrict or throttle full mailbox lists; use
 `--timeout SECONDS` when the network needs longer.
 
 IRC exposes a read-only server/status conversation at `irc/0/status`. Subscribe
 or open `/console irc/0/status` to receive server notices, errors, and numeric
-status replies without confusing that window with a real `#status` channel.
+status replies without confusing that window with a real `#status` mailbox.
 
-Register a known channel locally (and optionally subscribe every agent) with
-`channel-add`; for IRC and Mattermost, `join` joins the bot presence and creates
-the channel when your credentials allow:
+Register a known mailbox locally (and optionally subscribe every agent) with
+`mailbox-add`; for IRC and Mattermost, `join` joins the bot presence and creates
+the mailbox when your credentials allow:
 
 ```powershell
-mailbox-client channel-add debug-console --set title="Debug console"
-mailbox-client channel-add mm/0/agent-testing --subscribe-all
+mailbox-client mailbox-add debug-console --set title="Debug console"
+mailbox-client mailbox-add mm/0/agent-testing --subscribe-all
 mailbox-client join #testing
 mailbox-client join mm/INSTANCE/agent-testing --subscribe-all
 ```
 
-`channel-add` registers/monitors a channel in the local registry; `join` (also
+`mailbox-add` registers/monitors a mailbox in the local registry; `join` (also
 `/join ...` in the console) performs the platform-side join-or-create. Telegram
 and WhatsApp Business bot APIs do not expose arbitrary group creation, so those
 adapters report the operation as unsupported.
@@ -409,23 +409,23 @@ shown by `mailbox-client --help`: `ping`, `list`, `names`, `join`, `part`,
 example, use `mailbox-client join #testing` or `mailbox-client whois alice`.
 For Mattermost, `join mm/INSTANCE/CHANNEL --subscribe-all` both joins the bot
 account and subscribes every registered mailbox agent to the resulting stable
-channel resource ID.
-For an already-known retained channel, `channel-add ADDRESS --subscribe-all`
-adds the external ID to the selected connector's monitored channels, subscribes
+mailbox resource ID.
+For an already-known retained mailbox, `mailbox-add ADDRESS --subscribe-all`
+adds the external ID to the selected connector's monitored mailboxs, subscribes
 every agent, and initializes their cursors at the current mailbox end. A later
 `poll --subscriptions --as AGENT` dynamically includes those subscriptions and
-returns as soon as an ingested channel message arrives.
+returns as soon as an ingested mailbox message arrives.
 
 Mailbox JSON store maintenance is exposed through authenticated server endpoints.
 Pause first with `POST /v1/maintenance/pause`, then use
 `POST /v1/maintenance/trim-before` with `before` or `older_than_seconds`, or
-`POST /v1/maintenance/trim-to-size` with `max_bytes`. Omit `channels` to trim
-the full mailbox, or pass a channel-ID array to trim only those channels.
+`POST /v1/maintenance/trim-to-size` with `max_bytes`. Omit `mailboxs` to trim
+the full mailbox, or pass a mailbox-ID array to trim only those mailboxs.
 Every trim creates a timestamped backup and remaps durable cursor offsets.
 Finish with `POST /v1/maintenance/resume`.
 
 With no `--on` selector, `mailbox-client list` visits every enabled configured
-provider and groups the channel results by provider. An unavailable provider is
+provider and groups the mailbox results by provider. An unavailable provider is
 reported in its own result instead of hiding successful results from the other
 providers. Use `--on TYPE/INSTANCE` to restrict listing to one provider:
 
@@ -435,16 +435,16 @@ mailbox-client list --on mm/chat.singularitynet.io
 ```
 
 The same top-level commands operate on Mattermost when an `mm/INSTANCE/ID`
-address is supplied. For commands without a channel argument, select the
+address is supplied. For commands without a mailbox argument, select the
 platform instance with `--on mm/INSTANCE`. The relay maps the operations to
-channel listing, membership, headers, bot nickname, user lookup, visibility,
+mailbox listing, membership, headers, bot nickname, user lookup, visibility,
 posts, notices, and constrained authenticated `/api/v4/` requests. For example:
 
 ```powershell
 mailbox-client names mm/0/CHANNEL_ID
 mailbox-client names test
 mailbox-client names --on mm `
-  https://chat.singularitynet.io/chat/channels/image-perception-to-recognizable-memory-and-arc3
+  https://chat.singularitynet.io/chat/mailboxs/image-perception-to-recognizable-memory-and-arc3
 mailbox-client whois j4pok4rbqtfytcrcn8d3nhgkto
 mailbox-client teams --on mm/0
 mailbox-client list --on mm/0 --team engineering
@@ -458,7 +458,7 @@ mailbox-client raw --on mm/0 POST /api/v4/posts --input post.json --input-format
 `--input FILE` chooses the content source, `--input-format text|json` controls
 how the file is interpreted, and `--format jsonl|json|text` controls output.
 These switches may appear before or after the IRC or Mattermost subcommand.
-Mattermost discovery saves teams, channels, direct/group-message channels,
+Mattermost discovery saves teams, mailboxs, direct/group-message mailboxs,
 threads, and users in the durable identifier registry. After discovery, a
 unique readable alias or bare opaque ID also identifies its platform, so
 `mailbox-client names test` and `mailbox-client whois OPAQUE_USER_ID` do not
@@ -467,8 +467,8 @@ need `--on`. Qualified addresses remain available, including
 Downloaded Mattermost users resolve by username, email address, nonblank
 nickname, or combined first and last name; for example, both `whois zarathustra`
 and `whois zarathustra@singularitynet.io` resolve the same user.
-Mattermost browser URLs containing `/channels/CHANNEL_SLUG` are accepted as
-channel arguments when Mattermost is selected or inferred. The URL hostname
+Mattermost browser URLs containing `/mailboxs/CHANNEL_SLUG` are accepted as
+mailbox arguments when Mattermost is selected or inferred. The URL hostname
 must match the configured Mattermost server.
 Every Mattermost response is also scanned recursively: whenever an object has
 an `id` together with `display_name`, `name`, or `username`, all readable
@@ -476,19 +476,19 @@ aliases are refreshed under the concrete instance, such as
 `mm/chat.singularitynet.io`. `mm/0` remains a routing shortcut but is not stored
 as a second registry copy. Relationship fields such as `team_id` and
 `creator_id` are retained as metadata; they receive names only from separately
-downloaded team or user objects, never from the containing channel's name.
+downloaded team or user objects, never from the containing mailbox's name.
 At the end of each Mattermost-backed command, the client reports the number of
 new durable aliases found on stderr without corrupting JSON or JSONL stdout.
 `mode mm/0/CHANNEL public|private` maps visibility, while `mode mm/0/CHANNEL
 +o USER` or `mode mm/0/CHANNEL -o USER` grants or revokes Mattermost
-channel-admin membership. `notice mm/0/CHANNEL`
-creates a tagged channel post, or an ephemeral user-only post with `--user`.
-IRC voice and moderated-channel flags have no safe one-to-one Mattermost
+mailbox-admin membership. `notice mm/0/CHANNEL`
+creates a tagged mailbox post, or an ephemeral user-only post with `--user`.
+IRC voice and moderated-mailbox flags have no safe one-to-one Mattermost
 equivalent and are not silently approximated.
 
 Every `TYPE/INSTANCE/ID` resolves to a structured endpoint with common
 `platform`, `instance`, `id`, `type`, and `properties` fields. Resource types
-include `user`, `channel`, `group`, `thread`, `dm`, and `status`; discovery or
+include `user`, `mailbox`, `group`, `thread`, `dm`, and `status`; discovery or
 registry metadata supplies platform-specific properties such as topic,
 visibility, membership counts, and status prefixes.
 
@@ -496,7 +496,7 @@ All adapters use the same `TYPE/INSTANCE/SOURCE_OR_DESTINATION` form. Canonical
 types are `wa`, `wab`, `viber`, `mm`, `discord`, `discourse`, `irc`, `slack`,
 `matrix`, `telegram`, `facebook`, and `line`. `wa` means personal WhatsApp;
 `wab` means WhatsApp Business. The full address table is in
-`src/mailbox_channels/resources/REFERENCE.md`.
+`src/mailbox_mailboxs/resources/REFERENCE.md`.
 
 ## Client commands
 
@@ -523,7 +523,7 @@ mailbox-console --as operator --on mm/chat.singularitynet.io
 Client installation, repository-local launchers, `mailbox-client`, named
 mailboxes, command documents, cursor behavior, Trusted Speaker, REST, the local
 JSON store, WebSocket, and platform setup are consolidated in
-[`REFERENCE.md`](src/mailbox_channels/resources/REFERENCE.md).
+[`REFERENCE.md`](src/mailbox_mailboxs/resources/REFERENCE.md).
 
 ## Public attachment links
 
@@ -612,7 +612,7 @@ transit.
 ## Configuration and security
 
 The daemon binds only `127.0.0.1`. Register the non-secret Mattermost connection
-and channel configuration as a connector (stored in `server_registry_connectors`
+and mailbox configuration as a connector (stored in `server_registry_connectors`
 under the mailbox root):
 
 ```json
@@ -622,7 +622,7 @@ under the mailbox root):
   "instance": "chat.singularitynet.io",
   "base_url": "https://chat.singularitynet.io",
   "token_env": "MM_BOT_TOKEN",
-  "channel_ids": ["CHANNEL_ID", "ANOTHER_CHANNEL_ID"]
+  "mailbox_ids": ["CHANNEL_ID", "ANOTHER_CHANNEL_ID"]
 }
 ```
 
@@ -654,15 +654,15 @@ Discourse topics and replies are operational through signed webhooks and its RES
 The connector registry (`server_registry_connectors` under the mailbox root) is
 the non-secret source of truth for what
 the proxy monitors and where inbound messages are mailboxed. Each connector has
-an adapter, direction (`inbound`, `outbound`, or `bidirectional`), channel IDs,
-and mailbox recipients. A channel ID beginning with `$` expands an environment
+an adapter, direction (`inbound`, `outbound`, or `bidirectional`), mailbox IDs,
+and mailbox recipients. A mailbox ID beginning with `$` expands an environment
 variable, so deployment-specific identifiers can stay in `.env`.
 
 Credentials never belong in the connector registry. Adding Discord, IRC, or another
 adapter means adding its implementation and then declaring its connectors in
 the same registry.
 
-## Import contacts and relay a whole channel
+## Import contacts and relay a whole mailbox
 
 Import WhatsApp contacts from JSON, CSV, or vCard into the durable identifier
 directory. Phone numbers are normalized to digits for WhatsApp addressing:
@@ -673,7 +673,7 @@ mailbox-client contacts --url http://127.0.0.1:46667 list --system whatsapp
 ```
 
 To deliver retained IRC traffic to a WhatsApp conversation, add a cursor-driven
-relay using complete channel and destination addresses:
+relay using complete mailbox and destination addresses:
 
 ```powershell
 mailbox-client relay-add irc/irc.example/#agents `
@@ -713,10 +713,10 @@ restarts or migration to another server. Manage them without direct SQLite
 access:
 
 ```powershell
-mailbox-client registry remember discord UUID "Operations room" --kind channel
+mailbox-client registry remember discord UUID "Operations room" --kind mailbox
 mailbox-client registry alias mm/chat.singularitynet.io USER_ID patrick.hammer --kind user
 mailbox-client registry find --system discord --identifier UUID
-mailbox-client registry request discord UUID --resolver get-channel
+mailbox-client registry request discord UUID --resolver get-mailbox
 mailbox-client registry requests --system discord
 ```
 
@@ -740,16 +740,16 @@ Resolution requests are keyed by source system, identifier, and resolver. An
 already-pending request is not issued again unless `--force` is supplied. The
 same commands work interactively as `/registry ...` in `mailbox-console`.
 
-See [`REFERENCE.md`](src/mailbox_channels/resources/REFERENCE.md) for the implementation checklist,
+See [`REFERENCE.md`](src/mailbox_mailboxs/resources/REFERENCE.md) for the implementation checklist,
 complete operational contract; platform-side application, bot, token,
-permission, channel/room ID, and installation steps; and Mattermost, Discord,
+permission, mailbox/room ID, and installation steps; and Mattermost, Discord,
 Slack, IRC, Matrix/Element, Discourse, WhatsApp, Viber, Telegram, LINE, REST,
 local JSON store, and generic future-adapter examples.
 
 ## Message envelope
 
 Required fields are `from`, `to`, `type`, `text`, `id`, and UTC `timestamp`.
-Optional routing fields include `channel_type`, `channel_id`, `source_id`,
+Optional routing fields include `mailbox_type`, `mailbox_id`, `source_id`,
 `thread_id`, `root_id`, `attachments`, `workflow_id`, `workflow_run_id`,
 `operation_id`, and `correlation_id`. Unknown fields are preserved so workflow
-and agent protocols can evolve independently of channel adapters.
+and agent protocols can evolve independently of mailbox adapters.

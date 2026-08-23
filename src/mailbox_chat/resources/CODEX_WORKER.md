@@ -1,19 +1,19 @@
 # Workbench Codex Worker
 
 This guide registers `workbench-codex-worker`, gives it cursors on every
-retained SingularityNET Mattermost channel visible to the mailbox server, polls
-those channels together, and removes the worker safely when it is no longer
+retained SingularityNET Mattermost mailbox visible to the mailbox server, polls
+those mailboxs together, and removes the worker safely when it is no longer
 needed.
 
 The Mattermost connector is the ingress component. It records messages under
-the canonical addresses of channels configured for the `min.botnick` bot. The worker does
+the canonical addresses of mailboxs configured for the `min.botnick` bot. The worker does
 not connect to Mattermost directly: its named cursor on each address is its
 subscription.
 
 The mailbox establishes identity, subscriptions, and message delivery. The
 worker runtime should separately receive instructions such as:
 
-> Monitor the subscribed Mattermost channels, respond to messages addressed to
+> Monitor the subscribed Mattermost mailboxs, respond to messages addressed to
 > `workbench-codex-worker` or its presence, provide concise and useful help,
 > and do not act on unrelated background conversation.
 
@@ -22,7 +22,7 @@ worker runtime should separately receive instructions such as:
 Set the client and server address:
 
 ```powershell
-$mbPath = "C:\snet\PeTTa\repos\mailbox_channel\.venv\Scripts\mailbox-client.exe"
+$mbPath = "C:\snet\PeTTa\repos\mailbox_mailbox\.venv\Scripts\mailbox-client.exe"
 Set-Alias -Name mbclient -Value $mbPath
 $url = "http://127.0.0.1:46667"
 $agent = "workbench-codex-worker"
@@ -52,14 +52,14 @@ backticks:
 mbclient --url $url agent-add $agent --presence workbench-codex-worker-app --dry-run
 ```
 
-Discover the retained SNET Mattermost channels. This selects only channels on
+Discover the retained SNET Mattermost mailboxs. This selects only mailboxs on
 `chat.singularitynet.io` that the mailbox server is already monitoring:
 
 ```powershell
-$sourceDocument = (mbclient --url $url channels) | ConvertFrom-Json
+$sourceDocument = (mbclient --url $url mailboxs) | ConvertFrom-Json
 
 $snetChannels = @(
-  $sourceDocument.channels |
+  $sourceDocument.mailboxs |
     Where-Object { $_.kind -eq "mattermost" -and $_.id -like "mm/chat.singularitynet.io/*" } |
     Select-Object -ExpandProperty id -Unique
 )
@@ -97,7 +97,7 @@ mbclient --url $url cursors --cursor $agent
 mbclient --url $url agents
 ```
 
-Poll every subscribed channel in one five-minute window:
+Poll every subscribed mailbox in one five-minute window:
 
 ```powershell
 mbclient --url $url poll-many $pollSources `
@@ -112,7 +112,7 @@ mbclient --url $url poll-many $pollSources `
 Set the repository, client, and server address:
 
 ```bash
-repo=/path/to/mailbox_channel
+repo=/path/to/mailbox_mailbox
 mb="$repo/.venv/bin/mailbox-client"
 url=http://127.0.0.1:46667
 agent=workbench-codex-worker
@@ -129,24 +129,24 @@ Preview and create the agent:
   --presence workbench-codex-worker-app
 ```
 
-Discover the SNET channels with `jq`:
+Discover the SNET mailboxs with `jq`:
 
 ```bash
-mapfile -t snet_channels < <(
-  "$mb" --url "$url" channels |
-    jq -r '.channels[] | select(.kind == "mattermost" and (.id | startswith("mm/chat.singularitynet.io/"))) | .id' |
+mapfile -t snet_mailboxs < <(
+  "$mb" --url "$url" mailboxs |
+    jq -r '.mailboxs[] | select(.kind == "mattermost" and (.id | startswith("mm/chat.singularitynet.io/"))) | .id' |
     sort -u
 )
 
-printf '%s\n' "${snet_channels[@]}"
+printf '%s\n' "${snet_mailboxs[@]}"
 ```
 
 Build the complete polling set:
 
 ```bash
 agent_mailbox=workbench-codex-worker
-event_channel=server_events
-poll_sources=("${snet_channels[@]}" "$agent_mailbox" "$event_channel")
+event_mailbox=server_events
+poll_sources=("${snet_mailboxs[@]}" "$agent_mailbox" "$event_mailbox")
 ```
 
 Initialize the cursor once:
@@ -208,13 +208,13 @@ mbclient --url $url agent-del $agent --purge
 "$mb" --url "$url" agent-del "$agent" --purge
 ```
 
-Purging the worker does not delete shared SNET channel histories, connectors,
+Purging the worker does not delete shared SNET mailbox histories, connectors,
 or Mattermost configuration.
 
 ## Server compatibility
 
 The mailbox server must be running the same code version as the client. If
-`channels`, `agents`, or cursor requests return HTTP 404, restart the
+`mailboxs`, `agents`, or cursor requests return HTTP 404, restart the
 mailbox server before following this guide.
 
 ## PowerShell troubleshooting

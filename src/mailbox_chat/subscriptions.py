@@ -1,8 +1,8 @@
 """Durable subscriptions for fully qualified conversation addresses.
 
-Channels live in the ``server_registry_channels`` registry. Each entry's
+Channels live in the ``server_registry_mailboxs`` registry. Each entry's
 payload holds ``{subscribers, aliases, kind, ...}`` plus any connector/endpoint
-metadata; the registry id is the canonical channel id.
+metadata; the registry id is the canonical mailbox id.
 """
 
 from __future__ import annotations
@@ -10,13 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import channel_store
+from . import mailbox_store
 from .connector_registry import store_root
 
 
 SERVER_EVENTS_CHANNEL = "server_events_log"
 SERVER_AGENT_TO_AGENT_CHANNEL = "server_outbound_relay_agent_to_agent"
-SERVER_AGENT_TO_CHANNEL_CHANNEL = "server_outbound_relay_agent_to_channel"
+SERVER_AGENT_TO_CHANNEL_CHANNEL = "server_outbound_relay_agent_to_mailbox"
 BUILTIN_CHANNELS = {
     SERVER_EVENTS_CHANNEL, SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL,
 }
@@ -27,20 +27,20 @@ def _payload(record: dict[str, Any]) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
-def canonical_channel(value: str, path: Path | None = None) -> str:
-    from .endpoint_address import channel_resource_id, parse_endpoint
+def canonical_mailbox(value: str, path: Path | None = None) -> str:
+    from .endpoint_address import mailbox_resource_id, parse_endpoint
 
     value = value.strip()
     if "/" not in value:
         if not value:
-            raise ValueError("channel must be non-empty")
+            raise ValueError("mailbox must be non-empty")
         return value
     address = parse_endpoint(value)
     if address is None:
-        raise ValueError("channel must use TYPE/INSTANCE/IDENTIFIER addressing")
+        raise ValueError("mailbox must use TYPE/INSTANCE/IDENTIFIER addressing")
     root = store_root(path)
     equivalent_ids: list[str] = []
-    for record in channel_store.registry_entries(root, channel_store.CHANNELS_REGISTRY):
+    for record in mailbox_store.registry_entries(root, mailbox_store.CHANNELS_REGISTRY):
         payload = _payload(record)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         aliases = [
@@ -66,21 +66,21 @@ def canonical_channel(value: str, path: Path | None = None) -> str:
     if len(equivalent_ids) == 1:
         return equivalent_ids[0]
     if len(equivalent_ids) > 1:
-        raise ValueError(f"channel alias is ambiguous: {value}")
-    return channel_resource_id(address.adapter, address.instance, address.identifier)
+        raise ValueError(f"mailbox alias is ambiguous: {value}")
+    return mailbox_resource_id(address.adapter, address.instance, address.identifier)
 
 
-def _channel_record(payload: dict[str, Any], channel_id: str) -> dict[str, Any]:
+def _mailbox_record(payload: dict[str, Any], mailbox_id: str) -> dict[str, Any]:
     metadata = dict(payload.get("metadata") or {})
     aliases = list(dict.fromkeys(
         str(value).strip() for value in [
             *(payload.get("aliases") or []),
-            payload.get("external_address"), payload.get("channel_name"),
-            metadata.get("external_address"), metadata.get("channel_name"),
+            payload.get("external_address"), payload.get("mailbox_name"),
+            metadata.get("external_address"), metadata.get("mailbox_name"),
         ] if str(value or "").strip()
     ))
     return {
-        **payload, "kind": "channel", "id": channel_id,
+        **payload, "kind": "mailbox", "id": mailbox_id,
         "aliases": aliases,
         "subscribers": list(dict.fromkeys(
             str(item).strip() for item in payload.get("subscribers") or [] if str(item).strip()
@@ -88,34 +88,34 @@ def _channel_record(payload: dict[str, Any], channel_id: str) -> dict[str, Any]:
     }
 
 
-def channels(path: Path | None = None) -> list[dict[str, Any]]:
+def mailboxs(path: Path | None = None) -> list[dict[str, Any]]:
     root = store_root(path)
     result = []
     seen = set()
-    for record in channel_store.registry_entries(root, channel_store.CHANNELS_REGISTRY):
-        channel_id = canonical_channel(str(record.get("id") or ""), root)
-        if not channel_id or channel_id in seen:
+    for record in mailbox_store.registry_entries(root, mailbox_store.CHANNELS_REGISTRY):
+        mailbox_id = canonical_mailbox(str(record.get("id") or ""), root)
+        if not mailbox_id or mailbox_id in seen:
             raise ValueError("subscription addresses must be non-empty and unique")
-        seen.add(channel_id)
-        result.append(_channel_record(_payload(record), channel_id))
+        seen.add(mailbox_id)
+        result.append(_mailbox_record(_payload(record), mailbox_id))
     if SERVER_EVENTS_CHANNEL not in seen:
         result.append({"id": SERVER_EVENTS_CHANNEL, "subscribers": []})
     return result
 
 
-def subscribers(channel_id: str, path: Path | None = None) -> list[str]:
+def subscribers(mailbox_id: str, path: Path | None = None) -> list[str]:
     root = store_root(path)
-    channel_id = canonical_channel(channel_id, root)
-    match = next((item for item in channels(root) if item["id"] == channel_id), None)
+    mailbox_id = canonical_mailbox(mailbox_id, root)
+    match = next((item for item in mailboxs(root) if item["id"] == mailbox_id), None)
     return list(match["subscribers"]) if match else []
 
 
 def subscriptions(identity: str, path: Path | None = None) -> list[str]:
-    return [item["id"] for item in channels(path) if identity in item["subscribers"]]
+    return [item["id"] for item in mailboxs(path) if identity in item["subscribers"]]
 
 
 def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
-    """List subscribable channels with stable IDs and explicit kinds."""
+    """List subscribable mailboxs with stable IDs and explicit kinds."""
     from .connector_registry import load_agents, load_connectors
 
     root = store_root(path)
@@ -123,10 +123,10 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
     connector_adapters = {item["id"]: item["adapter"] for item in configured_connectors}
 
     def source_kind(item: dict[str, Any]) -> str:
-        channel_id = item["id"]
-        if channel_id == SERVER_EVENTS_CHANNEL:
+        mailbox_id = item["id"]
+        if mailbox_id == SERVER_EVENTS_CHANNEL:
             return "system"
-        if channel_id in {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}:
+        if mailbox_id in {SERVER_AGENT_TO_AGENT_CHANNEL, SERVER_AGENT_TO_CHANNEL_CHANNEL}:
             return "audit"
         connector_id = str(item.get("connector")
                            or (item.get("metadata") or {}).get("connector") or "")
@@ -136,19 +136,19 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
         {
             "id": item["id"],
             "kind": "mailbox",
-            "channel_type": source_kind(item),
+            "mailbox_type": source_kind(item),
             "aliases": list(item.get("aliases") or []),
             "subscribers": list(item["subscribers"]),
             "metadata": dict(item.get("metadata") or {}),
         }
-        for item in channels(root)
+        for item in mailboxs(root)
     ]
     seen = {item["id"] for item in result}
     for audit in [
-        {"id": SERVER_AGENT_TO_AGENT_CHANNEL, "kind": "mailbox", "channel_type": "audit",
+        {"id": SERVER_AGENT_TO_AGENT_CHANNEL, "kind": "mailbox", "mailbox_type": "audit",
          "aliases": [], "subscribers": [],
          "metadata": {"scope": "direct_agent"}},
-        {"id": SERVER_AGENT_TO_CHANNEL_CHANNEL, "kind": "mailbox", "channel_type": "audit",
+        {"id": SERVER_AGENT_TO_CHANNEL_CHANNEL, "kind": "mailbox", "mailbox_type": "audit",
          "aliases": [], "subscribers": [],
          "metadata": {"scope": "all_sends"}},
     ]:
@@ -159,58 +159,58 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
         else:
             existing["metadata"] = {**existing["metadata"], **audit["metadata"]}
     for agent in load_agents(root):
-        channel = str(agent["mailbox"])
-        if channel not in seen:
+        mailbox = str(agent["mailbox"])
+        if mailbox not in seen:
             result.append({
-                "id": channel,
+                "id": mailbox,
                 "kind": "mailbox",
-                "channel_type": "agent_direct",
+                "mailbox_type": "agent_direct",
                 "aliases": [],
                 "subscribers": [],
                 "metadata": {"agent_id": agent["agent_id"]},
             })
-            seen.add(channel)
+            seen.add(mailbox)
     for connector in configured_connectors:
         if not connector.get("enabled") or connector.get("direction") not in {"inbound", "bidirectional"}:
             continue
-        for identifier in connector.get("channel_ids") or []:
+        for identifier in connector.get("mailbox_ids") or []:
             if not identifier:
                 continue
-            from .endpoint_address import channel_resource_id, endpoint_instance
-            channel = channel_resource_id(
+            from .endpoint_address import mailbox_resource_id, endpoint_instance
+            mailbox = mailbox_resource_id(
                 str(connector["adapter"]),
                 endpoint_instance(str(connector["adapter"]), connector),
                 str(identifier),
             )
-            if channel not in seen:
+            if mailbox not in seen:
                 result.append({
-                    "id": channel,
+                    "id": mailbox,
                     "kind": "mailbox",
-                    "channel_type": ("mattermost" if connector["adapter"] == "mattermost"
+                    "mailbox_type": ("mattermost" if connector["adapter"] == "mattermost"
                                      else connector["adapter"]),
                     "aliases": [str(identifier)],
                     "subscribers": [],
                     "metadata": {"connector": connector["id"]},
                 })
-                seen.add(channel)
+                seen.add(mailbox)
     return result
 
 
-def ensure_channel(channel_id: str, *, path: Path | None = None,
+def ensure_mailbox(mailbox_id: str, *, path: Path | None = None,
                    metadata: dict[str, Any] | None = None,
                    aliases: list[str] | None = None) -> dict[str, Any]:
     """Create a qualified subscription address without requiring a subscriber."""
     root = store_root(path)
-    channel_id = canonical_channel(channel_id, root)
-    with channel_store.STORE_LOCK:
-        record = channel_store.get_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
-        payload = _payload(record) if record else {"kind": "channel", "subscribers": []}
+    mailbox_id = canonical_mailbox(mailbox_id, root)
+    with mailbox_store.STORE_LOCK:
+        record = mailbox_store.get_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
+        payload = _payload(record) if record else {"kind": "mailbox", "subscribers": []}
         if metadata:
             payload.update(metadata)
             payload["aliases"] = list(dict.fromkeys(
                 str(value).strip() for value in [
                     *(payload.get("aliases") or []),
-                    metadata.get("external_address"), metadata.get("channel_name"),
+                    metadata.get("external_address"), metadata.get("mailbox_name"),
                 ] if str(value or "").strip()
             ))
         if aliases:
@@ -218,39 +218,39 @@ def ensure_channel(channel_id: str, *, path: Path | None = None,
                 *(payload.get("aliases") or []),
                 *(str(value).strip() for value in aliases if str(value).strip()),
             ]))
-        payload.setdefault("kind", "channel")
+        payload.setdefault("kind", "mailbox")
         payload.setdefault("subscribers", [])
-        channel_store.put_entry(root, channel_store.CHANNELS_REGISTRY, channel_id, payload)
-    return {"kind": "channel", "id": channel_id, **payload}
+        mailbox_store.put_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id, payload)
+    return {"kind": "mailbox", "id": mailbox_id, **payload}
 
 
-def delete_channel(channel_id: str, *, force: bool = False,
+def delete_mailbox(mailbox_id: str, *, force: bool = False,
                    path: Path | None = None) -> dict[str, Any]:
-    """Delete a configured channel, protecting subscribers unless forced."""
+    """Delete a configured mailbox, protecting subscribers unless forced."""
     root = store_root(path)
-    channel_id = canonical_channel(channel_id, root)
-    if channel_id in BUILTIN_CHANNELS:
-        raise ValueError(f"built-in channel cannot be deleted: {channel_id}")
-    with channel_store.STORE_LOCK:
-        record = channel_store.get_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
+    mailbox_id = canonical_mailbox(mailbox_id, root)
+    if mailbox_id in BUILTIN_CHANNELS:
+        raise ValueError(f"built-in mailbox cannot be deleted: {mailbox_id}")
+    with mailbox_store.STORE_LOCK:
+        record = mailbox_store.get_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
         if record is None:
-            return {"id": channel_id, "deleted": False}
+            return {"id": mailbox_id, "deleted": False}
         members = list(_payload(record).get("subscribers") or [])
         if members and not force:
-            raise ValueError("channel has subscribers; unsubscribe them or use --force")
-        channel_store.delete_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
-    return {"id": channel_id, "deleted": True, "removed_subscribers": members}
+            raise ValueError("mailbox has subscribers; unsubscribe them or use --force")
+        mailbox_store.delete_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
+    return {"id": mailbox_id, "deleted": True, "removed_subscribers": members}
 
 
-def set_subscription(channel_id: str, identity: str, *, enabled: bool,
+def set_subscription(mailbox_id: str, identity: str, *, enabled: bool,
                      path: Path | None = None) -> dict[str, Any]:
     root = store_root(path)
-    channel_id, identity = canonical_channel(channel_id, root), identity.strip()
-    if not channel_id or not identity:
-        raise ValueError("channel and identity are required")
-    with channel_store.STORE_LOCK:
-        record = channel_store.get_entry(root, channel_store.CHANNELS_REGISTRY, channel_id)
-        payload = _payload(record) if record else {"kind": "channel", "subscribers": []}
+    mailbox_id, identity = canonical_mailbox(mailbox_id, root), identity.strip()
+    if not mailbox_id or not identity:
+        raise ValueError("mailbox and identity are required")
+    with mailbox_store.STORE_LOCK:
+        record = mailbox_store.get_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id)
+        payload = _payload(record) if record else {"kind": "mailbox", "subscribers": []}
         members = list(dict.fromkeys(
             str(item).strip() for item in payload.get("subscribers") or [] if str(item).strip()
         ))
@@ -259,6 +259,6 @@ def set_subscription(channel_id: str, identity: str, *, enabled: bool,
         if not enabled:
             members = [item for item in members if item != identity]
         payload["subscribers"] = members
-        payload.setdefault("kind", "channel")
-        channel_store.put_entry(root, channel_store.CHANNELS_REGISTRY, channel_id, payload)
-    return {"channel": channel_id, "identity": identity, "subscribed": enabled}
+        payload.setdefault("kind", "mailbox")
+        mailbox_store.put_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id, payload)
+    return {"mailbox": mailbox_id, "identity": identity, "subscribed": enabled}

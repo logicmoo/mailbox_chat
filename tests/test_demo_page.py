@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_channels import server
+from mailbox_mailboxs import server
 
 
 def test_demo_page_links_to_live_relay_resources() -> None:

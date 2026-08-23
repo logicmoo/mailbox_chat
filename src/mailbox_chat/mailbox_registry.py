@@ -15,7 +15,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from . import channel_store
+from . import mailbox_store
 from .connector_registry import store_root
 
 _REGISTRY_WRITE_LOCK = Lock()
@@ -27,9 +27,9 @@ def mailbox_transport(location: str) -> str:
 
 
 def _scanned_mailbox_ids(root: Path) -> list[str]:
-    """Every message-channel document in the store; each ``.json`` file is a mailbox.
+    """Every message-mailbox document in the store; each ``.json`` file is a mailbox.
 
-    The ``server_registry_*`` documents are ``ordered_id_channel`` registries, not
+    The ``server_registry_*`` documents are ``ordered_id_mailbox`` registries, not
     mailboxes, so they are excluded from the scan.
     """
     if not root.is_dir():
@@ -42,23 +42,23 @@ def _scanned_mailbox_ids(root: Path) -> list[str]:
             continue
         if not isinstance(document, dict):
             continue
-        if document.get("kind") != "channel" or document.get("sub_kind") == "ordered_id_channel":
+        if document.get("kind") != "mailbox" or document.get("sub_kind") == "ordered_id_mailbox":
             continue
         ids.append(str(document.get("id") or path.stem))
     return ids
 
 
 def load_mailboxes(path: Path | None = None) -> list[dict[str, Any]]:
-    """List mailboxes: explicit ``mailbox-add`` entries plus every stored channel document.
+    """List mailboxes: explicit ``mailbox-add`` entries plus every stored mailbox document.
 
     Explicitly registered mailboxes come first (and win on id conflicts). When the
     registry is built from scratch it still reports every mailbox by scanning the
-    store directory, because each per-channel ``.json`` document is a mailbox.
+    store directory, because each per-mailbox ``.json`` document is a mailbox.
     """
     root = store_root(path)
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for item in channel_store.registry_entries(root, channel_store.MAILBOXES_REGISTRY):
+    for item in mailbox_store.registry_entries(root, mailbox_store.MAILBOXES_REGISTRY):
         mailbox_id = str(item["id"])
         result.append({
             "id": mailbox_id, "kind": "mailbox",
@@ -93,9 +93,9 @@ def register_mailbox(mailbox_id: str, location: str, *, dry_run: bool = False,
     if dry_run:
         return {**record, "dry_run": True}
     with _REGISTRY_WRITE_LOCK:
-        if channel_store.get_entry(root, channel_store.MAILBOXES_REGISTRY, mailbox_id):
+        if mailbox_store.get_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id):
             raise ValueError(f"mailbox id is already registered: {mailbox_id}")
-        channel_store.put_entry(root, channel_store.MAILBOXES_REGISTRY, mailbox_id, record)
+        mailbox_store.put_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id, record)
     return record
 
 
@@ -105,11 +105,11 @@ def unregister_mailbox(mailbox_id: str, *, dry_run: bool = False,
     mailbox_id = mailbox_id.strip()
     root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        record = channel_store.get_entry(root, channel_store.MAILBOXES_REGISTRY, mailbox_id)
+        record = mailbox_store.get_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id)
         if record is None:
             return {"id": mailbox_id, "deleted": False, "dry_run": dry_run}
         if dry_run:
             return {"id": mailbox_id, "deleted": False, "dry_run": True,
                     "would_delete": record.get("payload") or {}}
-        channel_store.delete_entry(root, channel_store.MAILBOXES_REGISTRY, mailbox_id)
+        mailbox_store.delete_entry(root, mailbox_store.MAILBOXES_REGISTRY, mailbox_id)
     return {"id": mailbox_id, "deleted": True}

@@ -1,8 +1,8 @@
 import json
 
-from mailbox_channels import agent_mailbox
-from mailbox_channels.endpoint_address import parse_endpoint, subscription_recipients
-from mailbox_channels.subscriptions import subscriptions
+from mailbox_mailboxs import agent_mailbox
+from mailbox_mailboxs.endpoint_address import parse_endpoint, subscription_recipients
+from mailbox_mailboxs.subscriptions import subscriptions
 
 
 def test_mattermost_endpoint_address_parses_canonically() -> None:
@@ -15,27 +15,27 @@ def test_mattermost_endpoint_address_parses_canonically() -> None:
 
 
 def test_zero_instance_is_canonical_default_instance(monkeypatch) -> None:
-    endpoint = parse_endpoint("mm/0/channel-1")
+    endpoint = parse_endpoint("mm/0/mailbox-1")
     assert endpoint is not None
-    assert endpoint.canonical == "mm/0/channel-1"
+    assert endpoint.canonical == "mm/0/mailbox-1"
     monkeypatch.setattr(
-        "mailbox_channels.subscriptions.subscribers",
-        lambda address: ["specific-agent"] if address == "mm-chat-snt-channel-1" else [],
+        "mailbox_mailboxs.subscriptions.subscribers",
+        lambda address: ["specific-agent"] if address == "mm-chat-snt-mailbox-1" else [],
     )
     assert subscription_recipients(
-        "mattermost", {"id": "primary", "instance": "chat.snt"}, "channel-1",
+        "mattermost", {"id": "primary", "instance": "chat.snt"}, "mailbox-1",
     ) == ["specific-agent"]
 
 
-def test_mattermost_address_infers_user_and_channel_by_sigil() -> None:
+def test_mattermost_address_infers_user_and_mailbox_by_sigil() -> None:
     user = parse_endpoint("mm/chat.snt/@alice")
     assert user is not None and user.inferred_type == "user"
     assert user.canonical == "mm/chat.snt/@alice"
-    channel = parse_endpoint("mm/chat.snt/~general")
-    assert channel is not None and channel.inferred_type == "channel"
-    assert channel.canonical == "mm/chat.snt/~general"
+    mailbox = parse_endpoint("mm/chat.snt/~general")
+    assert mailbox is not None and mailbox.inferred_type == "mailbox"
+    assert mailbox.canonical == "mm/chat.snt/~general"
     bare = parse_endpoint("mm/chat.snt/general")
-    assert bare is not None and bare.inferred_type == "channel"
+    assert bare is not None and bare.inferred_type == "mailbox"
 
 
 def test_endpoint_descriptions_have_common_typed_properties() -> None:
@@ -66,20 +66,20 @@ def test_remote_from_subscribes_as_local_identity(tmp_path, monkeypatch, capsys)
     mailbox = tmp_path / "mailbox"
     assert agent_mailbox.main([
         "--dir", str(mailbox), "poll", "--as", "symbolic-workbench-codex",
-        "--from", "mm/chat.snt/channel-1", "--checks", "1",
+        "--from", "mm/chat.snt/mailbox-1", "--checks", "1",
     ]) == 0
     capsys.readouterr()
-    assert subscriptions("symbolic-workbench-codex", mailbox) == ["mm-chat-snt-channel-1"]
+    assert subscriptions("symbolic-workbench-codex", mailbox) == ["mm-chat-snt-mailbox-1"]
 
 
-def test_remote_to_becomes_channel_relay_request(tmp_path, capsys) -> None:
+def test_remote_to_becomes_mailbox_relay_request(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
         "--dir", str(tmp_path), "send", "--as", "symbolic-workbench-codex",
         "--to", "mm/chat.snt/person-1", "hello",
     ]) == 0
     sent = json.loads(capsys.readouterr().out)
     assert sent["from"] == "symbolic-workbench-codex"
-    assert sent["to"] == "server_outbound_relay_agent_to_channel"
-    assert sent["channel_type"] == "mattermost"
-    assert sent["channel_id"] == "person-1"
+    assert sent["to"] == "server_outbound_relay_agent_to_mailbox"
+    assert sent["mailbox_type"] == "mattermost"
+    assert sent["mailbox_id"] == "person-1"
     assert sent["endpoint_address"] == "mm/chat.snt/person-1"

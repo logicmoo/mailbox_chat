@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_channels.adapters.telegram_adapter import TelegramAdapter
+from mailbox_mailboxs.adapters.telegram_adapter import TelegramAdapter
 
 
 class Response:
@@ -57,11 +57,11 @@ class Mailbox:
 
 def test_telegram_inbound_outbound_threads_and_attachments(monkeypatch, tmp_path: Path) -> None:
     connector = {
-        "id": "telegram-one", "direction": "bidirectional", "channel_ids": ["-100123"],
+        "id": "telegram-one", "direction": "bidirectional", "mailbox_ids": ["-100123"],
         "bridge_agent": "telegram-agent", "mailbox_recipients": ["worker"],
     }
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_mailboxs.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
     session = Session()
     adapter = TelegramAdapter(session=session)
     mailbox = Mailbox(tmp_path)
@@ -71,13 +71,13 @@ def test_telegram_inbound_outbound_threads_and_attachments(monkeypatch, tmp_path
     adapter.cycle(mailbox)
 
     assert [item[0] for item in mailbox.sent] == ["telegram-agent", "worker"]
-    assert mailbox.sent[0][2]["channel_type"] == "telegram"
+    assert mailbox.sent[0][2]["mailbox_type"] == "telegram"
     assert mailbox.sent[0][2]["thread_id"] == "7"
 
     attachment = tmp_path / "report.txt"
     attachment.write_text("result", encoding="utf-8")
     adapter.send_message({
-        "connector_id": "telegram-one", "channel_id": "-100123", "thread_id": "7",
+        "connector_id": "telegram-one", "mailbox_id": "-100123", "thread_id": "7",
         "text": "reply", "attachments": [{"path": str(attachment), "mime_type": "text/plain"}],
     })
     assert session.posts[0][0].endswith("/sendMessage")
@@ -88,11 +88,11 @@ def test_telegram_inbound_outbound_threads_and_attachments(monkeypatch, tmp_path
 
 def test_telegram_rejects_unconfigured_chat(monkeypatch, tmp_path: Path) -> None:
     connector = {
-        "id": "telegram-one", "direction": "inbound", "channel_ids": ["allowed"],
+        "id": "telegram-one", "direction": "inbound", "mailbox_ids": ["allowed"],
         "bridge_agent": "telegram-agent", "mailbox_recipients": [],
     }
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_mailboxs.adapters.telegram_adapter.connectors_for", lambda adapter: [connector])
     adapter = TelegramAdapter(session=Session())
     mailbox = Mailbox(tmp_path)
     assert adapter.configure()

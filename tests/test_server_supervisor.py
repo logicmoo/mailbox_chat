@@ -1,4 +1,4 @@
-from mailbox_channels.server import build_parser, run_relay_supervisor, runtime_paths
+from mailbox_mailboxs.server import build_parser, run_relay_supervisor, runtime_paths
 
 
 class FlakyRelay:
@@ -29,7 +29,7 @@ class FlakyRelay:
 def test_supervisor_recovers_from_configuration_and_adapter_exceptions(monkeypatch) -> None:
     relay = FlakyRelay()
     delays = []
-    monkeypatch.setattr("mailbox_channels.server._safe_write_status", lambda _relay: None)
+    monkeypatch.setattr("mailbox_mailboxs.server._safe_write_status", lambda _relay: None)
     run_relay_supervisor(relay, sleep=delays.append)
     assert relay.configure_calls == 3
     assert relay.cycle_calls == 2
@@ -43,7 +43,7 @@ def test_server_port_flag_and_port_specific_runtime_paths(monkeypatch) -> None:
     assert build_parser().parse_args([]).port == 47000
     assert build_parser().parse_args(["--port", "48000"]).port == 48000
     runtime_dir, pid_file, status_file = runtime_paths(48000)
-    assert runtime_dir.name == "channel-relay-48000"
+    assert runtime_dir.name == "mailbox-relay-48000"
     assert pid_file.parent == runtime_dir
     assert status_file.parent == runtime_dir
 
@@ -57,7 +57,7 @@ def test_server_accepts_independent_mailbox_and_config_directories(tmp_path) -> 
     assert arguments.mailbox_dir == mailbox
     assert arguments.config_dir == configuration
     runtime_dir, _, _ = runtime_paths(46667, mailbox)
-    assert runtime_dir == mailbox / "runtime" / "channel-relay-46667"
+    assert runtime_dir == mailbox / "runtime" / "mailbox-relay-46667"
 
 
 def test_server_accepts_all_interfaces_bind_address() -> None:

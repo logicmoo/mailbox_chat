@@ -7,4 +7,4 @@ if [ -x "$relay_root/.venv/bin/python" ]; then
     relay_python="$relay_root/.venv/bin/python"
 fi
 export PYTHONPATH="$relay_root/src${PYTHONPATH:+:$PYTHONPATH}"
-exec "$relay_python" -m mailbox_channels.agent_mailbox "$@"
+exec "$relay_python" -m mailbox_mailboxs.agent_mailbox "$@"

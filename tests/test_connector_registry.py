@@ -5,24 +5,24 @@ import pytest
 
 from conftest import seed_store
 
-from mailbox_channels import channel_store
-from mailbox_channels.connector_registry import (
+from mailbox_mailboxs import mailbox_store
+from mailbox_mailboxs.connector_registry import (
     agent_for_presence, config_dir, load_agents, load_connectors, register_agent,
     unregister_agent,
 )
-from mailbox_channels.agent_mailbox import peek
+from mailbox_mailboxs.agent_mailbox import peek
 
 
-def test_connector_registry_expands_environment_channel_lists(tmp_path: Path, monkeypatch) -> None:
+def test_connector_registry_expands_environment_mailbox_lists(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("TEST_CHANNELS", "one,two")
     seed_store(tmp_path, connectors=[{
         "id": "test",
         "adapter": "mattermost",
-        "channel_ids": ["$TEST_CHANNELS"],
+        "mailbox_ids": ["$TEST_CHANNELS"],
         "mailbox_recipients": ["alpha", "alpha", "beta"],
     }])
     connector = load_connectors(tmp_path)[0]
-    assert connector["channel_ids"] == ["one", "two"]
+    assert connector["mailbox_ids"] == ["one", "two"]
     assert connector["mailbox_recipients"] == ["alpha", "beta"]
 
 
@@ -30,10 +30,10 @@ def test_connector_registry_rejects_duplicate_ids(tmp_path: Path) -> None:
     seed_store(tmp_path, connectors=[{"id": "same", "adapter": "irc"}])
     # Force a duplicate ordinal slot pointing at the same entry to exercise the
     # uniqueness guard (the entries map itself cannot hold duplicate ids).
-    document = channel_store.load_registry(tmp_path, channel_store.CONNECTORS_REGISTRY)
+    document = mailbox_store.load_registry(tmp_path, mailbox_store.CONNECTORS_REGISTRY)
     document["ordinal"]["entry_1"] = "same"
     document["count"] = 2
-    channel_store.save_channel(tmp_path, document)
+    mailbox_store.save_mailbox(tmp_path, document)
     with pytest.raises(ValueError, match="unique"):
         load_connectors(tmp_path)
 
@@ -80,7 +80,7 @@ def test_connector_rejects_presence_owned_by_another_agent(tmp_path: Path) -> No
         load_connectors(tmp_path)
 
 
-def test_new_agent_and_presence_are_announced_on_server_events_channel(tmp_path: Path) -> None:
+def test_new_agent_and_presence_are_announced_on_server_events_mailbox(tmp_path: Path) -> None:
     mailbox = tmp_path / "mailbox"
 
     result = register_agent(

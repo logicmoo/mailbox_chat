@@ -1,4 +1,4 @@
-"""CLI administration for cursor-driven channel relays."""
+"""CLI administration for cursor-driven mailbox relays."""
 
 from __future__ import annotations
 
@@ -15,15 +15,15 @@ from .connector_registry import CONFIG_DIR_ENV
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="mailbox-client relay",
-        description="Manage cursor-driven pumps from retained channels to external endpoints.",
+        description="Manage cursor-driven pumps from retained mailboxs to external endpoints.",
     )
     result.add_argument("--config-dir", type=Path)
     result.add_argument("--dir", type=Path, dest="mailbox_root")
     result.add_argument("--json", action="store_true")
     commands = result.add_subparsers(dest="command", required=True)
-    commands.add_parser("list", help="list configured channel relays and cursor identities")
-    add = commands.add_parser("add", help="add a source-channel cursor pump")
-    add.add_argument("source_channel")
+    commands.add_parser("list", help="list configured mailbox relays and cursor identities")
+    add = commands.add_parser("add", help="add a source-mailbox cursor pump")
+    add.add_argument("source_mailbox")
     add.add_argument("destination", help="external TYPE/INSTANCE/IDENTIFIER endpoint")
     add.add_argument("--id", dest="relay_id", default="")
     add.add_argument("--start", default="now",
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         output: object = {"relays": load_relays()}
     elif args.command == "add":
         output = add_relay(
-            args.source_channel, args.destination, relay_id=args.relay_id, start=args.start,
+            args.source_mailbox, args.destination, relay_id=args.relay_id, start=args.start,
             mailbox_root=mailbox_root, dry_run=args.dry_run,
         )
     elif args.command == "del":

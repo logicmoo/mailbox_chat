@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_channels import agent_mailbox, channel_store, cmd_client_page
+from mailbox_mailboxs import agent_mailbox, mailbox_store, cmd_client_page
 
 
 def _queue_messages(root: Path) -> list[dict]:
-    document = channel_store.load_channel(root, agent_mailbox.SERVER_WORKER_QUEUE)
-    return [record for _key, record in channel_store.ordered_messages(document)]
+    document = mailbox_store.load_mailbox(root, agent_mailbox.SERVER_WORKER_QUEUE)
+    return [record for _key, record in mailbox_store.ordered_messages(document)]
 
 
 def test_exec_now_local_is_identical_to_direct_command(tmp_path: Path, capsys) -> None:

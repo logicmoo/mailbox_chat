@@ -1,4 +1,4 @@
-from mailbox_channels import cmd_client_page
+from mailbox_mailboxs import cmd_client_page
 
 class FakeStdout:
     def __init__(self): self.lines = iter(["help text\n", ""])

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_channels import agent_mailbox, mailbox_registry
+from mailbox_mailboxs import agent_mailbox, mailbox_registry
 
 
 def test_register_infers_url_and_dir_transport(tmp_path: Path) -> None:
@@ -41,16 +41,16 @@ def test_unregister_missing_is_noop(tmp_path: Path) -> None:
     assert mailbox_registry.unregister_mailbox("nope", path=tmp_path)["deleted"] is False
 
 
-def test_load_mailboxes_scans_channel_documents(tmp_path: Path) -> None:
-    from mailbox_channels import channel_store
+def test_load_mailboxes_scans_mailbox_documents(tmp_path: Path) -> None:
+    from mailbox_mailboxs import mailbox_store
 
-    channel_store.append_message(tmp_path, "worker-1", {"text": "hi"})
-    channel_store.append_message(tmp_path, "worker-2", {"text": "yo"})
+    mailbox_store.append_message(tmp_path, "worker-1", {"text": "hi"})
+    mailbox_store.append_message(tmp_path, "worker-2", {"text": "yo"})
     mailbox_registry.register_mailbox("research", "http://relay.example", path=tmp_path)
 
     listed = {item["id"]: item for item in mailbox_registry.load_mailboxes(tmp_path)}
     assert {"worker-1", "worker-2", "research"} <= set(listed)
-    # Scanned channel documents are reported as derived dir mailboxes.
+    # Scanned mailbox documents are reported as derived dir mailboxes.
     assert listed["worker-1"]["derived"] is True and listed["worker-1"]["transport"] == "dir"
     # The registry document itself is not a mailbox.
     assert "server_registry_mailboxes" not in listed

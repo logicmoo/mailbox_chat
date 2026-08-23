@@ -30,7 +30,7 @@ TOKEN_ENV = "MAILBOX_RELAY_TOKEN"
 # Exit code the server returns to ask its supervisor loop to quit instead of
 # relaunching. Any other exit is treated by mailbox-server-loop as "restart".
 SHUTDOWN_EXIT_CODE = 42
-from .channel_relay import (
+from .mailbox_relay import (
     ADAPTER_CAPABILITIES, ChannelRelay, PLANNED_CHANNEL_TYPES, RELAY_PORT, RELAY_RECIPIENT,
     SUPPORTED_CHANNEL_TYPES,
 )
@@ -51,7 +51,7 @@ from .cmd_client_page import (
 
 
 def runtime_paths(port: int, mailbox_root: Path | None = None) -> tuple[Path, Path, Path]:
-    runtime_dir = (mailbox_root or agent_mailbox.mailbox_dir()) / "runtime" / f"channel-relay-{port}"
+    runtime_dir = (mailbox_root or agent_mailbox.mailbox_dir()) / "runtime" / f"mailbox-relay-{port}"
     return runtime_dir, runtime_dir / "relay.pid", runtime_dir / "status.json"
 
 
@@ -309,8 +309,8 @@ def main(argv: list[str] | None = None) -> int:
             if parsed.path == "/agent_mailbox.py":
                 self._file(PACKAGE_ROOT / "agent_mailbox.py", "text/x-python; charset=utf-8")
                 return
-            if parsed.path == "/channel_store.py":
-                self._file(PACKAGE_ROOT / "channel_store.py", "text/x-python; charset=utf-8")
+            if parsed.path == "/mailbox_store.py":
+                self._file(PACKAGE_ROOT / "mailbox_store.py", "text/x-python; charset=utf-8")
                 return
             if parsed.path in {"/CODEX_AUTOMATION.md", "/AUTOMATION_PROMPT.md"}:
                 self._file(RESOURCE_ROOT / "CODEX_AUTOMATION.md", "text/markdown; charset=utf-8")
@@ -376,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
                 return
             if parsed.path in {"/", "/health", "/v1/status"}:
                 self._json(200, {
-                    "service": "mailbox-channel-relay-proxy",
+                    "service": "mailbox-mailbox-relay-proxy",
                     "project": "Mailbox Channel Relay Bridging Proxy",
                     "mailbox": agent_mailbox.status(),
                     "outboundRecipient": RELAY_RECIPIENT,
@@ -393,34 +393,34 @@ def main(argv: list[str] | None = None) -> int:
                     "capabilities": ADAPTER_CAPABILITIES,
                 })
                 return
-            if parsed.path == "/v1/discovery/channels":
+            if parsed.path == "/v1/discovery/mailboxs":
                 query = parse_qs(parsed.query)
                 platform = query.get("platform", [""])[0].strip().lower()
                 instance = query.get("instance", [""])[0].strip()
                 try:
                     timeout = float(query.get("timeout", ["30"])[0])
                     if platform != "irc":
-                        raise ValueError("channel discovery currently supports platform=irc")
-                    from .discovery_admin import discover_irc_channels
+                        raise ValueError("mailbox discovery currently supports platform=irc")
+                    from .discovery_admin import discover_irc_mailboxs
                     self._json(200, {"platform": platform,
-                                     "channels": discover_irc_channels(instance=instance, timeout=timeout)})
+                                     "mailboxs": discover_irc_mailboxs(instance=instance, timeout=timeout)})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
             if parsed.path == "/v1/discovery/users":
                 query = parse_qs(parsed.query)
                 platform = query.get("platform", [""])[0].strip().lower()
-                channel = query.get("channel", [""])[0].strip()
+                mailbox = query.get("mailbox", [""])[0].strip()
                 instance = query.get("instance", [""])[0].strip()
                 try:
                     timeout = float(query.get("timeout", ["15"])[0])
                     if platform != "irc":
                         raise ValueError("user discovery currently supports platform=irc")
-                    if not channel:
-                        raise ValueError("channel is required")
+                    if not mailbox:
+                        raise ValueError("mailbox is required")
                     from .discovery_admin import discover_irc_users
-                    self._json(200, {"platform": platform, "channel": channel,
-                                     "users": discover_irc_users(channel, instance=instance, timeout=timeout)})
+                    self._json(200, {"platform": platform, "mailbox": mailbox,
+                                     "users": discover_irc_users(mailbox, instance=instance, timeout=timeout)})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
@@ -435,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not identity:
                     self._json(400, {"error": "identity is required"})
                     return
-                self._json(200, {"identity": identity, "channels": subscriptions(identity)})
+                self._json(200, {"identity": identity, "mailboxs": subscriptions(identity)})
                 return
             if parsed.path == "/v1/cursors":
                 cursor = parse_qs(parsed.query).get("cursor", [""])[0].strip()
@@ -630,12 +630,12 @@ def main(argv: list[str] | None = None) -> int:
                         cutoff = datetime.now(timezone.utc) - timedelta(seconds=172800)
                     if request_path == "/v1/maintenance/trim-to-size" or payload.get("max_bytes") is not None:
                         max_bytes = int(payload.get("max_bytes"))
-                    channels = payload.get("channels") or []
-                    if not isinstance(channels, list):
-                        raise ValueError("channels must be an array; omit it to trim all channels")
+                    mailboxs = payload.get("mailboxs") or []
+                    if not isinstance(mailboxs, list):
+                        raise ValueError("mailboxs must be an array; omit it to trim all mailboxs")
                     result = agent_mailbox.trim_messages(
                         cutoff=cutoff, max_bytes=max_bytes,
-                        channels={str(item) for item in channels},
+                        mailboxs={str(item) for item in mailboxs},
                     )
                 except (OSError, ValueError, json.JSONDecodeError) as error:
                     self._json(400, {"error": str(error)})
@@ -652,7 +652,7 @@ def main(argv: list[str] | None = None) -> int:
             if request_path not in {"/v1/messages", "/v1/ack", "/v1/cursors", "/v1/agents", "/v1/identifiers",
                                      "/v1/identifier-resolution-requests",
                                      "/v1/subscriptions", "/v1/irc/command",
-                                     "/v1/mm/command", "/v1/connectors", "/v1/channels",
+                                     "/v1/mm/command", "/v1/connectors", "/v1/mailboxs",
                                      "/v1/relays", "/v1/mailboxes", "/v1/exec"}:
                 self._json(404, {"error": "not found"})
                 return
@@ -677,25 +677,25 @@ def main(argv: list[str] | None = None) -> int:
                             and bool(arguments.get("subscribe_all"))):
                         from .adapters.mattermost_adapter import resolve_address
                         from .connector_registry import load_agents
-                        from .connector_registry import add_connector_channel
-                        from .endpoint_address import channel_resource_id, endpoint_instance
-                        from .subscriptions import ensure_channel, set_subscription
+                        from .connector_registry import add_connector_mailbox
+                        from .endpoint_address import mailbox_resource_id, endpoint_instance
+                        from .subscriptions import ensure_mailbox, set_subscription
 
                         address = resolve_address(
-                            str(arguments.get("channel") or ""), identifiers,
+                            str(arguments.get("mailbox") or ""), identifiers,
                             base_url=relay.base_url,
                         )
-                        channel_id = address.rsplit("/", 1)[-1]
-                        add_connector_channel("mattermost", "0", channel_id)
-                        identity = relay._mattermost_channel_identity(channel_id)
+                        mailbox_id = address.rsplit("/", 1)[-1]
+                        add_connector_mailbox("mattermost", "0", mailbox_id)
+                        identity = relay._mattermost_mailbox_identity(mailbox_id)
                         instance = endpoint_instance("mattermost", relay.connector)
-                        resource_id = channel_resource_id(
-                            "mattermost", instance, channel_id,
+                        resource_id = mailbox_resource_id(
+                            "mattermost", instance, mailbox_id,
                         )
-                        ensure_channel(resource_id, metadata={
+                        ensure_mailbox(resource_id, metadata={
                             "connector": relay.connector.get("id", ""),
                             "endpoint": instance,
-                            "external_address": f"mm/{instance}/{channel_id}",
+                            "external_address": f"mm/{instance}/{mailbox_id}",
                             **identity,
                         })
                         agent_ids = [agent["agent_id"] for agent in load_agents()]
@@ -705,7 +705,7 @@ def main(argv: list[str] | None = None) -> int:
                                 resource_id, cursor=agent_id, start="now",
                             )
                         subscription_result = {
-                            "channel": resource_id,
+                            "mailbox": resource_id,
                             "subscribed_agents": agent_ids,
                             "count": len(agent_ids),
                         }
@@ -733,13 +733,13 @@ def main(argv: list[str] | None = None) -> int:
                     self._json(202, {"accepted": True, "line": line.split(" ", 1)[0].upper()})
                     return
                 if request_path == "/v1/subscriptions":
-                    channel = str(payload.get("channel") or "")
-                    if channel.lower().startswith(("mm/", "mattermost/")):
+                    mailbox = str(payload.get("mailbox") or "")
+                    if mailbox.lower().startswith(("mm/", "mattermost/")):
                         from .adapters.mattermost_adapter import resolve_address
-                        channel = resolve_address(channel, identifiers,
+                        mailbox = resolve_address(mailbox, identifiers,
                                                   base_url=relay.base_url)
                     result = set_subscription(
-                        channel, str(payload.get("identity") or ""),
+                        mailbox, str(payload.get("identity") or ""),
                         enabled=bool(payload.get("subscribed", True)),
                     )
                     self._json(200, result)
@@ -819,37 +819,37 @@ def main(argv: list[str] | None = None) -> int:
                             str(payload.get("kind") or ""),
                             direction=str(payload.get("direction") or "bidirectional"),
                             instance=str(payload.get("instance") or ""),
-                            channel_ids=list(payload.get("channel_ids") or []),
+                            mailbox_ids=list(payload.get("mailbox_ids") or []),
                             config=dict(payload.get("config") or {}),
                             dry_run=bool(payload.get("dry_run", False)),
                         )
                         self._json(200 if payload.get("dry_run") else 201, result)
                     return
-                if request_path == "/v1/channels":
-                    from .subscriptions import delete_channel, ensure_channel, set_subscription
-                    from .connector_registry import add_connector_channel, load_agents
+                if request_path == "/v1/mailboxs":
+                    from .subscriptions import delete_mailbox, ensure_mailbox, set_subscription
+                    from .connector_registry import add_connector_mailbox, load_agents
                     from .endpoint_address import parse_endpoint
-                    channel_id = str(payload.get("channel_id") or "")
+                    mailbox_id = str(payload.get("mailbox_id") or "")
                     if str(payload.get("action") or "").lower() == "delete":
-                        self._json(200, delete_channel(
-                            channel_id, force=bool(payload.get("force", False)),
+                        self._json(200, delete_mailbox(
+                            mailbox_id, force=bool(payload.get("force", False)),
                         ))
                         return
                     metadata = dict(payload.get("metadata") or {})
                     aliases = [str(item) for item in (payload.get("aliases") or [])]
-                    endpoint = parse_endpoint(channel_id)
-                    monitored = (add_connector_channel(
+                    endpoint = parse_endpoint(mailbox_id)
+                    monitored = (add_connector_mailbox(
                         endpoint.adapter, endpoint.instance, endpoint.identifier,
                     ) if endpoint else None)
-                    channel = ensure_channel(channel_id, metadata=metadata, aliases=aliases)
-                    result = channel
+                    mailbox = ensure_mailbox(mailbox_id, metadata=metadata, aliases=aliases)
+                    result = mailbox
                     if bool(payload.get("subscribe_all", False)):
                         agent_ids = [agent["agent_id"] for agent in load_agents()]
                         for agent_id in agent_ids:
-                            set_subscription(channel["id"], agent_id, enabled=True)
-                            agent_mailbox.ensure_cursor(channel["id"], cursor=agent_id, start="now")
+                            set_subscription(mailbox["id"], agent_id, enabled=True)
+                            agent_mailbox.ensure_cursor(mailbox["id"], cursor=agent_id, start="now")
                         result = {
-                            "channel": channel,
+                            "mailbox": mailbox,
                             **({"connector": monitored} if monitored else {}),
                             "subscribed_agents": agent_ids, "count": len(agent_ids),
                         }
@@ -864,7 +864,7 @@ def main(argv: list[str] | None = None) -> int:
                         ))
                     else:
                         result = add_relay(
-                            str(payload.get("source_channel") or ""),
+                            str(payload.get("source_mailbox") or ""),
                             str(payload.get("destination") or ""),
                             relay_id=str(payload.get("relay_id") or ""),
                             start=str(payload.get("start") or "now"),
@@ -934,13 +934,13 @@ def main(argv: list[str] | None = None) -> int:
                     sender=str(payload.get("from") or agent_mailbox.DEFAULT_SENDER),
                     message_type=str(payload.get("type") or "message"),
                     attachments=[Path(item) for item in payload.get("attachments") or []],
-                    channel_id=payload.get("channel_id"),
-                    channel_type=payload.get("channel_type"),
+                    mailbox_id=payload.get("mailbox_id"),
+                    mailbox_type=payload.get("mailbox_type"),
                     source_id=payload.get("source_id"),
                     thread_id=payload.get("thread_id"),
                     root_id=payload.get("root_id"),
                     extra_fields={key: value for key, value in payload.items() if key not in {
-                        "to", "text", "from", "type", "attachments", "channel_id", "channel_type",
+                        "to", "text", "from", "type", "attachments", "mailbox_id", "mailbox_type",
                         "source_id", "thread_id", "root_id",
                     }},
                 )
@@ -956,7 +956,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         health_server = ThreadingHTTPServer((arguments.host, arguments.port), HealthHandler)
     except OSError as error:
-        print(f"Cannot bind channel relay to {arguments.host}:{arguments.port}: {error}", file=sys.stderr)
+        print(f"Cannot bind mailbox relay to {arguments.host}:{arguments.port}: {error}", file=sys.stderr)
         return 3
     pid_file.write_text(str(os.getpid()), encoding="ascii")
     health_thread = threading.Thread(target=health_server.serve_forever, name="mattermost-relay-health", daemon=True)

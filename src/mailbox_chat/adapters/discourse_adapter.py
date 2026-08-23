@@ -82,7 +82,7 @@ class DiscourseAdapter:
         topic_id = str(post.get("topic_id") or post.get("id") or "")
         post_id = str(post.get("id") or event_id)
         category_id = str(post.get("category_id") or "")
-        allowed_topics = set(str(item) for item in connector.get("channel_ids", []))
+        allowed_topics = set(str(item) for item in connector.get("mailbox_ids", []))
         allowed_categories = set(str(item) for item in connector.get("category_ids", []))
         if allowed_topics and topic_id not in allowed_topics:
             return
@@ -98,9 +98,9 @@ class DiscourseAdapter:
         source_id = event_id or post_id
         origin = with_origin({"author": username, "author_id": str(post.get("user_id") or username)},
                              adapter="discourse", connector_id=connector["id"], source_id=source_id,
-                             channel_id=topic_id)
+                             mailbox_id=topic_id)
         if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-            "discourse", connector_id=connector["id"], channel_id=topic_id,
+            "discourse", connector_id=connector["id"], mailbox_id=topic_id,
         )):
             return
         recipients = list(dict.fromkeys([connector.get("bridge_agent"),
@@ -108,8 +108,8 @@ class DiscourseAdapter:
                                          *subscription_recipients("discourse", connector, topic_id)]))
         for recipient in filter(None, recipients):
             mailbox.send(recipient, text, sender=f"discourse:{username}",
-                         message_type="discourse_post", channel_id=topic_id,
-                         channel_type="discourse", source_id=source_id,
+                         message_type="discourse_post", mailbox_id=topic_id,
+                         mailbox_type="discourse", source_id=source_id,
                          thread_id=str(post.get("reply_to_post_number") or "") or None,
                          extra_fields={**origin, "discourse_post_id": post_id,
                                        "discourse_post_number": post.get("post_number"),
@@ -127,7 +127,7 @@ class DiscourseAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        topic_id = str(message.get("channel_id") or "").strip()
+        topic_id = str(message.get("mailbox_id") or "").strip()
         raw = str(message.get("text") or "")
         links = [f"[{record.get('name') or 'Attachment'}]({attachment_url(record)})"
                  for record in message.get("attachments") or []]

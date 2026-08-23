@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from mailbox_channels import agent_mailbox
-from mailbox_channels.adapters import irc_adapter
-from mailbox_channels.adapters.irc_adapter import IrcAdapter
+from mailbox_mailboxs import agent_mailbox
+from mailbox_mailboxs.adapters import irc_adapter
+from mailbox_mailboxs.adapters.irc_adapter import IrcAdapter
 
 
 class FakeSocket:
@@ -29,7 +29,7 @@ def connector() -> dict:
     return {
         "id": "irc-test", "adapter": "irc", "enabled": True,
         "direction": "bidirectional", "server": "irc.example", "port": 6667,
-        "tls": False, "nickname": "relay", "channel_ids": ["#agents"],
+        "tls": False, "nickname": "relay", "mailbox_ids": ["#agents"],
         "bridge_agent": "irc-bridge-agent", "mailbox_recipients": ["observer"],
     }
 
@@ -50,7 +50,7 @@ def test_irc_registration_ping_join_and_inbound_mailbox(tmp_path: Path, monkeypa
     assert "JOIN #agents\r\n" in sent
     assert "PONG :token\r\n" in sent
     assert agent_mailbox.receive("irc-bridge-agent", root=tmp_path)[0]["text"] == "hello IRC"
-    assert agent_mailbox.receive("observer", root=tmp_path)[0]["channel_type"] == "irc"
+    assert agent_mailbox.receive("observer", root=tmp_path)[0]["mailbox_type"] == "irc"
 
 
 def test_irc_outbound_privmsg(monkeypatch) -> None:
@@ -58,7 +58,7 @@ def test_irc_outbound_privmsg(monkeypatch) -> None:
     connection = FakeSocket()
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
     adapter.configure()
-    adapter.send_message({"channel_id": "#agents", "text": "one\ntwo"})
+    adapter.send_message({"mailbox_id": "#agents", "text": "one\ntwo"})
     sent = "".join(connection.sent)
     assert "PRIVMSG #agents :one\r\n" in sent
     assert "PRIVMSG #agents :two\r\n" in sent
@@ -74,13 +74,13 @@ def test_irc_publishes_attachment_urls(tmp_path: Path, monkeypatch) -> None:
     connection = FakeSocket()
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
     adapter.configure()
-    adapter.send_message({"channel_id": "#agents", "text": "look", "attachments": message["attachments"]})
+    adapter.send_message({"mailbox_id": "#agents", "text": "look", "attachments": message["attachments"]})
     sent = "".join(connection.sent)
     assert "Attachment: https://relay.example/v1/attachments/" in sent
     assert "image%20name.png" in sent
 
 
-def test_irc_list_channels_collects_names_counts_and_topics(monkeypatch) -> None:
+def test_irc_list_mailboxs_collects_names_counts_and_topics(monkeypatch) -> None:
     monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     connection = FakeSocket()
     connection.chunks.append(
@@ -91,16 +91,16 @@ def test_irc_list_channels_collects_names_counts_and_topics(monkeypatch) -> None
     )
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
     assert adapter.configure()
-    assert adapter.list_channels(timeout=1) == [
-        {"identifier": "#agents", "text": "Agent coordination", "kind": "channel",
+    assert adapter.list_mailboxs(timeout=1) == [
+        {"identifier": "#agents", "text": "Agent coordination", "kind": "mailbox",
          "metadata": {"visible_users": 42}},
-        {"identifier": "#testing", "text": "Test room", "kind": "channel",
+        {"identifier": "#testing", "text": "Test room", "kind": "mailbox",
          "metadata": {"visible_users": 3}},
     ]
     assert "LIST\r\n" in "".join(connection.sent)
 
 
-def test_irc_names_lists_channel_users_and_status(monkeypatch) -> None:
+def test_irc_names_lists_mailbox_users_and_status(monkeypatch) -> None:
     monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
     connection = FakeSocket()
     connection.chunks.append(
@@ -110,9 +110,9 @@ def test_irc_names_lists_channel_users_and_status(monkeypatch) -> None:
     )
     adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
     assert adapter.configure()
-    users = adapter.list_channel_users("testing", timeout=1)
+    users = adapter.list_mailbox_users("testing", timeout=1)
     assert [item["identifier"] for item in users] == ["alice", "bob", "carol"]
-    assert users[0]["metadata"] == {"channel": "#testing", "status_prefix": "@"}
+    assert users[0]["metadata"] == {"mailbox": "#testing", "status_prefix": "@"}
     assert "NAMES #testing\r\n" in "".join(connection.sent)
 
 
@@ -129,5 +129,5 @@ def test_irc_status_address_receives_server_notices(tmp_path: Path, monkeypatch)
     adapter._handle_line(":irc.example NOTICE relay :Scheduled maintenance", agent_mailbox)
     message = agent_mailbox.receive("observer", root=tmp_path)[0]
     assert message["type"] == "irc_status"
-    assert message["channel_id"] == "status"
+    assert message["mailbox_id"] == "status"
     assert message["text"] == "Scheduled maintenance"

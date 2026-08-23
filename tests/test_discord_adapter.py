@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_channels.adapters.discord_adapter import DiscordAdapter
+from mailbox_mailboxs.adapters.discord_adapter import DiscordAdapter
 
 
 class Response:
@@ -46,11 +46,11 @@ class Mailbox:
 
 def test_discord_inbound_and_outbound_use_mailbox(monkeypatch, tmp_path: Path) -> None:
     connector = {
-        "id": "discord-one", "direction": "bidirectional", "channel_ids": ["c1"],
+        "id": "discord-one", "direction": "bidirectional", "mailbox_ids": ["c1"],
         "bridge_agent": "discord-agent", "mailbox_recipients": ["worker"],
     }
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.discord_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_mailboxs.adapters.discord_adapter.connectors_for", lambda adapter: [connector])
     session = Session()
     adapter = DiscordAdapter(session=session)
     mailbox = Mailbox(tmp_path)
@@ -58,7 +58,7 @@ def test_discord_inbound_and_outbound_use_mailbox(monkeypatch, tmp_path: Path) -
     adapter.cycle(mailbox)
     adapter.cycle(mailbox)
     assert [item[0] for item in mailbox.sent] == ["discord-agent", "worker"]
-    assert mailbox.sent[0][2]["channel_type"] == "discord"
+    assert mailbox.sent[0][2]["mailbox_type"] == "discord"
 
-    adapter.send_message({"connector_id": "discord-one", "channel_id": "c1", "text": "reply"})
+    adapter.send_message({"connector_id": "discord-one", "mailbox_id": "c1", "text": "reply"})
     assert session.posts[0][1]["json"] == {"content": "reply"}

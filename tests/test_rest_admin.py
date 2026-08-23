@@ -1,4 +1,4 @@
-import mailbox_channels.agent_mailbox as am
+import mailbox_mailboxs.agent_mailbox as am
 
 
 def _capture(monkeypatch):
@@ -16,13 +16,13 @@ def test_connector_rest_helpers_post_expected_bodies(monkeypatch) -> None:
     calls = _capture(monkeypatch)
     am.register_connector_rest(
         "mm1", "mattermost", direction="inbound", instance="chat.example",
-        channel_ids=["c1"], config={"x": 1}, dry_run=True, base_url="http://h",
+        mailbox_ids=["c1"], config={"x": 1}, dry_run=True, base_url="http://h",
     )
     am.unregister_connector_rest("mm1", dry_run=True, base_url="http://h")
     assert calls[0][0:2] == ("POST", "/v1/connectors")
     assert calls[0][2] == {
         "connector_id": "mm1", "kind": "mattermost", "direction": "inbound",
-        "instance": "chat.example", "channel_ids": ["c1"], "config": {"x": 1},
+        "instance": "chat.example", "mailbox_ids": ["c1"], "config": {"x": 1},
         "dry_run": True,
     }
     assert calls[0][3] == "http://h"
@@ -30,19 +30,19 @@ def test_connector_rest_helpers_post_expected_bodies(monkeypatch) -> None:
     assert calls[1][2] == {"action": "delete", "connector_id": "mm1", "dry_run": True}
 
 
-def test_channel_rest_helpers_post_expected_bodies(monkeypatch) -> None:
+def test_mailbox_rest_helpers_post_expected_bodies(monkeypatch) -> None:
     calls = _capture(monkeypatch)
-    am.add_channel_rest(
+    am.add_mailbox_rest(
         "team", metadata={"title": "Updates"}, aliases=["alias1"],
         subscribe_all=True, base_url="http://h",
     )
-    am.delete_channel_rest("team", force=True, base_url="http://h")
-    assert calls[0][0:2] == ("POST", "/v1/channels")
+    am.delete_mailbox_rest("team", force=True, base_url="http://h")
+    assert calls[0][0:2] == ("POST", "/v1/mailboxs")
     assert calls[0][2] == {
-        "channel_id": "team", "metadata": {"title": "Updates"},
+        "mailbox_id": "team", "metadata": {"title": "Updates"},
         "aliases": ["alias1"], "subscribe_all": True,
     }
-    assert calls[1][2] == {"action": "delete", "channel_id": "team", "force": True}
+    assert calls[1][2] == {"action": "delete", "mailbox_id": "team", "force": True}
 
 
 def test_relay_rest_helpers_post_expected_bodies(monkeypatch) -> None:
@@ -54,7 +54,7 @@ def test_relay_rest_helpers_post_expected_bodies(monkeypatch) -> None:
     am.delete_relay_rest("r1", dry_run=True, base_url="http://h")
     assert calls[0][0:2] == ("POST", "/v1/relays")
     assert calls[0][2] == {
-        "source_channel": "team", "destination": "mm/chat.example/cid",
+        "source_mailbox": "team", "destination": "mm/chat.example/cid",
         "relay_id": "r1", "start": "beginning", "dry_run": True,
     }
     assert calls[1][2] == {"action": "delete", "relay_id": "r1", "dry_run": True}

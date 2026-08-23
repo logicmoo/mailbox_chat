@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mailbox_channels.adapters.matrix_adapter import MatrixAdapter
+from mailbox_mailboxs.adapters.matrix_adapter import MatrixAdapter
 
 
 class Response:
@@ -31,15 +31,15 @@ class Mailbox:
 def test_matrix_sync_and_send(monkeypatch, tmp_path: Path) -> None:
     connector = {"id": "matrix-one", "direction": "bidirectional",
                 "homeserver": "https://matrix.example.org", "token_env": "MATRIX_TOKEN",
-                "channel_ids": ["!room:example.org"], "bridge_agent": "matrix-agent",
+                "mailbox_ids": ["!room:example.org"], "bridge_agent": "matrix-agent",
                 "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("MATRIX_TOKEN", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.matrix_adapter.connectors_for", lambda adapter: [connector])
+    monkeypatch.setattr("mailbox_mailboxs.adapters.matrix_adapter.connectors_for", lambda adapter: [connector])
     session, mailbox = Session(), Mailbox(tmp_path)
     adapter = MatrixAdapter(session=session)
     assert adapter.configure()
     adapter.cycle(mailbox)
     adapter.cycle(mailbox)
     assert [item[0] for item in mailbox.sent] == ["matrix-agent", "worker"]
-    adapter.send_message({"connector_id": "matrix-one", "channel_id": "!room:example.org", "text": "reply"})
+    adapter.send_message({"connector_id": "matrix-one", "mailbox_id": "!room:example.org", "text": "reply"})
     assert session.puts[0][1]["json"]["body"] == "reply"

@@ -50,7 +50,7 @@ class IdentifierDirectory:
             """
         )
         # A former generic JSON walker paired creator_id/owner_id with the
-        # containing channel's display_name. Remove only those demonstrably
+        # containing mailbox's display_name. Remove only those demonstrably
         # mismatched relationship aliases; genuine user records have id equal
         # to the registered identifier.
         stale_relationship_rows = connection.execute(
@@ -297,7 +297,7 @@ class IdentifierDirectory:
 
     def enrich(self, record: dict[str, Any], *, system: str = "") -> dict[str, Any]:
         enriched = dict(record)
-        source_system = system or str(record.get("channel_type") or "mailbox")
+        source_system = system or str(record.get("mailbox_type") or "mailbox")
         for field, value in record.items():
             if field != "id" and not field.endswith("_id"):
                 continue

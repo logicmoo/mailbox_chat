@@ -69,7 +69,7 @@ class ViberAdapter:
         source_id = str(payload.get("message_token") or "")
         if not sender_id or not source_id:
             raise ValueError("Viber message callback requires sender.id and message_token")
-        allowed = set(str(item) for item in connector.get("channel_ids", []))
+        allowed = set(str(item) for item in connector.get("mailbox_ids", []))
         if sender_id not in allowed and not connector.get("include_direct_messages"):
             return
         name = str(sender.get("name") or sender_id).strip()
@@ -83,9 +83,9 @@ class ViberAdapter:
         if not text:
             text = f"[{message_type}]" + (f" {message['media']}" if message.get("media") else "")
         origin = with_origin({"author": name, "author_id": sender_id}, adapter="viber",
-                             connector_id=connector["id"], source_id=source_id, channel_id=sender_id)
+                             connector_id=connector["id"], source_id=source_id, mailbox_id=sender_id)
         if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-            "viber", connector_id=connector["id"], channel_id=sender_id,
+            "viber", connector_id=connector["id"], mailbox_id=sender_id,
         )):
             return
         recipients = list(dict.fromkeys([connector.get("bridge_agent"),
@@ -93,7 +93,7 @@ class ViberAdapter:
                                          *subscription_recipients("viber", connector, sender_id)]))
         for recipient in filter(None, recipients):
             mailbox.send(recipient, text, sender=f"viber:{name}", message_type="viber_message",
-                         channel_id=sender_id, channel_type="viber", source_id=source_id,
+                         mailbox_id=sender_id, mailbox_type="viber", source_id=source_id,
                          extra_fields={**origin, "viber_message": message})
 
     def _connector_for(self, message: dict[str, Any]) -> dict[str, Any]:
@@ -117,9 +117,9 @@ class ViberAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        receiver = str(message.get("channel_id") or "").strip()
+        receiver = str(message.get("mailbox_id") or "").strip()
         if not receiver:
-            raise ValueError("Viber outbound message requires channel_id (Viber user ID)")
+            raise ValueError("Viber outbound message requires mailbox_id (Viber user ID)")
         sender = {"name": str(connector.get("bot_name") or "Mailbox Relay")[:28]}
         text = str(message.get("text") or "")
         for start in range(0, len(text), 7000):

@@ -1,4 +1,4 @@
-"""Load and validate the non-secret channel connector registry."""
+"""Load and validate the non-secret mailbox connector registry."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from . import channel_store
+from . import mailbox_store
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -19,10 +19,10 @@ _REGISTRY_WRITE_LOCK = Lock()
 
 
 def store_root(path: Path | None = None) -> Path:
-    """Root directory of the channel/registry store.
+    """Root directory of the mailbox/registry store.
 
     The registries used to live inside a single ``relays.json`` document; they
-    are now individual ``server_registry_*`` channel files under the mailbox
+    are now individual ``server_registry_*`` mailbox files under the mailbox
     root. Callers may still pass an explicit root (chiefly tests).
     """
     if path is not None:
@@ -40,10 +40,10 @@ def underscored_mailbox_twin(agent_id: str) -> str:
 
 
 def agent_mailbox_address(agent_id: str, path: Path | None = None) -> str:
-    """Return the stable writable mailbox address (DM channel) for an agent.
+    """Return the stable writable mailbox address (DM mailbox) for an agent.
 
     The agents registry is the first authority: an agent entry may declare its
-    ``mailbox`` channel explicitly. Otherwise the direct-message channel is the
+    ``mailbox`` mailbox explicitly. Otherwise the direct-message mailbox is the
     underscored twin of the hyphens-only agent id.
     """
     identifier = agent_id.strip()
@@ -66,7 +66,7 @@ def config_dir() -> Path:
     return local.resolve() if local.is_dir() else PROJECT_ROOT / "config"
 
 
-def _expand_channel_ids(value: str) -> list[str]:
+def _expand_mailbox_ids(value: str) -> list[str]:
     if value.startswith("$"):
         value = os.environ.get(value[1:], "")
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -78,7 +78,7 @@ def load_agents(path: Path | None = None) -> list[dict[str, Any]]:
     agents: list[dict[str, Any]] = []
     agent_ids: set[str] = set()
     presence_ids: set[str] = set()
-    records = channel_store.registry_entries(root, channel_store.AGENTS_REGISTRY)
+    records = mailbox_store.registry_entries(root, mailbox_store.AGENTS_REGISTRY)
     for index, record in enumerate(records):
         raw = record.get("payload")
         if not isinstance(raw, dict):
@@ -150,7 +150,7 @@ def register_agent(
         if presence_id and presence_id in presence_owner and presence_owner[presence_id] != agent_id:
             raise ValueError(f"presence {presence_id} is already registered to {presence_owner[presence_id]}")
 
-        record = channel_store.get_entry(root, channel_store.AGENTS_REGISTRY, agent_id)
+        record = mailbox_store.get_entry(root, mailbox_store.AGENTS_REGISTRY, agent_id)
         payload = dict(record.get("payload") or {}) if record else {}
         agent_created = record is None
         raw_presences = list(payload.get("presences") or [])
@@ -181,16 +181,16 @@ def register_agent(
                if key not in {"kind", "agent_id", "presences"}},
             "presences": raw_presences,
         }
-        channel_store.put_entry(root, channel_store.AGENTS_REGISTRY, agent_id, payload)
+        mailbox_store.put_entry(root, mailbox_store.AGENTS_REGISTRY, agent_id, payload)
 
     if agent_created or presence_created:
         from . import agent_mailbox
         from .subscriptions import SERVER_EVENTS_CHANNEL
 
-        event_channel = SERVER_EVENTS_CHANNEL
+        event_mailbox = SERVER_EVENTS_CHANNEL
         if agent_created:
             agent_mailbox.send(
-                event_channel,
+                event_mailbox,
                 f"Agent registered: {agent_id}",
                 sender="mailbox-server",
                 message_type="agent_registered",
@@ -199,7 +199,7 @@ def register_agent(
             )
         if presence_created:
             agent_mailbox.send(
-                event_channel,
+                event_mailbox,
                 f"Presence registered: {presence_id} for {agent_id}",
                 sender="mailbox-server",
                 message_type="presence_registered",
@@ -235,7 +235,7 @@ def unregister_agent(
 
     root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        record = channel_store.get_entry(root, channel_store.AGENTS_REGISTRY, agent_id)
+        record = mailbox_store.get_entry(root, mailbox_store.AGENTS_REGISTRY, agent_id)
         if record is None:
             return {"agent_id": agent_id, "presence_id": presence_id,
                     "agent_removed": False, "presence_removed": False}
@@ -274,7 +274,7 @@ def unregister_agent(
                 if not (isinstance(item, dict)
                         and str(item.get("presence_id") or "").strip() == presence_id)
             ]
-            channel_store.put_entry(root, channel_store.AGENTS_REGISTRY, agent_id, payload)
+            mailbox_store.put_entry(root, mailbox_store.AGENTS_REGISTRY, agent_id, payload)
             agent_removed, presence_removed = False, True
         else:
             referencing = [
@@ -298,7 +298,7 @@ def unregister_agent(
                     "would_remove_agent": True, "would_remove_presence": False,
                     **preview,
                 }
-            channel_store.delete_entry(root, channel_store.AGENTS_REGISTRY, agent_id)
+            mailbox_store.delete_entry(root, mailbox_store.AGENTS_REGISTRY, agent_id)
             agent_removed, presence_removed = True, False
 
     from . import agent_mailbox
@@ -345,7 +345,7 @@ def load_connectors(path: Path | None = None) -> list[dict[str, Any]]:
         for presence in agent["presences"]
     }
     seen: set[str] = set()
-    records = channel_store.registry_entries(root, channel_store.CONNECTORS_REGISTRY)
+    records = mailbox_store.registry_entries(root, mailbox_store.CONNECTORS_REGISTRY)
     for index, record in enumerate(records):
         raw = record.get("payload")
         if not isinstance(raw, dict):
@@ -370,9 +370,9 @@ def load_connectors(path: Path | None = None) -> list[dict[str, Any]]:
         if presence_id in presence_owners and not agent_id:
             agent_id = presence_owners[presence_id]
         seen.add(connector_id)
-        channel_ids: list[str] = []
-        for value in raw.get("channel_ids") or []:
-            channel_ids.extend(_expand_channel_ids(str(value)))
+        mailbox_ids: list[str] = []
+        for value in raw.get("mailbox_ids") or []:
+            mailbox_ids.extend(_expand_mailbox_ids(str(value)))
         connectors.append({
             **raw,
             "kind": "connector",
@@ -380,7 +380,7 @@ def load_connectors(path: Path | None = None) -> list[dict[str, Any]]:
             "adapter": adapter,
             "direction": direction,
             "enabled": bool(raw.get("enabled", True)),
-            "channel_ids": list(dict.fromkeys(channel_ids)),
+            "mailbox_ids": list(dict.fromkeys(mailbox_ids)),
             "mailbox_recipients": list(dict.fromkeys([
                 *(
                     str(item).strip() for item in raw.get("mailbox_recipients") or []
@@ -402,12 +402,12 @@ def connectors_for(adapter: str, *, direction: str | None = None) -> list[dict[s
     return matches
 
 
-def add_connector_channel(adapter: str, instance: str, channel_id: str,
+def add_connector_mailbox(adapter: str, instance: str, mailbox_id: str,
                           *, path: Path | None = None) -> dict[str, Any]:
-    """Persist one externally monitored channel on a selected connector."""
-    adapter, instance, channel_id = adapter.strip(), instance.strip(), channel_id.strip()
-    if not adapter or not instance or not channel_id:
-        raise ValueError("adapter, instance, and channel_id are required")
+    """Persist one externally monitored mailbox on a selected connector."""
+    adapter, instance, mailbox_id = adapter.strip(), instance.strip(), mailbox_id.strip()
+    if not adapter or not instance or not mailbox_id:
+        raise ValueError("adapter, instance, and mailbox_id are required")
     root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
         raw_matches = [
@@ -431,15 +431,15 @@ def add_connector_channel(adapter: str, instance: str, channel_id: str,
                 raise ValueError(f"could not uniquely select {adapter} connector {instance}")
             record = matches[0]
         connector_id = str(record.get("id") or "")
-        stored = channel_store.get_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id)
+        stored = mailbox_store.get_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id)
         payload = dict((stored or {}).get("payload") or {})
-        channel_ids = list(payload.get("channel_ids") or [])
-        if channel_id not in channel_ids:
-            channel_ids.append(channel_id)
-            payload["channel_ids"] = channel_ids
-            channel_store.put_entry(root, channel_store.CONNECTORS_REGISTRY,
+        mailbox_ids = list(payload.get("mailbox_ids") or [])
+        if mailbox_id not in mailbox_ids:
+            mailbox_ids.append(mailbox_id)
+            payload["mailbox_ids"] = mailbox_ids
+            mailbox_store.put_entry(root, mailbox_store.CONNECTORS_REGISTRY,
                                     connector_id, payload)
-    return {"connector_id": connector_id, "channel_id": channel_id, "monitored": True}
+    return {"connector_id": connector_id, "mailbox_id": mailbox_id, "monitored": True}
 
 
 def register_connector(
@@ -448,7 +448,7 @@ def register_connector(
     *,
     direction: str = "bidirectional",
     instance: str = "",
-    channel_ids: list[str] | None = None,
+    mailbox_ids: list[str] | None = None,
     config: dict[str, Any] | None = None,
     dry_run: bool = False,
     path: Path | None = None,
@@ -461,7 +461,7 @@ def register_connector(
         raise ValueError(f"direction must be one of: {', '.join(sorted(VALID_DIRECTIONS))}")
     root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        if channel_store.get_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id):
+        if mailbox_store.get_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id):
             raise ValueError(f"connector id is already registered: {connector_id}")
         record = {
             **dict(config or {}), "kind": "connector", "id": connector_id, "adapter": kind,
@@ -469,11 +469,11 @@ def register_connector(
         }
         if instance:
             record["instance"] = instance
-        if channel_ids:
-            record["channel_ids"] = list(dict.fromkeys(channel_ids))
+        if mailbox_ids:
+            record["mailbox_ids"] = list(dict.fromkeys(mailbox_ids))
         if dry_run:
             return {**record, "dry_run": True}
-        channel_store.put_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id, record)
+        mailbox_store.put_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id, record)
         load_connectors(root)
     return record
 
@@ -484,18 +484,18 @@ def unregister_connector(connector_id: str, *, dry_run: bool = False,
     connector_id = connector_id.strip()
     root = store_root(path)
     with _REGISTRY_WRITE_LOCK:
-        record = channel_store.get_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id)
+        record = mailbox_store.get_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id)
         if record is None:
             return {"id": connector_id, "deleted": False, "dry_run": dry_run}
         if dry_run:
             return {"id": connector_id, "deleted": False, "dry_run": True,
                     "would_delete": record.get("payload") or {}}
-        channel_store.delete_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id)
+        mailbox_store.delete_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id)
     return {"id": connector_id, "deleted": True}
 
 
 def public_registry(path: Path | None = None) -> dict[str, Any]:
-    """Return the public agents, connectors, and subscribable channels."""
+    """Return the public agents, connectors, and subscribable mailboxs."""
     from .retained_relay import load_relays
     from .subscriptions import available_sources
 
@@ -509,7 +509,7 @@ def public_registry(path: Path | None = None) -> dict[str, Any]:
             "enabled": item["enabled"],
             "can_listen": item["direction"] in {"inbound", "bidirectional"},
             "can_send": item["direction"] in {"outbound", "bidirectional"},
-            "channel_ids": item["channel_ids"],
+            "mailbox_ids": item["mailbox_ids"],
         }
         for item in load_connectors(root)
     ]

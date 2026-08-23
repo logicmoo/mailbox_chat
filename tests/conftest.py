@@ -1,7 +1,7 @@
-"""Shared test fixtures for the channel/registry store.
+"""Shared test fixtures for the mailbox/registry store.
 
-The runtime keeps all durable state as per-channel JSON documents under a single
-mailbox root (message channels plus ``server_registry_*`` id-keyed registries).
+The runtime keeps all durable state as per-mailbox JSON documents under a single
+mailbox root (message mailboxs plus ``server_registry_*`` id-keyed registries).
 These helpers seed that store so tests need not hand-craft registry documents.
 """
 
@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from mailbox_channels import channel_store
+from mailbox_mailboxs import mailbox_store
 
 
 @pytest.fixture(autouse=True)
@@ -36,35 +36,35 @@ def seed_agents(root: Path, agents: list[dict[str, Any]]) -> None:
     for agent in agents:
         agent_id = str(agent["agent_id"])
         payload = {"kind": "agent", "presences": [], **agent, "agent_id": agent_id}
-        channel_store.put_entry(root, channel_store.AGENTS_REGISTRY, agent_id, payload)
+        mailbox_store.put_entry(root, mailbox_store.AGENTS_REGISTRY, agent_id, payload)
 
 
 def seed_connectors(root: Path, connectors: list[dict[str, Any]]) -> None:
     for connector in connectors:
         connector_id = str(connector["id"])
         payload = {"kind": "connector", **connector, "id": connector_id}
-        channel_store.put_entry(root, channel_store.CONNECTORS_REGISTRY, connector_id, payload)
+        mailbox_store.put_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id, payload)
 
 
-def seed_channels(root: Path, channels: list[dict[str, Any]]) -> None:
-    for channel in channels:
-        channel_id = str(channel["id"])
-        payload = {"kind": "channel", "subscribers": [],
-                   **{key: value for key, value in channel.items() if key != "id"}}
-        channel_store.put_entry(root, channel_store.CHANNELS_REGISTRY, channel_id, payload)
+def seed_mailboxs(root: Path, mailboxs: list[dict[str, Any]]) -> None:
+    for mailbox in mailboxs:
+        mailbox_id = str(mailbox["id"])
+        payload = {"kind": "mailbox", "subscribers": [],
+                   **{key: value for key, value in mailbox.items() if key != "id"}}
+        mailbox_store.put_entry(root, mailbox_store.CHANNELS_REGISTRY, mailbox_id, payload)
 
 
 def seed_relays(root: Path, relays: list[dict[str, Any]]) -> None:
     for relay in relays:
         relay_id = str(relay["id"])
         payload = {"kind": "relay", **relay, "id": relay_id}
-        channel_store.put_entry(root, channel_store.RELAYS_REGISTRY, relay_id, payload)
+        mailbox_store.put_entry(root, mailbox_store.RELAYS_REGISTRY, relay_id, payload)
 
 
-def seed_messages(root: Path, channel_id: str, records: list[dict[str, Any]],
-                  *, sub_kind: str = "channel") -> None:
+def seed_messages(root: Path, mailbox_id: str, records: list[dict[str, Any]],
+                  *, sub_kind: str = "mailbox") -> None:
     for record in records:
-        channel_store.append_message(root, channel_id, record, sub_kind=sub_kind)
+        mailbox_store.append_message(root, mailbox_id, record, sub_kind=sub_kind)
 
 
 def seed_store(root: Path, *, agents: list[dict[str, Any]] | None = None,
@@ -75,7 +75,7 @@ def seed_store(root: Path, *, agents: list[dict[str, Any]] | None = None,
     root.mkdir(parents=True, exist_ok=True)
     seed_agents(root, agents or [])
     seed_connectors(root, connectors or [])
-    seed_channels(root, subscriptions or [])
+    seed_mailboxs(root, subscriptions or [])
     seed_relays(root, relays or [])
     return root
 

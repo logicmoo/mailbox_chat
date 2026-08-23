@@ -2,8 +2,8 @@ import argparse
 
 from urllib.parse import parse_qs, urlparse
 
-from mailbox_channels.identifier_directory import IdentifierDirectory
-from mailbox_channels.adapters.mattermost_adapter import (
+from mailbox_mailboxs.identifier_directory import IdentifierDirectory
+from mailbox_mailboxs.adapters.mattermost_adapter import (
     COMMANDS, _payload, execute, parser, remember_named_ids, resolve_address,
 )
 
@@ -38,13 +38,13 @@ class DiscoverySession(Session):
             return Response({"id": "a" * 26, "username": "relay-bot"})
         if url.endswith(f"/api/v4/users/{'a' * 26}/teams"):
             return Response([{"id": "t" * 26, "name": "engineering", "display_name": "Engineering"}])
-        if f"/api/v4/teams/{'t' * 26}/channels" in url:
+        if f"/api/v4/teams/{'t' * 26}/mailboxs" in url:
             page = int(parse_qs(urlparse(url).query).get("page", ["0"])[0])
             if page == 0:
                 return Response([{"id": "c" * 26, "name": "town-square",
                                   "display_name": "Town Square", "type": "O"}])
             return Response([])
-        if "/api/v4/users/" in url and url.endswith("/channels"):
+        if "/api/v4/users/" in url and url.endswith("/mailboxs"):
             return Response([{"id": "c" * 26, "name": "town-square",
                               "display_name": "Town Square", "type": "O"}])
         if url.endswith("/api/v4/users/username/other-bot"):
@@ -53,7 +53,7 @@ class DiscoverySession(Session):
 
 
 class PagingSession(Session):
-    """Serve a scripted set of channel pages keyed by the requested page number."""
+    """Serve a scripted set of mailbox pages keyed by the requested page number."""
 
     def __init__(self, pages):
         super().__init__()
@@ -65,7 +65,7 @@ class PagingSession(Session):
             return Response({"id": "a" * 26})
         if url.endswith(f"/api/v4/users/{'a' * 26}/teams"):
             return Response([{"id": "t" * 26, "name": "engineering"}])
-        if f"/api/v4/teams/{'t' * 26}/channels" in url:
+        if f"/api/v4/teams/{'t' * 26}/mailboxs" in url:
             page = int(parse_qs(urlparse(url).query).get("page", ["0"])[0])
             return Response(self.pages.get(page, []))
         return Response({"ok": True})
@@ -79,11 +79,11 @@ def test_mm_help_lists_familiar_commands() -> None:
 
 def test_mm_message_accepts_qualified_address() -> None:
     session = Session()
-    execute("message", {"target": "mm/0/channel-id", "text": "hello"},
+    execute("message", {"target": "mm/0/mailbox-id", "text": "hello"},
             session=session, base_url="https://chat.example")
     assert session.calls[-1][:3] == (
         "POST", "https://chat.example/api/v4/posts",
-        {"channel_id": "channel-id", "message": "hello"},
+        {"mailbox_id": "mailbox-id", "message": "hello"},
     )
 
 
@@ -94,62 +94,62 @@ class DirectSession(Session):
             return Response({"id": "a" * 26})
         if url.endswith("/api/v4/users/username/bob"):
             return Response({"id": "b" * 26, "username": "bob"})
-        if url.endswith("/api/v4/channels/direct"):
+        if url.endswith("/api/v4/mailboxs/direct"):
             return Response({"id": "d" * 26, "type": "D"})
         return Response({"ok": True})
 
 
-def test_mm_message_to_user_sigil_posts_to_direct_channel() -> None:
+def test_mm_message_to_user_sigil_posts_to_direct_mailbox() -> None:
     session = DirectSession()
     execute("message", {"target": "mm/0/@bob", "text": "hi"},
             session=session, base_url="https://chat.example")
-    # A @user target opens (or reuses) the DM channel between the bot and the user.
-    assert ("POST", "https://chat.example/api/v4/channels/direct",
+    # A @user target opens (or reuses) the DM mailbox between the bot and the user.
+    assert ("POST", "https://chat.example/api/v4/mailboxs/direct",
             ["a" * 26, "b" * 26]) in [call[:3] for call in session.calls]
-    # The post lands in the resulting direct channel, not on a bogus channel id.
+    # The post lands in the resulting direct mailbox, not on a bogus mailbox id.
     assert session.calls[-1][:3] == (
         "POST", "https://chat.example/api/v4/posts",
-        {"channel_id": "d" * 26, "message": "hi"},
+        {"mailbox_id": "d" * 26, "message": "hi"},
     )
 
 
-def test_mm_message_to_channel_sigil_posts_to_channel() -> None:
+def test_mm_message_to_mailbox_sigil_posts_to_mailbox() -> None:
     session = Session()
     execute("message", {"target": "mm/0/~general", "text": "hi"},
             session=session, base_url="https://chat.example")
     assert session.calls[-1][:3] == (
         "POST", "https://chat.example/api/v4/posts",
-        {"channel_id": "general", "message": "hi"},
+        {"mailbox_id": "general", "message": "hi"},
     )
 
 
 def test_mm_join_adds_authenticated_bot() -> None:
     session = Session()
-    execute("join", {"channel": "mm/0/channel-id"}, session=session,
+    execute("join", {"mailbox": "mm/0/mailbox-id"}, session=session,
             base_url="https://chat.example")
     assert session.calls[-1][0:3] == (
-        "POST", "https://chat.example/api/v4/channels/channel-id/members",
+        "POST", "https://chat.example/api/v4/mailboxs/mailbox-id/members",
         {"user_id": "a" * 26},
     )
 
 
-def test_mm_mode_maps_operator_to_channel_admin_role() -> None:
+def test_mm_mode_maps_operator_to_mailbox_admin_role() -> None:
     session = Session()
-    execute("mode", {"channel": "channel-id", "setting": "+o", "user": "b" * 26},
+    execute("mode", {"mailbox": "mailbox-id", "setting": "+o", "user": "b" * 26},
             session=session, base_url="https://chat.example")
     assert session.calls[-1][:3] == (
-        "PUT", f"https://chat.example/api/v4/channels/channel-id/members/{'b' * 26}/roles",
-        {"roles": "channel_user channel_admin"},
+        "PUT", f"https://chat.example/api/v4/mailboxs/mailbox-id/members/{'b' * 26}/roles",
+        {"roles": "mailbox_user mailbox_admin"},
     )
 
 
 def test_mm_notice_can_be_ephemeral_to_one_user() -> None:
     session = Session()
-    execute("notice", {"target": "channel-id", "text": "maintenance",
+    execute("notice", {"target": "mailbox-id", "text": "maintenance",
                        "user": "b" * 26}, session=session, base_url="https://chat.example")
     assert session.calls[-1][:3] == (
         "POST", "https://chat.example/api/v4/posts/ephemeral",
-        {"user_id": "b" * 26, "post": {"channel_id": "channel-id",
+        {"user_id": "b" * 26, "post": {"mailbox_id": "mailbox-id",
                                          "message": "maintenance",
                                          "props": {"mailbox_notice": True}}},
     )
@@ -183,16 +183,16 @@ def test_mm_raw_accepts_json_file_input(tmp_path) -> None:
     assert _payload(args)["arguments"]["body"] == {"message": "hello"}
 
 
-def test_mm_discovery_persists_teams_channels_and_readable_addresses(tmp_path) -> None:
+def test_mm_discovery_persists_teams_mailboxs_and_readable_addresses(tmp_path) -> None:
     session = DiscoverySession()
     directory = IdentifierDirectory(tmp_path)
     teams = execute("teams", {}, session=session, base_url="https://chat.example",
                     directory=directory)
-    channels = execute("list", {}, session=session, base_url="https://chat.example",
+    mailboxs = execute("list", {}, session=session, base_url="https://chat.example",
                        directory=directory)
 
     assert teams[0]["address"] == f"mm/chat.example/{'t' * 26}"
-    assert channels[0]["address"] == f"mm/chat.example/{'c' * 26}"
+    assert mailboxs[0]["address"] == f"mm/chat.example/{'c' * 26}"
     assert resolve_address("mm/0/Town Square", directory,
                            base_url="https://chat.example") == f"mm/0/{'c' * 26}"
     assert resolve_address("mm/0/town-square", directory,
@@ -201,11 +201,11 @@ def test_mm_discovery_persists_teams_channels_and_readable_addresses(tmp_path) -
     assert directory.find(system="mm/0") == []
 
 
-def test_mm_list_discovers_public_team_channels_with_paging() -> None:
+def test_mm_list_discovers_public_team_mailboxs_with_paging() -> None:
     session = DiscoverySession()
     execute("list", {"page": 0, "per_page": 1000}, session=session,
             base_url="https://chat.example")
-    assert ("GET", f"https://chat.example/api/v4/teams/{'t' * 26}/channels?page=0&per_page=1000") \
+    assert ("GET", f"https://chat.example/api/v4/teams/{'t' * 26}/mailboxs?page=0&per_page=1000") \
         in [(call[0], call[1]) for call in session.calls]
 
 
@@ -221,46 +221,46 @@ def test_mm_list_autopaginates_and_dedupes_with_empty_page_margin() -> None:
     requested_pages = [
         int(parse_qs(urlparse(call[1]).query).get("page", ["-1"])[0])
         for call in session.calls
-        if "/api/v4/teams/" in call[1] and "/channels" in call[1]
+        if "/api/v4/teams/" in call[1] and "/mailboxs" in call[1]
     ]
     # Keeps fetching a couple of pages past the first empty (page 2) as a margin.
     assert requested_pages == [0, 1, 2, 3, 4]
 
 
-def test_mm_list_bot_returns_channels_the_bot_is_on() -> None:
+def test_mm_list_bot_returns_mailboxs_the_bot_is_on() -> None:
     session = DiscoverySession()
-    channels = execute("list", {"bot": ""}, session=session, base_url="https://chat.example")
+    mailboxs = execute("list", {"bot": ""}, session=session, base_url="https://chat.example")
     assert session.calls[-1][:2] == (
-        "GET", f"https://chat.example/api/v4/users/{'a' * 26}/channels")
-    assert channels[0]["name"] == "town-square"
+        "GET", f"https://chat.example/api/v4/users/{'a' * 26}/mailboxs")
+    assert mailboxs[0]["name"] == "town-square"
 
 
 def test_mm_list_bot_accepts_an_explicit_bot_nick() -> None:
     session = DiscoverySession()
     execute("list", {"bot": "other-bot"}, session=session, base_url="https://chat.example")
     assert session.calls[-1][:2] == (
-        "GET", f"https://chat.example/api/v4/users/{'b' * 26}/channels")
+        "GET", f"https://chat.example/api/v4/users/{'b' * 26}/mailboxs")
 
 
-def test_mattermost_channel_web_url_resolves_through_registry(tmp_path) -> None:
+def test_mattermost_mailbox_web_url_resolves_through_registry(tmp_path) -> None:
     directory = IdentifierDirectory(tmp_path)
     directory.remember(
         "c" * 26, "image-perception-to-recognizable-memory-and-arc3",
-        system="mm/chat.singularitynet.io", kind="channel",
+        system="mm/chat.singularitynet.io", kind="mailbox",
     )
-    from mailbox_channels.adapters.mattermost_adapter import _id
+    from mailbox_mailboxs.adapters.mattermost_adapter import _id
 
     assert _id(
-        "https://chat.singularitynet.io/chat/channels/"
+        "https://chat.singularitynet.io/chat/mailboxs/"
         "image-perception-to-recognizable-memory-and-arc3",
-        directory=directory, base_url="https://chat.singularitynet.io", kind="channel",
+        directory=directory, base_url="https://chat.singularitynet.io", kind="mailbox",
     ) == "c" * 26
 
 
 def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
     record = {"post": {"id": "p" * 26, "message": "x" * 700}}
     directory = IdentifierDirectory(tmp_path)
-    from mailbox_channels.adapters.mattermost_adapter import _remember
+    from mailbox_mailboxs.adapters.mattermost_adapter import _remember
 
     saved = _remember(directory, "https://chat.example", record, kind="thread")
     assert saved["address"] == f"mm/chat.example/{'p' * 26}"
@@ -270,21 +270,21 @@ def test_mm_thread_discovery_bounds_long_readable_preview(tmp_path) -> None:
 def test_every_nested_mattermost_id_and_name_pair_is_persisted(tmp_path) -> None:
     directory = IdentifierDirectory(tmp_path)
     payload = {
-        "channels": [{"id": "channel-1", "name": "town-square",
+        "mailboxs": [{"id": "mailbox-1", "name": "town-square",
                       "display_name": "Town Square", "team_id": "team-1"}],
         "owner": {"id": "user-1", "username": "alice"},
-        "deeply": {"nested": [{"channel_id": "channel-2",
-                                 "channel_name": "developers"},
+        "deeply": {"nested": [{"mailbox_id": "mailbox-2",
+                                 "mailbox_name": "developers"},
                                 {"user_id": "user-2", "username": "bob"}]},
     }
 
     assert remember_named_ids(directory, "https://chat.singularitynet.io", payload) is payload
     assert {item["text"] for item in directory.find(
-        system="mm/chat.singularitynet.io", identifier="channel-1",
+        system="mm/chat.singularitynet.io", identifier="mailbox-1",
     )} == {"town-square", "Town Square"}
     system = "mm/chat.singularitynet.io"
     assert directory.find(system=system, text="alice", kind="user")[0]["identifier"] == "user-1"
-    assert directory.find(system=system, text="developers", kind="channel")[0]["identifier"] == "channel-2"
+    assert directory.find(system=system, text="developers", kind="mailbox")[0]["identifier"] == "mailbox-2"
     assert directory.find(system=system, text="bob", kind="user")[0]["identifier"] == "user-2"
     assert directory.find(system="mm/0") == []
 
@@ -297,18 +297,18 @@ def test_registry_walker_ignores_unlabelled_ids_but_visits_all_objects(tmp_path)
     assert directory.find(system="mm/chat.example", identifier="named")[0]["text"] == "helper"
 
 
-def test_registry_walker_does_not_give_creator_the_channel_name(tmp_path) -> None:
+def test_registry_walker_does_not_give_creator_the_mailbox_name(tmp_path) -> None:
     directory = IdentifierDirectory(tmp_path)
     payload = {
-        "id": "channel-id", "display_name": "Channel title", "name": "channel-title",
+        "id": "mailbox-id", "display_name": "Channel title", "name": "mailbox-title",
         "creator_id": "creator-id", "team_id": "team-id",
     }
     remember_named_ids(directory, "https://chat.example", payload)
 
     assert directory.find(system="mm/chat.example", identifier="creator-id") == []
     assert {entry["text"] for entry in directory.find(
-        system="mm/chat.example", identifier="channel-id",
-    )} == {"Channel title", "channel-title"}
+        system="mm/chat.example", identifier="mailbox-id",
+    )} == {"Channel title", "mailbox-title"}
 
 
 def test_mattermost_user_resolves_by_username_email_nickname_and_full_name(tmp_path) -> None:

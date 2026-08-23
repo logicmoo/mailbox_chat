@@ -48,7 +48,7 @@ class TelegramAdapter:
             "enabled": bool(self.connectors) and not missing,
             "connected": False,
             "chats": list(dict.fromkeys(
-                chat for item in self.connectors for chat in item.get("channel_ids", [])
+                chat for item in self.connectors for chat in item.get("mailbox_ids", [])
             )),
             "lastError": f"Missing Telegram tokens for: {', '.join(missing)}" if missing else None,
         })
@@ -75,7 +75,7 @@ class TelegramAdapter:
             bot_name = str(result.get("username") or result.get("first_name") or "").strip()
             if self.bot_ids[connector["id"]] and bot_name:
                 directory.remember(self.bot_ids[connector["id"]], bot_name, system="telegram", kind="user")
-            for chat_id in connector.get("channel_ids", []):
+            for chat_id in connector.get("mailbox_ids", []):
                 request = directory.request_resolution("telegram", str(chat_id), resolver="getChat")
                 if request["should_request"]:
                     try:
@@ -129,14 +129,14 @@ class TelegramAdapter:
         response = self.session.get(
             self._url(connector, "getUpdates"),
             params={"offset": self.offsets.get(connector["id"], 0), "timeout": 0, "limit": 100,
-                    "allowed_updates": json.dumps(["message", "channel_post"])},
+                    "allowed_updates": json.dumps(["message", "mailbox_post"])},
             timeout=15,
         )
         response.raise_for_status()
         for update in response.json().get("result") or []:
             update_id = int(update["update_id"])
             self.offsets[connector["id"]] = max(self.offsets.get(connector["id"], 0), update_id + 1)
-            message = update.get("message") or update.get("channel_post") or {}
+            message = update.get("message") or update.get("mailbox_post") or {}
             if message:
                 self._handle_message(mailbox, connector, update_id, message)
             self._save_offset(mailbox, connector["id"])
@@ -144,10 +144,10 @@ class TelegramAdapter:
     def _handle_message(self, mailbox: Any, connector: dict[str, Any], update_id: int,
                         message: dict[str, Any]) -> None:
         chat = message.get("chat") or {}
-        channel_id = str(chat.get("id") or "")
-        allowed = set(str(item) for item in connector.get("channel_ids", []))
+        mailbox_id = str(chat.get("id") or "")
+        allowed = set(str(item) for item in connector.get("mailbox_ids", []))
         is_private = str(chat.get("type") or "") == "private"
-        if allowed and channel_id not in allowed:
+        if allowed and mailbox_id not in allowed:
             if not (is_private and connector.get("include_direct_messages")):
                 return
         author = message.get("from") or message.get("sender_chat") or {}
@@ -163,28 +163,28 @@ class TelegramAdapter:
         if author.get("id") and display_name:
             directory.remember(str(author["id"]), display_name, system="telegram", kind="user")
         chat_name = str(chat.get("title") or chat.get("username") or "").strip()
-        if channel_id and chat_name:
-            directory.remember(channel_id, chat_name, system="telegram", kind="chat")
+        if mailbox_id and chat_name:
+            directory.remember(mailbox_id, chat_name, system="telegram", kind="chat")
         origin = with_origin(
             {"author": display_name, "author_id": str(author.get("id") or ""),
              "telegram_update_id": str(update_id), "telegram_chat_type": str(chat.get("type") or "")},
             adapter="telegram", connector_id=connector["id"], source_id=source_id,
-            channel_id=channel_id, presence_id=str(connector.get("presence_id") or ""),
+            mailbox_id=mailbox_id, presence_id=str(connector.get("presence_id") or ""),
         )
         if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-            "telegram", connector_id=connector["id"], channel_id=channel_id,
+            "telegram", connector_id=connector["id"], mailbox_id=mailbox_id,
             presence_id=str(connector.get("presence_id") or ""),
         )):
             return
         recipients = list(dict.fromkeys([
             *([connector["bridge_agent"]] if connector.get("bridge_agent") else []),
             *connector.get("mailbox_recipients", []),
-            *subscription_recipients("telegram", connector, channel_id),
+            *subscription_recipients("telegram", connector, mailbox_id),
         ]))
         for recipient in recipients:
             mailbox.send(
                 recipient, text, sender=f"telegram:{display_name}", message_type="telegram_message",
-                channel_id=channel_id, channel_type="telegram", source_id=source_id,
+                mailbox_id=mailbox_id, mailbox_type="telegram", source_id=source_id,
                 thread_id=thread_id, extra_fields=origin,
             )
 
@@ -210,22 +210,22 @@ class TelegramAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        channel_id = str(message.get("channel_id") or "").strip()
-        if not channel_id:
-            raise ValueError("Telegram outbound message requires channel_id (chat ID)")
+        mailbox_id = str(message.get("mailbox_id") or "").strip()
+        if not mailbox_id:
+            raise ValueError("Telegram outbound message requires mailbox_id (chat ID)")
         thread = self._thread_payload(message)
         text = str(message.get("text") or "")
         for start in range(0, len(text), 4096):
             response = self.session.post(
                 self._url(connector, "sendMessage"),
-                json={"chat_id": channel_id, "text": text[start:start + 4096], **thread}, timeout=30,
+                json={"chat_id": mailbox_id, "text": text[start:start + 4096], **thread}, timeout=30,
             )
             response.raise_for_status()
         for record in message.get("attachments") or []:
             path = Path(str(record.get("path") or "")).expanduser().resolve(strict=True)
             with path.open("rb") as stream:
                 response = self.session.post(
-                    self._url(connector, "sendDocument"), data={"chat_id": channel_id, **thread},
+                    self._url(connector, "sendDocument"), data={"chat_id": mailbox_id, **thread},
                     files={"document": (path.name, stream, record.get("mime_type") or "application/octet-stream")},
                     timeout=60,
                 )

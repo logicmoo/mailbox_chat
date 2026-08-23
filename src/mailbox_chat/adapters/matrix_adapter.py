@@ -58,7 +58,7 @@ class MatrixAdapter:
         self.status.update({
             "enabled": bool(self.connectors) and not errors,
             "connected": False,
-            "rooms": list(dict.fromkeys(room for item in self.connectors for room in item.get("channel_ids", []))),
+            "rooms": list(dict.fromkeys(room for item in self.connectors for room in item.get("mailbox_ids", []))),
             "lastError": "; ".join(errors) or None,
         })
         return bool(self.status["enabled"])
@@ -104,7 +104,7 @@ class MatrixAdapter:
         response.raise_for_status()
         payload = response.json()
         self.next_batch[connector["id"]] = str(payload["next_batch"])
-        allowed_rooms = set(connector.get("channel_ids", []))
+        allowed_rooms = set(connector.get("mailbox_ids", []))
         for room_id, room in (payload.get("rooms", {}).get("join", {}) or {}).items():
             if allowed_rooms and room_id not in allowed_rooms:
                 continue
@@ -122,10 +122,10 @@ class MatrixAdapter:
         origin = with_origin(
             {"author": str(event.get("sender") or ""), "matrix_msgtype": str(content.get("msgtype") or "")},
             adapter="matrix", connector_id=connector["id"], source_id=source_id,
-            channel_id=room_id, presence_id=str(connector.get("presence_id") or ""),
+            mailbox_id=room_id, presence_id=str(connector.get("presence_id") or ""),
         )
         if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-            "matrix", connector_id=connector["id"], channel_id=room_id,
+            "matrix", connector_id=connector["id"], mailbox_id=room_id,
             presence_id=str(connector.get("presence_id") or ""),
         )):
             return
@@ -138,7 +138,7 @@ class MatrixAdapter:
         for recipient in recipients:
             mailbox.send(
                 recipient, str(content.get("body") or ""), sender=f"matrix:{event.get('sender') or 'user'}",
-                message_type="matrix_message", channel_id=room_id, channel_type="matrix",
+                message_type="matrix_message", mailbox_id=room_id, mailbox_type="matrix",
                 source_id=source_id,
                 thread_id=str(relates.get("event_id") or "") or None,
                 extra_fields=origin,
@@ -167,9 +167,9 @@ class MatrixAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        room_id = str(message.get("channel_id") or "").strip()
+        room_id = str(message.get("mailbox_id") or "").strip()
         if not room_id:
-            raise ValueError("Matrix outbound message requires channel_id (room ID)")
+            raise ValueError("Matrix outbound message requires mailbox_id (room ID)")
         body = str(message.get("text") or "")
         if body:
             content: dict[str, Any] = {"msgtype": "m.text", "body": body}

@@ -76,7 +76,7 @@ class WhatsAppAdapter:
                     source_id = str(message.get("id") or "")
                     group_id = str(message.get("group_id") or (message.get("group") or {}).get("id") or "")
                     conversation_id = group_id or sender_id
-                    allowed = set(str(item) for item in connector.get("channel_ids", []))
+                    allowed = set(str(item) for item in connector.get("mailbox_ids", []))
                     if (not sender_id or not source_id or (group_id and not connector.get("groups_enabled"))
                             or (allowed and conversation_id not in allowed)):
                         continue
@@ -89,9 +89,9 @@ class WhatsAppAdapter:
                     origin = with_origin({"author": author, "author_id": sender_id,
                                           "whatsapp_message_type": message_type},
                                          adapter="whatsapp", connector_id=connector["id"],
-                                         source_id=source_id, channel_id=conversation_id)
+                                         source_id=source_id, mailbox_id=conversation_id)
                     if not DeliveryLedger(mailbox.mailbox_dir()).claim(origin, endpoint_id(
-                        "whatsapp", connector_id=connector["id"], channel_id=conversation_id,
+                        "whatsapp", connector_id=connector["id"], mailbox_id=conversation_id,
                     )):
                         continue
                     recipients = list(dict.fromkeys([connector.get("bridge_agent"),
@@ -101,8 +101,8 @@ class WhatsAppAdapter:
                                                      )]))
                     for recipient in filter(None, recipients):
                         mailbox.send(recipient, text, sender=f"whatsapp:{author}",
-                                     message_type="whatsapp_message", channel_id=conversation_id,
-                                     channel_type="whatsapp", source_id=source_id,
+                                     message_type="whatsapp_message", mailbox_id=conversation_id,
+                                     mailbox_type="whatsapp", source_id=source_id,
                                      extra_fields={**origin, "whatsapp_payload": message.get(message_type) or {},
                                                    "whatsapp_group_id": group_id,
                                                    "whatsapp_participant_id": sender_id})
@@ -122,10 +122,10 @@ class WhatsAppAdapter:
 
     def send_message(self, message: dict[str, Any]) -> None:
         connector = self._connector_for(message)
-        recipient = str(message.get("channel_id") or "").strip()
+        recipient = str(message.get("mailbox_id") or "").strip()
         phone_id = str(connector.get("phone_number_id") or "").strip()
         if not recipient or not phone_id:
-            raise ValueError("WhatsApp outbound message requires channel_id and phone_number_id")
+            raise ValueError("WhatsApp outbound message requires mailbox_id and phone_number_id")
         endpoint = f"{GRAPH_API}/{phone_id}/messages"
         is_group = bool(message.get("whatsapp_group") or message.get("whatsapp_group_id"))
         if is_group and not connector.get("groups_enabled"):

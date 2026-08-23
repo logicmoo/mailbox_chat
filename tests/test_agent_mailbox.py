@@ -8,10 +8,10 @@ import pytest
 
 from conftest import seed_messages, seed_store
 
-from mailbox_channels import agent_mailbox, channel_store
+from mailbox_mailboxs import agent_mailbox, mailbox_store
 
 
-def test_status_reports_agents_connectors_channels_and_relays(
+def test_status_reports_agents_connectors_mailboxs_and_relays(
     monkeypatch, tmp_path: Path,
 ) -> None:
     mailbox = tmp_path / "mailbox"
@@ -29,8 +29,8 @@ def test_status_reports_agents_connectors_channels_and_relays(
              "enabled": False},
         ],
         relays=[{
-            "id": "relay-one", "enabled": True, "source_channel": "source-channel",
-            "cursor": "relay-one-cursor", "destination": "mm/example.test/channel-id",
+            "id": "relay-one", "enabled": True, "source_mailbox": "source-mailbox",
+            "cursor": "relay-one-cursor", "destination": "mm/example.test/mailbox-id",
         }],
     )
 
@@ -45,13 +45,13 @@ def test_status_reports_agents_connectors_channels_and_relays(
     ]
     assert all(item["kind"] == "connector" for item in result["connectors"])
     assert {item["id"] for item in result["mailboxes"]} >= {
-        "server_events_log", "server_outbound_relay_agent_to_agent", "server_outbound_relay_agent_to_channel", "agent_one",
+        "server_events_log", "server_outbound_relay_agent_to_agent", "server_outbound_relay_agent_to_mailbox", "agent_one",
     }
     assert [item["id"] for item in result["relays"]] == ["relay-one"]
     assert result["relays"][0]["kind"] == "relay"
     assert "destinations" not in result
     direct = next(item for item in result["mailboxes"] if item["id"] == "agent_one")
-    assert (direct["kind"], direct["channel_type"]) == ("mailbox", "agent_direct")
+    assert (direct["kind"], direct["mailbox_type"]) == ("mailbox", "agent_direct")
 
 
 def test_served_client_runs_as_standalone_script() -> None:
@@ -106,27 +106,27 @@ def test_dir_store_send_receive_and_cursor(tmp_path: Path) -> None:
 
 def test_unknown_envelope_fields_are_preserved(tmp_path: Path) -> None:
     sent = agent_mailbox.send(
-        "server_outbound_relay_agent_to_channel", "done", root=tmp_path,
+        "server_outbound_relay_agent_to_mailbox", "done", root=tmp_path,
         extra_fields={"workflow_run_id": "run-1", "correlation_id": "corr-1"},
     )
     assert sent["workflow_run_id"] == "run-1"
-    stored = channel_store.load_channel(tmp_path, "server_outbound_relay_agent_to_channel")
-    first = next(record for _key, record in channel_store.ordered_messages(stored))
+    stored = mailbox_store.load_mailbox(tmp_path, "server_outbound_relay_agent_to_mailbox")
+    first = next(record for _key, record in mailbox_store.ordered_messages(stored))
     assert first["correlation_id"] == "corr-1"
 
 
-def test_every_send_is_copied_to_agent_to_channel_audit(tmp_path: Path) -> None:
-    sent = agent_mailbox.send("some-channel", "hello", sender="worker", root=tmp_path)
+def test_every_send_is_copied_to_agent_to_mailbox_audit(tmp_path: Path) -> None:
+    sent = agent_mailbox.send("some-mailbox", "hello", sender="worker", root=tmp_path)
 
-    copies = agent_mailbox.peek("server_outbound_relay_agent_to_channel", root=tmp_path)
+    copies = agent_mailbox.peek("server_outbound_relay_agent_to_mailbox", root=tmp_path)
     assert len(copies) == 1
     assert copies[0]["audit_of"] == sent["id"]
     assert copies[0]["dedupe_id"] == sent["dedupe_id"] == sent["id"]
-    assert copies[0]["audit_recipient"] == "some-channel"
+    assert copies[0]["audit_recipient"] == "some-mailbox"
     assert copies[0]["text"] == "hello"
 
 
-def test_direct_registered_agent_send_is_also_copied_to_agent_channel(
+def test_direct_registered_agent_send_is_also_copied_to_agent_mailbox(
     tmp_path: Path, monkeypatch,
 ) -> None:
     mailbox = tmp_path / "mailbox"
@@ -135,7 +135,7 @@ def test_direct_registered_agent_send_is_also_copied_to_agent_channel(
     sent = agent_mailbox.send("worker-two", "direct", sender="worker-one", root=mailbox)
 
     direct = agent_mailbox.peek("server_outbound_relay_agent_to_agent", root=mailbox)
-    all_sends = agent_mailbox.peek("server_outbound_relay_agent_to_channel", root=mailbox)
+    all_sends = agent_mailbox.peek("server_outbound_relay_agent_to_mailbox", root=mailbox)
     agent_inbox = agent_mailbox.peek("worker_two", root=mailbox)
     assert direct[0]["audit_of"] == sent["id"]
     assert all_sends[0]["audit_of"] == sent["id"]
@@ -143,13 +143,13 @@ def test_direct_registered_agent_send_is_also_copied_to_agent_channel(
     assert agent_inbox == [sent]
 
 
-def test_audit_channel_writes_do_not_recursively_audit_themselves(tmp_path: Path) -> None:
-    agent_mailbox.send("server_outbound_relay_agent_to_channel", "audit", root=tmp_path)
-    stored = channel_store.load_channel(tmp_path, "server_outbound_relay_agent_to_channel")
+def test_audit_mailbox_writes_do_not_recursively_audit_themselves(tmp_path: Path) -> None:
+    agent_mailbox.send("server_outbound_relay_agent_to_mailbox", "audit", root=tmp_path)
+    stored = mailbox_store.load_mailbox(tmp_path, "server_outbound_relay_agent_to_mailbox")
     assert len(stored.get("messages") or {}) == 1
 
 
-def test_presence_address_stays_intact_while_owner_agent_receives_channel_copy(
+def test_presence_address_stays_intact_while_owner_agent_receives_mailbox_copy(
     tmp_path: Path, monkeypatch,
 ) -> None:
     mailbox = tmp_path / "mailbox"
@@ -213,7 +213,7 @@ def test_acknowledge_advances_selected_cursor(tmp_path: Path) -> None:
     assert agent_mailbox.receive("agent-b", root=tmp_path, cursor="worker") == [second]
 
 
-def test_cursor_initialization_is_create_once_and_remembers_channel(tmp_path: Path) -> None:
+def test_cursor_initialization_is_create_once_and_remembers_mailbox(tmp_path: Path) -> None:
     agent_mailbox.send("a", "before login", root=tmp_path)
     result = agent_mailbox.initialize_cursor("a", cursor="agent-1", start="now", root=tmp_path)
     assert result["offset"] > 0
@@ -224,22 +224,22 @@ def test_cursor_initialization_is_create_once_and_remembers_channel(tmp_path: Pa
 
 
 def test_ensure_cursor_repairs_subscription_without_overwriting_position(tmp_path: Path) -> None:
-    channel_store.set_cursor(tmp_path, "agent-1", "channel", 42)
+    mailbox_store.set_cursor(tmp_path, "agent-1", "mailbox", 42)
 
-    result = agent_mailbox.ensure_cursor("channel", cursor="agent-1", root=tmp_path)
+    result = agent_mailbox.ensure_cursor("mailbox", cursor="agent-1", root=tmp_path)
 
     assert result["offset"] == 42
     assert result["start"] == "existing"
-    assert agent_mailbox.cursor_subscriptions("agent-1", root=tmp_path) == ["channel"]
+    assert agent_mailbox.cursor_subscriptions("agent-1", root=tmp_path) == ["mailbox"]
 
 
 def test_trim_messages_before_keeps_recent_records_and_remaps_cursors(tmp_path: Path) -> None:
     old = {"id": "old", "timestamp": "2026-08-01T00:00:00Z", "from": "a",
-           "to": "channel", "type": "message", "text": "old"}
+           "to": "mailbox", "type": "message", "text": "old"}
     recent = {"id": "recent", "timestamp": "2026-08-18T00:00:00Z", "from": "a",
-              "to": "channel", "type": "message", "text": "recent"}
-    seed_messages(tmp_path, "channel", [old, recent])
-    agent_mailbox.initialize_cursor("channel", cursor="agent", start="beginning", root=tmp_path)
+              "to": "mailbox", "type": "message", "text": "recent"}
+    seed_messages(tmp_path, "mailbox", [old, recent])
+    agent_mailbox.initialize_cursor("mailbox", cursor="agent", start="beginning", root=tmp_path)
 
     result = agent_mailbox.trim_messages_before(
         datetime.fromisoformat("2026-08-16T00:00:00+00:00"), root=tmp_path,
@@ -248,11 +248,11 @@ def test_trim_messages_before_keeps_recent_records_and_remaps_cursors(tmp_path: 
     assert result["removed_records"] == 1
     assert result["retained_records"] == 1
     assert Path(result["backup"]).exists()
-    received = agent_mailbox.receive("channel", cursor="agent", root=tmp_path)
+    received = agent_mailbox.receive("mailbox", cursor="agent", root=tmp_path)
     assert [item["text"] for item in received] == ["recent"]
 
 
-def test_trim_messages_to_size_can_target_selected_channels(tmp_path: Path) -> None:
+def test_trim_messages_to_size_can_target_selected_mailboxs(tmp_path: Path) -> None:
     seed_messages(tmp_path, "a", [
         {"id": "a1", "timestamp": "2026-08-01T00:00:00Z", "to": "a"},
         {"id": "a2", "timestamp": "2026-08-03T00:00:00Z", "to": "a"},
@@ -260,25 +260,25 @@ def test_trim_messages_to_size_can_target_selected_channels(tmp_path: Path) -> N
     seed_messages(tmp_path, "b", [
         {"id": "b1", "timestamp": "2026-08-02T00:00:00Z", "to": "b"},
     ])
-    stored_a = channel_store.load_channel(tmp_path, "a")
-    newest = next(record for key, record in channel_store.ordered_messages(stored_a)
+    stored_a = mailbox_store.load_mailbox(tmp_path, "a")
+    newest = next(record for key, record in mailbox_store.ordered_messages(stored_a)
                   if record["id"] == "a2")
     newest_a_size = len(json.dumps(newest, ensure_ascii=False).encode("utf-8"))
 
     result = agent_mailbox.trim_messages(
-        max_bytes=newest_a_size, channels={"a"}, root=tmp_path,
+        max_bytes=newest_a_size, mailboxs={"a"}, root=tmp_path,
     )
 
     retained_a = [record["id"] for _key, record
-                  in channel_store.ordered_messages(channel_store.load_channel(tmp_path, "a"))]
+                  in mailbox_store.ordered_messages(mailbox_store.load_mailbox(tmp_path, "a"))]
     retained_b = [record["id"] for _key, record
-                  in channel_store.ordered_messages(channel_store.load_channel(tmp_path, "b"))]
+                  in mailbox_store.ordered_messages(mailbox_store.load_mailbox(tmp_path, "b"))]
     assert retained_a == ["a2"]
     assert retained_b == ["b1"]
-    assert result["channels"] == ["a"]
+    assert result["mailboxs"] == ["a"]
 
 
-def test_cursor_listing_reports_every_initialized_channel_and_position(tmp_path: Path, capsys) -> None:
+def test_cursor_listing_reports_every_initialized_mailbox_and_position(tmp_path: Path, capsys) -> None:
     agent_mailbox.send("private-agent", "before login", root=tmp_path)
     initialized = agent_mailbox.initialize_cursor(
         "private-agent", cursor="agent-1", start="now", root=tmp_path,
@@ -368,7 +368,7 @@ def test_agents_listing_includes_read_only_cursor_metadata(
     agent = json.loads(capsys.readouterr().out)["agents"][0]
     assert agent["mailbox"] == "review_agent"
     assert agent["subscriptions"] == [{
-            "channel": "review-agent",
+            "mailbox": "review-agent",
             "cursor": "review-agent",
             "offset": agent["subscriptions"][0]["offset"],
     }]
@@ -399,7 +399,7 @@ def test_agent_del_purge_dry_run_reports_without_deleting(
     preview = json.loads(capsys.readouterr().out)
     assert preview["dry_run"] is True
     assert preview["would_remove_agent"] is True
-    assert preview["would_purge_channels"] == ["review-agent", "review-agent-app", "review_agent"]
+    assert preview["would_purge_mailboxs"] == ["review-agent", "review-agent-app", "review_agent"]
     assert preview["would_purge_records"] == 1
     assert preview["would_purge_cursor_files"] == 1
     assert (mailbox / "server_registry_agents.json").read_bytes() == before_registry
@@ -428,11 +428,11 @@ def test_agent_del_purge_removes_private_history_but_keeps_global_audit(
     assert result["purged_records"] == 1
     records = [
         record
-        for channel_id in channel_store.channel_ids(mailbox)
-        for _key, record in channel_store.ordered_messages(
-            channel_store.load_channel(mailbox, channel_id))
+        for mailbox_id in mailbox_store.mailbox_ids(mailbox)
+        for _key, record in mailbox_store.ordered_messages(
+            mailbox_store.load_mailbox(mailbox, mailbox_id))
     ]
-    assert not any(item["to"] in result["purged_channels"] for item in records)
+    assert not any(item["to"] in result["purged_mailboxs"] for item in records)
     assert any(
         item["to"] == "server_outbound_relay_agent_to_agent"
         and item.get("audit_recipient") == "review-agent"
@@ -443,23 +443,23 @@ def test_agent_del_purge_removes_private_history_but_keeps_global_audit(
 def test_cursor_can_start_at_caller_chosen_relative_history_boundary(tmp_path: Path) -> None:
     old = agent_mailbox.send("a", "six days old", root=tmp_path)
     recent = agent_mailbox.send("a", "recent", root=tmp_path)
-    document = channel_store.load_channel(tmp_path, "a")
-    old_key = next(key for key, record in channel_store.ordered_messages(document)
+    document = mailbox_store.load_mailbox(tmp_path, "a")
+    old_key = next(key for key, record in mailbox_store.ordered_messages(document)
                    if record["id"] == old["id"])
     document["messages"][old_key]["timestamp"] = (
         datetime.now(timezone.utc) - timedelta(days=6)
     ).isoformat().replace("+00:00", "Z")
-    channel_store.save_channel(tmp_path, document)
+    mailbox_store.save_mailbox(tmp_path, document)
     agent_mailbox.initialize_cursor("a", cursor="agent-1", start="7d", root=tmp_path)
     assert [item["id"] for item in agent_mailbox.receive(
         "a", root=tmp_path, cursor="agent-1",
     )] == [old["id"], recent["id"]]
 
 
-def test_global_poll_reads_every_channel_initialized_for_agent(tmp_path: Path, capsys) -> None:
-    for channel in ("a", "b"):
-        agent_mailbox.initialize_cursor(channel, cursor="agent-1", start="now", root=tmp_path)
-        agent_mailbox.send(channel, f"from {channel}", root=tmp_path)
+def test_global_poll_reads_every_mailbox_initialized_for_agent(tmp_path: Path, capsys) -> None:
+    for mailbox in ("a", "b"):
+        agent_mailbox.initialize_cursor(mailbox, cursor="agent-1", start="now", root=tmp_path)
+        agent_mailbox.send(mailbox, f"from {mailbox}", root=tmp_path)
     assert agent_mailbox.main([
         "--dir", str(tmp_path), "--as", "agent-1", "poll", "--subscriptions", "--checks", "1",
     ]) == 0
@@ -500,11 +500,11 @@ def test_cli_text_output_explains_chat_server_diagnostics(tmp_path: Path, capsys
     agent_mailbox.send(
         "worker", "discord chat server connection failed: offline",
         sender="local-discord-server", message_type="chat_server_status",
-        channel_type="discord", root=tmp_path,
+        mailbox_type="discord", root=tmp_path,
         extra_fields={
             "adapter": "discord", "connection_state": "connection_failed",
             "service_context": {
-                "adapter": "discord", "connector_ids": ["discord-main"], "channel_ids": ["ops"],
+                "adapter": "discord", "connector_ids": ["discord-main"], "mailbox_ids": ["ops"],
             },
             "diagnostic": {
                 "operation": "connect_or_poll", "error_type": "ConnectionError",
@@ -518,7 +518,7 @@ def test_cli_text_output_explains_chat_server_diagnostics(tmp_path: Path, capsys
     output = capsys.readouterr().out
     assert "local-discord-server: discord chat server connection failed: offline" in output
     assert "adapter=discord; state=connection_failed" in output
-    assert "connectors=discord-main; channels=ops" in output
+    assert "connectors=discord-main; mailboxs=ops" in output
     assert "error=ConnectionError: offline; will_retry=true" in output
 
 
@@ -544,8 +544,8 @@ def test_curl_switch_prints_redacted_send_without_network(monkeypatch, capsys) -
                         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("network called")))
     assert agent_mailbox.main([
         "--url", "https://relay.example", "--token", "super-secret", "--curl",
-        "--from", "worker-1", "send", "agent-beta", "done", "--channel-type", "slack",
-        "--channel-id", "C1",
+        "--from", "worker-1", "send", "agent-beta", "done", "--mailbox-type", "slack",
+        "--mailbox-id", "C1",
     ]) == 0
     command = capsys.readouterr().out
     assert "curl" in command and "/v1/messages" in command
@@ -589,15 +589,15 @@ def test_curl_covers_every_rest_backed_command(monkeypatch, capsys) -> None:
         ("cursors", "--cursor", "codex"): ("-X GET", "/v1/cursors?cursor=codex"),
         ("agents",): ("-X GET", "/v1/registry"),
         ("connectors",): ("-X GET", "/v1/registry"),
-        ("channels",): ("-X GET", "/v1/registry"),
+        ("mailboxs",): ("-X GET", "/v1/registry"),
         ("mailboxes",): ("-X GET", "/v1/registry"),
         ("relays",): ("-X GET", "/v1/registry"),
         ("agent-add", "review-agent"): ("-X POST", "/v1/agents"),
         ("agent-del", "review-agent"): ("-X POST", "/v1/agents"),
         ("connector-add", "mm-x", "mattermost"): ("-X POST", "/v1/connectors"),
         ("connector-del", "mm-x"): ("-X POST", "/v1/connectors"),
-        ("channel-add", "team_updates"): ("-X POST", "/v1/channels"),
-        ("channel-del", "team_updates"): ("-X POST", "/v1/channels"),
+        ("mailbox-add", "team_updates"): ("-X POST", "/v1/mailboxs"),
+        ("mailbox-del", "team_updates"): ("-X POST", "/v1/mailboxs"),
         ("relay-add", "team_updates", "mm/chat.snt/cid"): ("-X POST", "/v1/relays"),
         ("relay-del", "r1"): ("-X POST", "/v1/relays"),
         ("mailbox-add", "research", "http://relay.example"): ("-X POST", "/v1/mailboxes"),
@@ -617,7 +617,7 @@ def test_curl_covers_every_rest_backed_command(monkeypatch, capsys) -> None:
 
 def test_curl_delete_actions_use_delete_payload(monkeypatch, capsys) -> None:
     monkeypatch.setenv("AGENT_MAILBOX_URL", "https://relay.example")
-    for argv in (["connector-del", "mm-x"], ["channel-del", "team_updates"],
+    for argv in (["connector-del", "mm-x"], ["mailbox-del", "team_updates"],
                  ["relay-del", "r1"], ["agent-del", "review-agent"]):
         assert agent_mailbox.main(["--curl", *argv]) == 0
         assert '"action": "delete"' in capsys.readouterr().out
@@ -632,7 +632,7 @@ def test_curl_covers_chat_platform_commands(capsys) -> None:
         ("notice", "mm/chat.snt/CID", "heads up"): ("-X POST", "/v1/mm/command"),
         ("join", "mm/chat.snt/CID"): ("-X POST", "/v1/mm/command"),
         ("teams", "--on", "mm/example"): ("-X POST", "/v1/mm/command"),
-        ("list", "--on", "irc"): ("-X GET", "/v1/discovery/channels"),
+        ("list", "--on", "irc"): ("-X GET", "/v1/discovery/mailboxs"),
         ("names", "#chan", "--on", "irc"): ("-X GET", "/v1/discovery/users"),
     }
     for argv, (method, fragment) in cases.items():
@@ -645,18 +645,18 @@ def test_curl_covers_chat_platform_commands(capsys) -> None:
 
 def test_curl_covers_discovery_commands(capsys) -> None:
     assert agent_mailbox.main([
-        "discover", "--url", "https://relay.example", "channels", "--platform", "irc", "--curl",
+        "discover", "--url", "https://relay.example", "mailboxs", "--platform", "irc", "--curl",
     ]) == 0
-    channels = capsys.readouterr().out
-    assert channels.startswith("curl ") and "-X GET" in channels
-    assert "/v1/discovery/channels" in channels
+    mailboxs = capsys.readouterr().out
+    assert mailboxs.startswith("curl ") and "-X GET" in mailboxs
+    assert "/v1/discovery/mailboxs" in mailboxs
 
     assert agent_mailbox.main([
         "discover", "--url", "https://relay.example", "users",
-        "--platform", "irc", "--channel", "#chan", "--curl",
+        "--platform", "irc", "--mailbox", "#chan", "--curl",
     ]) == 0
     users = capsys.readouterr().out
-    assert "/v1/discovery/users" in users and "channel=%23chan" in users
+    assert "/v1/discovery/users" in users and "mailbox=%23chan" in users
 
 
 def test_double_dash_preserves_switch_looking_message_text(tmp_path, capsys) -> None:
@@ -719,14 +719,14 @@ def test_run_executes_complete_json_command_document(tmp_path, capsys) -> None:
         "dir": str(mailbox),
         "recipient": "agent-beta",
         "text": "--curl is message text",
-        "channel_type": "telegram",
-        "channel_id": "123",
+        "mailbox_type": "telegram",
+        "mailbox_id": "123",
     }), encoding="utf-8")
 
     assert agent_mailbox.main(["--run", str(command_file)]) == 0
     sent = json.loads(capsys.readouterr().out)
     assert sent["text"] == "--curl is message text"
-    assert sent["channel_type"] == "telegram"
+    assert sent["mailbox_type"] == "telegram"
 
 
 def test_run_accepts_exact_argument_array(tmp_path, capsys) -> None:
@@ -786,22 +786,22 @@ def test_to_supplies_send_recipient_from_any_option_position(tmp_path, capsys) -
         assert json.loads(capsys.readouterr().out)["to"] == "agent-beta"
 
 
-def test_positional_external_endpoint_routes_through_channel_relay(tmp_path, capsys) -> None:
+def test_positional_external_endpoint_routes_through_mailbox_relay(tmp_path, capsys) -> None:
     assert agent_mailbox.main([
         "--dir", str(tmp_path), "send",
-        "mm/chat.singularitynet.io/channel-1", "hello",
+        "mm/chat.singularitynet.io/mailbox-1", "hello",
     ]) == 0
 
     record = json.loads(capsys.readouterr().out)
-    assert record["to"] == "server_outbound_relay_agent_to_channel"
+    assert record["to"] == "server_outbound_relay_agent_to_mailbox"
     assert record["text"] == "hello"
-    assert record["channel_type"] == "mattermost"
-    assert record["channel_id"] == "channel-1"
-    assert record["endpoint_address"] == "mm/chat.singularitynet.io/channel-1"
+    assert record["mailbox_type"] == "mattermost"
+    assert record["mailbox_id"] == "mailbox-1"
+    assert record["endpoint_address"] == "mm/chat.singularitynet.io/mailbox-1"
 
 
 def test_positional_and_to_external_endpoints_have_matching_routing(tmp_path, capsys) -> None:
-    endpoint = "mm/chat.singularitynet.io/channel-1"
+    endpoint = "mm/chat.singularitynet.io/mailbox-1"
     assert agent_mailbox.main([
         "--dir", str(tmp_path), "send", endpoint, "positional",
     ]) == 0
@@ -812,7 +812,7 @@ def test_positional_and_to_external_endpoints_have_matching_routing(tmp_path, ca
     ]) == 0
     global_to = json.loads(capsys.readouterr().out)
 
-    routing_fields = ("to", "channel_type", "channel_id", "endpoint_address")
+    routing_fields = ("to", "mailbox_type", "mailbox_id", "endpoint_address")
     assert {field: positional[field] for field in routing_fields} == {
         field: global_to[field] for field in routing_fields
     }

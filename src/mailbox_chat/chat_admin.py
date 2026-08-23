@@ -69,36 +69,36 @@ def parser() -> argparse.ArgumentParser:
                       help="IRC PING token/server; ignored by Mattermost")
     commands.add_parser("teams", help="list visible teams (Mattermost)")
     listing = commands.add_parser(
-        "list", help="list channels across all providers, or one selected with --on",
+        "list", help="list mailboxs across all providers, or one selected with --on",
     )
     listing.add_argument("--team", help="limit Mattermost results to a team ID or name")
     listing.add_argument(
         "--bot", nargs="?", const="", metavar="BOTNICK",
-        help="list Mattermost channels the bot (or BOTNICK) has joined instead of discovering all",
+        help="list Mattermost mailboxs the bot (or BOTNICK) has joined instead of discovering all",
     )
     listing.add_argument("--page", type=int, help="Mattermost discovery start page (default 0; discovery pages to the end)")
     listing.add_argument("--per-page", "--per_page", dest="per_page", type=int,
-                         help="Mattermost channels per discovery page (default 100)")
+                         help="Mattermost mailboxs per discovery page (default 100)")
     names = commands.add_parser(
-        "names", help="list channel users by registered name, ID, address, or platform URL",
+        "names", help="list mailbox users by registered name, ID, address, or platform URL",
     )
     names.add_argument(
-        "channel", help="registered name, ID, qualified address, Mattermost URL, or IRC channel",
+        "mailbox", help="registered name, ID, qualified address, Mattermost URL, or IRC mailbox",
     )
     threads = commands.add_parser("threads", help="list followed threads (Mattermost)")
     threads.add_argument("team", help="Mattermost team ID or discovered name")
-    join = commands.add_parser("join", help="join or create a channel")
-    join.add_argument("channel", help="qualified channel address or IRC channel name")
-    join.add_argument("key", nargs="?", help="optional channel key")
+    join = commands.add_parser("join", help="join or create a mailbox")
+    join.add_argument("mailbox", help="qualified mailbox address or IRC mailbox name")
+    join.add_argument("key", nargs="?", help="optional mailbox key")
     join.add_argument(
         "--subscribe-all", action="store_true",
-        help="subscribe every registered agent to the joined channel (Mattermost)",
+        help="subscribe every registered agent to the joined mailbox (Mattermost)",
     )
-    part = commands.add_parser("part", help="leave a channel")
-    part.add_argument("channel", help="qualified channel address or IRC channel name")
+    part = commands.add_parser("part", help="leave a mailbox")
+    part.add_argument("mailbox", help="qualified mailbox address or IRC mailbox name")
     part.add_argument("message", nargs="?", help="optional part message")
-    topic = commands.add_parser("topic", help="read or set a channel topic")
-    topic.add_argument("channel", help="qualified channel address or IRC channel name")
+    topic = commands.add_parser("topic", help="read or set a mailbox topic")
+    topic.add_argument("mailbox", help="qualified mailbox address or IRC mailbox name")
     topic.add_argument("text", nargs="?", help="new topic; omit to query")
     nick = commands.add_parser("nick", help="change the connected account nickname")
     nick.add_argument("nickname", help="new IRC nickname or Mattermost account nickname")
@@ -106,22 +106,22 @@ def parser() -> argparse.ArgumentParser:
         "whois", help="show a user; registered names and bare IDs infer their provider",
     )
     whois.add_argument("nickname", help="qualified user address, user ID, username, or IRC nickname")
-    mode = commands.add_parser("mode", help="inspect or change channel visibility, roles, or modes")
-    mode.add_argument("target", help="qualified channel/user address or IRC target")
+    mode = commands.add_parser("mode", help="inspect or change mailbox visibility, roles, or modes")
+    mode.add_argument("target", help="qualified mailbox/user address or IRC target")
     mode.add_argument("modes", nargs="*",
                       help="IRC modes, or Mattermost public/private/+o USER/-o USER")
-    invite = commands.add_parser("invite", help="add or invite a user to a channel")
+    invite = commands.add_parser("invite", help="add or invite a user to a mailbox")
     invite.add_argument("nickname", help="user ID, username, or IRC nickname")
-    invite.add_argument("channel", help="qualified channel address or IRC channel name")
-    kick = commands.add_parser("kick", help="remove a user from a channel")
-    kick.add_argument("channel", help="qualified channel address or IRC channel name")
+    invite.add_argument("mailbox", help="qualified mailbox address or IRC mailbox name")
+    kick = commands.add_parser("kick", help="remove a user from a mailbox")
+    kick.add_argument("mailbox", help="qualified mailbox address or IRC mailbox name")
     kick.add_argument("nickname", help="user ID, username, or IRC nickname")
     kick.add_argument("reason", nargs="?", help="optional reason")
-    message = commands.add_parser("message", help="send a message to a channel or user")
-    message.add_argument("target", help="qualified channel/user address or IRC target")
+    message = commands.add_parser("message", help="send a message to a mailbox or user")
+    message.add_argument("target", help="qualified mailbox/user address or IRC target")
     message.add_argument("text", nargs="?", help="message text; alternatively use --input FILE")
     notice = commands.add_parser("notice", help="send an informational or user-only notice")
-    notice.add_argument("target", help="qualified channel/user address or IRC target")
+    notice.add_argument("target", help="qualified mailbox/user address or IRC target")
     notice.add_argument("text", nargs="?", help="notice text; alternatively use --input FILE")
     notice.add_argument("--user", help="Mattermost user for an ephemeral notice")
     raw = commands.add_parser("raw", help="perform an advanced platform-specific operation")
@@ -157,7 +157,7 @@ def _platform(args: argparse.Namespace) -> str:
                 return "mm"
     # Discovery stores opaque IDs with their source system. A later command may
     # therefore use the bare ID without repeating TYPE/INSTANCE.
-    for field in ("nickname", "target", "channel", "team"):
+    for field in ("nickname", "target", "mailbox", "team"):
         candidate = getattr(args, field, None)
         if isinstance(candidate, str):
             registered = _registered_platform(candidate)
@@ -167,18 +167,18 @@ def _platform(args: argparse.Namespace) -> str:
 
 
 def _remote_irc_list(url: str, token: str) -> dict:
-    query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "channel": ""})
+    query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "mailbox": ""})
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     with urllib.request.urlopen(urllib.request.Request(
-        f"{url.rstrip('/')}/v1/discovery/channels?{query}", headers=headers,
+        f"{url.rstrip('/')}/v1/discovery/mailboxs?{query}", headers=headers,
     ), timeout=35) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
-    """List channels from every configured, enabled provider with discovery support."""
+    """List mailboxs from every configured, enabled provider with discovery support."""
     connectors = [item for item in load_connectors() if item["enabled"]]
     providers: list[dict] = []
     new_entries = 0
@@ -198,10 +198,10 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
                 providers.append({"provider": "mm", "result": response.get("result", response)})
             elif adapter == "irc":
                 response = _remote_irc_list(args.url, token)
-                providers.append({"provider": "irc", "result": response.get("channels", response)})
+                providers.append({"provider": "irc", "result": response.get("mailboxs", response)})
             else:
                 providers.append({"provider": adapter,
-                                  "error": "channel listing is not implemented by this adapter"})
+                                  "error": "mailbox listing is not implemented by this adapter"})
         except Exception as error:  # One unavailable provider must not hide the others.
             providers.append({"provider": "mm" if adapter == "mattermost" else adapter,
                               "error": str(error)})
@@ -209,9 +209,9 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
 
 
 def _discovery_curl(base: str, token: str, resource: str, timeout: float,
-                    channel: str = "") -> str:
+                    mailbox: str = "") -> str:
     query = urllib.parse.urlencode({"platform": "irc", "timeout": timeout,
-                                    "channel": channel, "instance": ""})
+                                    "mailbox": mailbox, "instance": ""})
     return curl_command("GET", f"{base}/v1/discovery/{resource}?{query}", token=token)
 
 
@@ -225,9 +225,9 @@ def _command_curl(args: argparse.Namespace, token: str, platform: str,
     if args.command in {"teams", "threads"}:
         raise ValueError(f"{args.command} is not available on IRC")
     if args.command == "list":
-        return _discovery_curl(base, token, "channels", 30.0)
+        return _discovery_curl(base, token, "mailboxs", 30.0)
     if args.command == "names":
-        return _discovery_curl(base, token, "users", 15.0, args.channel)
+        return _discovery_curl(base, token, "users", 15.0, args.mailbox)
     return curl_command("POST", f"{base}/v1/irc/command", token=token,
                         payload={"line": protocol_line(args)})
 
@@ -245,8 +245,8 @@ def _list_all_curl(args: argparse.Namespace, token: str) -> list[str]:
                 "POST", f"{base}/v1/mm/command", token=token,
                 payload={"command": "list", "arguments": mm_arguments}))
         elif adapter == "irc":
-            query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "channel": ""})
-            lines.append(curl_command("GET", f"{base}/v1/discovery/channels?{query}", token=token))
+            query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "mailbox": ""})
+            lines.append(curl_command("GET", f"{base}/v1/discovery/mailboxs?{query}", token=token))
     return lines
 
 
@@ -304,10 +304,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"list", "names"}:
         from .discovery_admin import main as discover
         nested = ["--url", args.url, "--format", args.format,
-                  "channels" if args.command == "list" else "users",
+                  "mailboxs" if args.command == "list" else "users",
                   "--platform", "irc"]
         if args.command == "names":
-            nested.extend(["--channel", args.channel])
+            nested.extend(["--mailbox", args.mailbox])
         return discover(nested)
     line = protocol_line(args)
     result = post_irc_command(args.url, token, line)

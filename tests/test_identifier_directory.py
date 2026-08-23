@@ -2,25 +2,25 @@ from pathlib import Path
 
 import pytest
 
-from mailbox_channels.identifier_directory import IdentifierDirectory
+from mailbox_mailboxs.identifier_directory import IdentifierDirectory
 
 
 def test_directory_resolves_uuid_to_text_and_back(tmp_path: Path) -> None:
     directory = IdentifierDirectory(tmp_path)
     identifier = "{12345678-1234-5678-9ABC-1234567890AB}"
 
-    saved = directory.remember(identifier, "Operations room", system="discord", kind="channel")
+    saved = directory.remember(identifier, "Operations room", system="discord", kind="mailbox")
 
     assert saved["identifier"] == "12345678-1234-5678-9abc-1234567890ab"
     assert directory.find(system="discord", identifier=identifier)[0]["text"] == "Operations room"
-    assert directory.find(system="discord", text="operations ROOM", kind="channel")[0]["identifier"] == saved["identifier"]
+    assert directory.find(system="discord", text="operations ROOM", kind="mailbox")[0]["identifier"] == saved["identifier"]
 
 
 def test_directory_keeps_multiple_readable_aliases(tmp_path: Path) -> None:
     directory = IdentifierDirectory(tmp_path)
     identifier = "12345678-1234-5678-9abc-1234567890ab"
-    directory.remember(identifier, "ops", system="discord", kind="channel")
-    directory.remember(identifier, "Operations room", system="discord", kind="channel")
+    directory.remember(identifier, "ops", system="discord", kind="mailbox")
+    directory.remember(identifier, "Operations room", system="discord", kind="mailbox")
 
     assert {entry["text"] for entry in directory.find(system="discord", identifier=identifier)} == {
         "ops", "Operations room",
@@ -29,10 +29,10 @@ def test_directory_keeps_multiple_readable_aliases(tmp_path: Path) -> None:
 
 def test_directory_system_filter_prevents_cross_platform_matches(tmp_path: Path) -> None:
     directory = IdentifierDirectory(tmp_path)
-    directory.remember("discord-id", "general", system="discord", kind="channel")
-    directory.remember("mattermost-id", "general", system="mm/0", kind="channel")
+    directory.remember("discord-id", "general", system="discord", kind="mailbox")
+    directory.remember("mattermost-id", "general", system="mm/0", kind="mailbox")
 
-    assert directory.find(system="mm/0", text="general", kind="channel")[0]["identifier"] == "mattermost-id"
+    assert directory.find(system="mm/0", text="general", kind="mailbox")[0]["identifier"] == "mattermost-id"
     assert directory.entry_count() == 2
     assert directory.entry_count(system="mm/0") == 1
 
@@ -52,7 +52,7 @@ def test_directory_removes_mismatched_creator_alias_but_keeps_real_user(tmp_path
     directory = IdentifierDirectory(tmp_path)
     directory.remember(
         "creator-id", "Channel title", system="mm/chat.example", kind="user",
-        metadata={"id": "channel-id", "creator_id": "creator-id", "display_name": "Channel title"},
+        metadata={"id": "mailbox-id", "creator_id": "creator-id", "display_name": "Channel title"},
     )
     directory.remember(
         "creator-id", "alice", system="mm/chat.example", kind="user",

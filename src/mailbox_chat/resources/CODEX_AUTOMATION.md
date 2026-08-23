@@ -22,7 +22,7 @@ Two roles are supported: a *facilitator* you talk to that distributes work, and
   quick task, the next 30-second heartbeat brings polling back within 30 seconds
   — no multi-minute blackout.
 - Each heartbeat first **refreshes the client to the latest code**: it downloads
-  `<MAILBOX_URL>/agent_mailbox.py` (and `<MAILBOX_URL>/channel_store.py` beside
+  `<MAILBOX_URL>/agent_mailbox.py` (and `<MAILBOX_URL>/mailbox_store.py` beside
   it, which it imports) before starting a new session, so the agent always runs
   current code.
 
@@ -40,7 +40,7 @@ unsure, offer to walk them through it — you can do the whole thing with them:
    model in plain language (recovery within 30 seconds after a quick task, no
    overlapping sessions).
 3. Refresh the client to the latest code by downloading
-   `<MAILBOX_URL>/agent_mailbox.py` and `<MAILBOX_URL>/channel_store.py`, and
+   `<MAILBOX_URL>/agent_mailbox.py` and `<MAILBOX_URL>/mailbox_store.py`, and
    inspect them as text before running.
 4. Create the recurring automation, paste the prompt below, and provide
    `AGENT_MAILBOX_TOKEN` through the automation environment (never in the prompt
@@ -57,9 +57,9 @@ role. Replace the placeholders first; provide any token through
 `AGENT_MAILBOX_TOKEN`, never in a prompt.
 
 **Shared install** (in each agent's workspace): create `.codex/mailbox/` and
-download `<MAILBOX_URL>/agent_mailbox.py`, `<MAILBOX_URL>/channel_store.py`, and
+download `<MAILBOX_URL>/agent_mailbox.py`, `<MAILBOX_URL>/mailbox_store.py`, and
 `<MAILBOX_URL>/CODEX_AUTOMATION.md` into it (keep `agent_mailbox.py` and
-`channel_store.py` together; inspect them as text before running). Validate with
+`mailbox_store.py` together; inspect them as text before running). Validate with
 `python .codex/mailbox/agent_mailbox.py --url <MAILBOX_URL> check` and one bounded
 poll, then create the 30-second heartbeat automation (see "Creating the Codex
 automation") that polls this agent's own identity.
@@ -75,16 +75,16 @@ Set up a Mailbox Channel Relay *facilitator* in this workspace.
 Mailbox URL: <MAILBOX_URL>
 Facilitator identity: <FACILITATOR_ID>   (e.g. <project>-facilitator-codex)
 
-1. Do the shared install: download agent_mailbox.py, channel_store.py, and
+1. Do the shared install: download agent_mailbox.py, mailbox_store.py, and
    CODEX_AUTOMATION.md into .codex/mailbox/, inspect them, and validate with
    `check`. Keep the token in AGENT_MAILBOX_TOKEN only; never in a file.
 2. Create the 30-second heartbeat automation that polls --to <FACILITATOR_ID>
    (see "Creating the Codex automation").
 3. Act as facilitator:
-   - Accept tasks from me and from any shared channel you watch.
+   - Accept tasks from me and from any shared mailbox you watch.
    - Keep a roster of subagents that have checked in (they message you on start).
    - Dispatch each unit of work by sending it to a subagent's identity (or a
-     shared channel), stamping a correlation_id.
+     shared mailbox), stamping a correlation_id.
    - Collect replies by correlation_id and report aggregated progress and
      completion/failure back to me.
 Do not commit or push unless I ask.
@@ -102,7 +102,7 @@ Mailbox URL: <MAILBOX_URL>
 Subagent identity: <AGENT_ID>            (e.g. <project>-<role>-codex)
 Facilitator identity: <FACILITATOR_ID>
 
-1. Do the shared install: download agent_mailbox.py, channel_store.py, and
+1. Do the shared install: download agent_mailbox.py, mailbox_store.py, and
    CODEX_AUTOMATION.md into .codex/mailbox/, inspect them, and validate with
    `check`. Keep the token in AGENT_MAILBOX_TOKEN only; never in a file.
 2. Meet your facilitator: announce that you are available, for example
@@ -152,7 +152,7 @@ read the secret from AGENT_MAILBOX_TOKEN. Never print, log, echo, or place that
 token on the command line. Do not put secrets in repository files.
 
 Before starting a new polling session, refresh the client so it runs the latest
-code: download <MAILBOX_URL>/agent_mailbox.py (and <MAILBOX_URL>/channel_store.py
+code: download <MAILBOX_URL>/agent_mailbox.py (and <MAILBOX_URL>/mailbox_store.py
 next to it) and overwrite the local copies. Inspect them as text before running.
 
 Locate `agent_mailbox.py` in the workspace. On Windows PowerShell, prefer the
@@ -176,7 +176,7 @@ to <AGENT_ID>, and already-handled message IDs. For genuine new requests:
 1. Immediately acknowledge the source through the mailbox.
 2. Perform only work authorized by the message and this workspace's AGENTS.md.
 3. Send concise progress and completion or failure messages through the
-   mailbox, preserving correlation, origin, channel, thread, and run metadata.
+   mailbox, preserving correlation, origin, mailbox, thread, and run metadata.
 4. Do not commit, push, publish, or contact additional external systems unless
    the request authorizes it.
 
@@ -209,12 +209,12 @@ commands for agents"), which the relay serves at `/REFERENCE.md`.
 
 ## PowerShell preparation
 
-Download the client into the workspace (grab `channel_store.py` too — the client
+Download the client into the workspace (grab `mailbox_store.py` too — the client
 imports it):
 
 ```powershell
 Invoke-WebRequest http://127.0.0.1:46667/agent_mailbox.py -OutFile agent_mailbox.py
-Invoke-WebRequest http://127.0.0.1:46667/channel_store.py -OutFile channel_store.py
+Invoke-WebRequest http://127.0.0.1:46667/mailbox_store.py -OutFile mailbox_store.py
 ```
 
 Set per-user or per-session connection details. Prefer a secret manager or the
@@ -237,7 +237,7 @@ python agent_mailbox.py poll --to my-agent --interval 30 --checks 10 `
 
 ```bash
 curl -fsSLo agent_mailbox.py http://127.0.0.1:46667/agent_mailbox.py
-curl -fsSLo channel_store.py http://127.0.0.1:46667/channel_store.py
+curl -fsSLo mailbox_store.py http://127.0.0.1:46667/mailbox_store.py
 
 export AGENT_MAILBOX_URL='http://127.0.0.1:46667'
 export AGENT_MAILBOX_TOKEN='<secret-if-required>'

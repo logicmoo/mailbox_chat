@@ -4,7 +4,7 @@ import hmac
 import json
 from pathlib import Path
 
-from mailbox_channels.adapters.line_adapter import LineAdapter
+from mailbox_mailboxs.adapters.line_adapter import LineAdapter
 
 
 class Response:
@@ -48,11 +48,11 @@ class Mailbox:
 
 
 def test_line_signed_group_webhook_and_push(monkeypatch, tmp_path: Path) -> None:
-    connector = {"id": "line-one", "direction": "bidirectional", "channel_ids": ["group-1"],
+    connector = {"id": "line-one", "direction": "bidirectional", "mailbox_ids": ["group-1"],
                 "bridge_agent": "line-agent", "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "access")
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.line_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_mailboxs.adapters.line_adapter.connectors_for",
                         lambda adapter: [connector])
     session = Session()
     adapter = LineAdapter(session=session)
@@ -69,23 +69,23 @@ def test_line_signed_group_webhook_and_push(monkeypatch, tmp_path: Path) -> None
     assert adapter.authenticate_webhook(body + b"x", signature) is None
     adapter.handle_webhook(payload, mailbox, connector)
     assert [item[0] for item in mailbox.sent] == ["line-agent", "worker"]
-    assert mailbox.sent[0][2]["channel_id"] == "group-1"
-    assert mailbox.sent[0][2]["channel_type"] == "line"
-    adapter.send_message({"connector_id": "line-one", "channel_id": "group-1", "text": "reply"})
+    assert mailbox.sent[0][2]["mailbox_id"] == "group-1"
+    assert mailbox.sent[0][2]["mailbox_type"] == "line"
+    adapter.send_message({"connector_id": "line-one", "mailbox_id": "group-1", "text": "reply"})
     assert session.posts[-1][0].endswith("/message/push")
     assert session.posts[-1][1]["json"]["to"] == "group-1"
-    adapter.send_message({"connector_id": "line-one", "channel_id": "group-1", "text": "fast reply",
+    adapter.send_message({"connector_id": "line-one", "mailbox_id": "group-1", "text": "fast reply",
                           "line_reply_token": "reply-1"})
     assert session.posts[-1][0].endswith("/message/reply")
     assert session.posts[-1][1]["json"]["replyToken"] == "reply-1"
 
 
 def test_line_downloads_inbound_content_through_quota_storage(monkeypatch, tmp_path: Path) -> None:
-    connector = {"id": "line-one", "direction": "inbound", "channel_ids": ["room-1"],
+    connector = {"id": "line-one", "direction": "inbound", "mailbox_ids": ["room-1"],
                 "mailbox_recipients": ["worker"]}
     monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "access")
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "secret")
-    monkeypatch.setattr("mailbox_channels.adapters.line_adapter.connectors_for",
+    monkeypatch.setattr("mailbox_mailboxs.adapters.line_adapter.connectors_for",
                         lambda adapter: [connector])
     adapter = LineAdapter(session=Session())
     mailbox = Mailbox(tmp_path)

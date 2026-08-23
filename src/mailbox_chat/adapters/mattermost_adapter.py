@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 from ..attachment_storage import write_bytes
 from ..connector_registry import config_dir, connectors_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
-from ..subscriptions import ensure_channel, subscribers
-from ..endpoint_address import EndpointAddress, channel_resource_id, endpoint_instance, parse_endpoint
+from ..subscriptions import ensure_mailbox, subscribers
+from ..endpoint_address import EndpointAddress, mailbox_resource_id, endpoint_instance, parse_endpoint
 from ..admin_io import load_input, normalize_options, render
 from ..identifier_directory import IdentifierDirectory
 from ..agent_mailbox import MATTERMOST_COMMANDS
@@ -28,7 +28,7 @@ from urllib.parse import quote, unquote, urlencode, urlsplit
 
 
 LOGGER = logging.getLogger(__name__)
-RELAY_RECIPIENT = "server_outbound_relay_agent_to_channel"
+RELAY_RECIPIENT = "server_outbound_relay_agent_to_mailbox"
 DEFAULT_INBOUND_RECIPIENTS: tuple[str, ...] = ()
 RELAY_PORT = 46667
 
@@ -50,7 +50,7 @@ class MattermostRelay:
             "connected": False,
             "lastError": None,
             "lastCycleAt": None,
-            "channels": [],
+            "mailboxs": [],
         }
         self._latest_create_at: dict[str, int] = {}
         self._bot_user_id = ""
@@ -58,8 +58,8 @@ class MattermostRelay:
         self.connector: dict[str, Any] = {}
         self.base_url = ""
         self.token = ""
-        self.default_channel = ""
-        self._channel_metadata: dict[str, dict[str, str]] = {}
+        self.default_mailbox = ""
+        self._mailbox_metadata: dict[str, dict[str, str]] = {}
 
     def configure(self) -> bool:
         load_dotenv(config_dir() / ".env", override=False)
@@ -68,16 +68,16 @@ class MattermostRelay:
         self.base_url = str(self.connector.get("base_url") or os.environ.get("MM_URL") or "").rstrip("/")
         token_env = str(self.connector.get("token_env") or "MM_BOT_TOKEN")
         self.token = os.environ.get(token_env, "").strip()
-        configured_channels = list(self.connector.get("channel_ids") or [])
-        legacy_channels = [item.strip() for item in os.environ.get(
+        configured_mailboxs = list(self.connector.get("mailbox_ids") or [])
+        legacy_mailboxs = [item.strip() for item in os.environ.get(
             "MM_CHANNEL_IDS", os.environ.get("MM_CHANNEL_ID", ""),
         ).split(",") if item.strip()]
-        channels = configured_channels or legacy_channels
-        self.default_channel = channels[0] if channels else ""
+        mailboxs = configured_mailboxs or legacy_mailboxs
+        self.default_mailbox = mailboxs[0] if mailboxs else ""
         missing = [name for name, value in (
             ("connectors[].base_url (or MM_URL)", self.base_url),
             (f"environment variable {token_env}", self.token),
-            ("connectors[].channel_ids (or MM_CHANNEL_ID)", self.default_channel),
+            ("connectors[].mailbox_ids (or MM_CHANNEL_ID)", self.default_mailbox),
         ) if not value]
         enabled = os.environ.get("MATTERMOST_RELAY_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
         self.status["enabled"] = enabled and not missing
@@ -90,21 +90,21 @@ class MattermostRelay:
         self.status["running"] = False
         self.status["connected"] = False
 
-    def _channels(self) -> list[str]:
+    def _mailboxs(self) -> list[str]:
         configured_connectors = connectors_for("mattermost", direction="inbound")
-        configured_channels = [
-            channel_id for connector in configured_connectors for channel_id in connector["channel_ids"]
+        configured_mailboxs = [
+            mailbox_id for connector in configured_connectors for mailbox_id in connector["mailbox_ids"]
         ]
-        if configured_channels:
-            return list(dict.fromkeys(configured_channels))
-        return [self.default_channel] if self.default_channel else []
+        if configured_mailboxs:
+            return list(dict.fromkeys(configured_mailboxs))
+        return [self.default_mailbox] if self.default_mailbox else []
 
-    def _inbound_recipients(self, channel_id: str) -> list[str]:
+    def _inbound_recipients(self, mailbox_id: str) -> list[str]:
         configured = [
             recipient
             for connector in connectors_for("mattermost", direction="inbound")
-            if channel_id in connector["channel_ids"] or (
-                connector.get("include_direct_messages") and channel_id not in self._channels()
+            if mailbox_id in connector["mailbox_ids"] or (
+                connector.get("include_direct_messages") and mailbox_id not in self._mailboxs()
             )
             for recipient in [connector.get("bridge_agent"), *connector.get("mailbox_recipients", [])]
             if recipient
@@ -114,12 +114,12 @@ class MattermostRelay:
             configured = [item.strip() for item in fallback.split(",") if item.strip()]
         instance = endpoint_instance("mattermost", self.connector) if self.connector else (
             urlsplit(self.base_url).hostname or "mattermost").lower()
-        address = EndpointAddress("mattermost", instance, channel_id).canonical
-        identity = self._mattermost_channel_identity(channel_id)
-        resource_id = channel_resource_id(
-            "mattermost", instance, channel_id,
+        address = EndpointAddress("mattermost", instance, mailbox_id).canonical
+        identity = self._mattermost_mailbox_identity(mailbox_id)
+        resource_id = mailbox_resource_id(
+            "mattermost", instance, mailbox_id,
         )
-        ensure_channel(resource_id, metadata={
+        ensure_mailbox(resource_id, metadata={
             "connector": self.connector.get("id", ""),
             "endpoint": instance,
             "external_address": address,
@@ -131,20 +131,20 @@ class MattermostRelay:
             *subscribers(resource_id),
         ]))
 
-    def _mattermost_channel_identity(self, channel_id: str) -> dict[str, str]:
-        """Resolve a channel's readable team/workspace identity once per process."""
-        if channel_id in self._channel_metadata:
-            return self._channel_metadata[channel_id]
+    def _mattermost_mailbox_identity(self, mailbox_id: str) -> dict[str, str]:
+        """Resolve a mailbox's readable team/workspace identity once per process."""
+        if mailbox_id in self._mailbox_metadata:
+            return self._mailbox_metadata[mailbox_id]
         identity: dict[str, str] = {}
         try:
-            response = self.session.get(f"{self.base_url}/api/v4/channels/{channel_id}", timeout=15)
+            response = self.session.get(f"{self.base_url}/api/v4/mailboxs/{mailbox_id}", timeout=15)
             response.raise_for_status()
-            channel = response.json()
-            if isinstance(channel, dict) and channel.get("id") == channel_id:
-                channel_name = str(channel.get("name") or channel.get("display_name") or "").strip()
-                team_id = str(channel.get("team_id") or "").strip()
-                if channel_name:
-                    identity["channel_name"] = channel_name
+            mailbox = response.json()
+            if isinstance(mailbox, dict) and mailbox.get("id") == mailbox_id:
+                mailbox_name = str(mailbox.get("name") or mailbox.get("display_name") or "").strip()
+                team_id = str(mailbox.get("team_id") or "").strip()
+                if mailbox_name:
+                    identity["mailbox_name"] = mailbox_name
                 if team_id:
                     identity["workspace_id"] = team_id
                     team_response = self.session.get(
@@ -160,9 +160,9 @@ class MattermostRelay:
                             identity["workspace_name"] = workspace_name
                 directory = IdentifierDirectory(_mailbox_module().mailbox_dir())
                 system = f"mm/{endpoint_instance('mattermost', self.connector)}"
-                if channel_name:
+                if mailbox_name:
                     directory.remember(
-                        channel_id, channel_name, system=system, kind="channel", metadata=channel,
+                        mailbox_id, mailbox_name, system=system, kind="mailbox", metadata=mailbox,
                     )
                 if team_id and identity.get("workspace_name"):
                     directory.remember(
@@ -170,18 +170,18 @@ class MattermostRelay:
                         kind="team", metadata=team,
                     )
         except (requests.RequestException, KeyError, TypeError, ValueError):
-            LOGGER.debug("Could not resolve Mattermost channel identity for %s", channel_id,
+            LOGGER.debug("Could not resolve Mattermost mailbox identity for %s", mailbox_id,
                          exc_info=True)
-        self._channel_metadata[channel_id] = identity
+        self._mailbox_metadata[mailbox_id] = identity
         return identity
 
-    def _post_recipients(self, channel_id: str, author_id: str) -> list[str]:
+    def _post_recipients(self, mailbox_id: str, author_id: str) -> list[str]:
         instance = endpoint_instance("mattermost", self.connector) if self.connector else (
             urlsplit(self.base_url).hostname or "mattermost").lower()
         direct_subscribers = (list(dict.fromkeys([
             *subscribers(author_id),
-        ])) if channel_id not in self._channels() else [])
-        return list(dict.fromkeys([*self._inbound_recipients(channel_id), *direct_subscribers]))
+        ])) if mailbox_id not in self._mailboxs() else [])
+        return list(dict.fromkeys([*self._inbound_recipients(mailbox_id), *direct_subscribers]))
 
     def _connect(self) -> None:
         base_url = self.base_url
@@ -189,22 +189,22 @@ class MattermostRelay:
         response = self.session.get(f"{base_url}/api/v4/users/me", timeout=15)
         response.raise_for_status()
         self._bot_user_id = str(response.json()["id"])
-        channels = self._channels()
+        mailboxs = self._mailboxs()
         now_ms = int(time.time() * 1000)
-        self._latest_create_at = {channel_id: now_ms for channel_id in channels}
-        self.status.update({"connected": True, "channels": channels, "lastError": None})
+        self._latest_create_at = {mailbox_id: now_ms for mailbox_id in mailboxs}
+        self.status.update({"connected": True, "mailboxs": mailboxs, "lastError": None})
 
-    def _refresh_direct_channels(self, base_url: str) -> None:
+    def _refresh_direct_mailboxs(self, base_url: str) -> None:
         if time.time() < self._next_dm_refresh:
             return
-        response = self.session.get(f"{base_url}/api/v4/users/{self._bot_user_id}/channels", timeout=15)
+        response = self.session.get(f"{base_url}/api/v4/users/{self._bot_user_id}/mailboxs", timeout=15)
         response.raise_for_status()
         direct = [str(item["id"]) for item in response.json() if item.get("type") == "D" and item.get("id")]
         now_ms = int(time.time() * 1000)
-        channels = list(dict.fromkeys([*self._channels(), *direct]))
-        for channel_id in channels:
-            self._latest_create_at.setdefault(channel_id, now_ms)
-        self.status["channels"] = channels
+        mailboxs = list(dict.fromkeys([*self._mailboxs(), *direct]))
+        for mailbox_id in mailboxs:
+            self._latest_create_at.setdefault(mailbox_id, now_ms)
+        self.status["mailboxs"] = mailboxs
         self._next_dm_refresh = time.time() + 30
 
     def _download_attachments(self, base_url: str, post: dict[str, Any]) -> list[dict[str, Any]]:
@@ -235,10 +235,10 @@ class MattermostRelay:
 
     def _poll_inbound(self, base_url: str) -> None:
         mailbox = _mailbox_module()
-        for channel_id in self.status["channels"]:
+        for mailbox_id in self.status["mailboxs"]:
             response = self.session.get(
-                f"{base_url}/api/v4/channels/{channel_id}/posts",
-                params={"page": 0, "per_page": 200, "since": self._latest_create_at.get(channel_id, 0)},
+                f"{base_url}/api/v4/mailboxs/{mailbox_id}/posts",
+                params={"page": 0, "per_page": 200, "since": self._latest_create_at.get(mailbox_id, 0)},
                 timeout=15,
             )
             response.raise_for_status()
@@ -247,7 +247,7 @@ class MattermostRelay:
             for post_id in reversed(payload.get("order", [])):
                 post = posts.get(post_id) or {}
                 created = int(post.get("create_at", 0))
-                self._latest_create_at[channel_id] = max(self._latest_create_at.get(channel_id, 0), created + 1)
+                self._latest_create_at[mailbox_id] = max(self._latest_create_at.get(mailbox_id, 0), created + 1)
                 if str(post.get("user_id", "")) == self._bot_user_id:
                     continue
                 source_id = str(post.get("id", ""))
@@ -256,21 +256,21 @@ class MattermostRelay:
                 attachments = self._download_attachments(base_url, post)
                 matching = next((
                     item for item in connectors_for("mattermost", direction="inbound")
-                    if channel_id in item["channel_ids"]
+                    if mailbox_id in item["mailbox_ids"]
                 ), {})
-                channel_identity = self._mattermost_channel_identity(channel_id)
+                mailbox_identity = self._mattermost_mailbox_identity(mailbox_id)
                 origin_fields = with_origin(
                     {
                         "author": str(post.get("user_id", "")),
                         "attachments": attachments,
-                        **channel_identity,
-                        **({"team_id": channel_identity["workspace_id"]}
-                           if channel_identity.get("workspace_id") else {}),
+                        **mailbox_identity,
+                        **({"team_id": mailbox_identity["workspace_id"]}
+                           if mailbox_identity.get("workspace_id") else {}),
                     },
                     adapter="mattermost",
                     connector_id=str(matching.get("id") or "mattermost-default"),
                     source_id=source_id,
-                    channel_id=channel_id,
+                    mailbox_id=mailbox_id,
                     presence_id=str(matching.get("presence_id") or ""),
                 )
                 DeliveryLedger(mailbox.mailbox_dir()).claim(
@@ -278,18 +278,18 @@ class MattermostRelay:
                     endpoint_id(
                         "mattermost",
                         connector_id=str(matching.get("id") or "mattermost-default"),
-                        channel_id=channel_id,
+                        mailbox_id=mailbox_id,
                         presence_id=str(matching.get("presence_id") or ""),
                     ),
                 )
-                for recipient in self._post_recipients(channel_id, str(post.get("user_id", ""))):
+                for recipient in self._post_recipients(mailbox_id, str(post.get("user_id", ""))):
                     mailbox.send(
                         recipient,
                         str(post.get("message", "")),
                         sender="mattermost",
                         message_type="mattermost_message",
-                        channel_id=channel_id,
-                        channel_type="mattermost",
+                        mailbox_id=mailbox_id,
+                        mailbox_type="mattermost",
                         source_id=source_id,
                         thread_id=str(post.get("root_id", "") or "") or None,
                         extra_fields=origin_fields,
@@ -299,16 +299,16 @@ class MattermostRelay:
     def _source_seen(mailbox_root: Path, source_id: str) -> bool:
         if not source_id:
             return False
-        from .. import channel_store
+        from .. import mailbox_store
 
         for recipient in DEFAULT_INBOUND_RECIPIENTS:
-            document = channel_store.load_channel(mailbox_root, recipient)
-            for _key, record in channel_store.ordered_messages(document):
+            document = mailbox_store.load_mailbox(mailbox_root, recipient)
+            for _key, record in mailbox_store.ordered_messages(document):
                 if record.get("source_id") == source_id:
                     return True
         return False
 
-    def _upload_attachments(self, base_url: str, channel_id: str, records: list[dict[str, Any]]) -> list[str]:
+    def _upload_attachments(self, base_url: str, mailbox_id: str, records: list[dict[str, Any]]) -> list[str]:
         file_ids: list[str] = []
         for record in records:
             path = Path(str(record.get("path", ""))).expanduser().resolve()
@@ -317,7 +317,7 @@ class MattermostRelay:
             with path.open("rb") as stream:
                 response = self.session.post(
                     f"{base_url}/api/v4/files",
-                    data={"channel_id": channel_id},
+                    data={"mailbox_id": mailbox_id},
                     files={"files": (path.name, stream, record.get("mime_type") or "application/octet-stream")},
                     timeout=60,
                 )
@@ -328,11 +328,11 @@ class MattermostRelay:
     def _send_outbound(self, base_url: str) -> None:
         mailbox = _mailbox_module()
         for message in mailbox.receive(RELAY_RECIPIENT):
-            channel_id = str(message.get("channel_id") or self.default_channel)
+            mailbox_id = str(message.get("mailbox_id") or self.default_mailbox)
             payload: dict[str, Any] = {
-                "channel_id": channel_id,
+                "mailbox_id": mailbox_id,
                 "message": str(message.get("text", "")),
-                "file_ids": self._upload_attachments(base_url, channel_id, list(message.get("attachments") or [])),
+                "file_ids": self._upload_attachments(base_url, mailbox_id, list(message.get("attachments") or [])),
             }
             root_id = str(message.get("root_id") or message.get("thread_id") or "")
             if root_id:
@@ -344,7 +344,7 @@ class MattermostRelay:
         if not self._bot_user_id:
             self._connect()
         base_url = self.base_url
-        self._refresh_direct_channels(base_url)
+        self._refresh_direct_mailboxs(base_url)
         self._poll_inbound(base_url)
         self._send_outbound(base_url)
         self.status.update({"connected": True, "lastCycleAt": time.time(), "lastError": None})
@@ -389,28 +389,28 @@ def arguments_from_namespace(args: argparse.Namespace, loaded: object | None) ->
                 "page": getattr(args, "page", None),
                 "per_page": getattr(args, "per_page", None)}
     if command == "names":
-        return {"channel": args.channel}
+        return {"mailbox": args.mailbox}
     if command == "threads":
         return {"team": args.team}
     if command in {"join", "part"}:
         return {
-            "channel": args.channel,
+            "mailbox": args.mailbox,
             **({"subscribe_all": True} if command == "join" and args.subscribe_all else {}),
         }
     if command == "topic":
-        return {"channel": args.channel, "text": loaded}
+        return {"mailbox": args.mailbox, "text": loaded}
     if command == "nick":
         return {"nickname": args.nickname}
     if command == "whois":
         return {"user": args.nickname}
     if command == "mode":
-        return {"channel": args.target,
+        return {"mailbox": args.target,
                 "setting": args.modes[0] if args.modes else None,
                 "user": args.modes[1] if len(args.modes) > 1 else None}
     if command == "invite":
-        return {"user": args.nickname, "channel": args.channel}
+        return {"user": args.nickname, "mailbox": args.mailbox}
     if command == "kick":
-        return {"channel": args.channel, "user": args.nickname}
+        return {"mailbox": args.mailbox, "user": args.nickname}
     if command in {"message", "notice"}:
         return {"target": args.target, "text": loaded,
                 **({"user": args.user} if command == "notice" else {})}
@@ -430,7 +430,7 @@ def arguments_from_namespace(args: argparse.Namespace, loaded: object | None) ->
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="mailbox-client",
-        description="Run familiar channel and user commands through the relay's Mattermost bot",
+        description="Run familiar mailbox and user commands through the relay's Mattermost bot",
     )
     result.add_argument("--url", default="http://127.0.0.1:46667",
                         help="relay HTTP base URL (default: http://127.0.0.1:46667)")
@@ -444,56 +444,56 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("ping", help="verify the authenticated Mattermost connection")
     commands.add_parser("teams", help="list teams visible to the bot")
     listing = commands.add_parser(
-        "list", help="discover a team's public channels, or --bot for the bot's own memberships")
+        "list", help="discover a team's public mailboxs, or --bot for the bot's own memberships")
     listing.add_argument("--team", help="limit results to one team ID")
     listing.add_argument(
         "--bot", nargs="?", const="", metavar="BOTNICK",
-        help="list channels the bot (or BOTNICK) has joined, like the older listing")
+        help="list mailboxs the bot (or BOTNICK) has joined, like the older listing")
     listing.add_argument("--page", type=int, default=None,
                          help="discovery start page (default 0; discovery pages to the end)")
     listing.add_argument("--per-page", "--per_page", dest="per_page", type=int, default=None,
-                         help="channels per discovery page (default 100)")
-    names = commands.add_parser("names", help="list users in a channel")
-    names.add_argument("channel")
+                         help="mailboxs per discovery page (default 100)")
+    names = commands.add_parser("names", help="list users in a mailbox")
+    names.add_argument("mailbox")
     threads = commands.add_parser("threads", help="list the bot's threads in a team")
     threads.add_argument("team", help="team ID or a discovered team name")
-    join = commands.add_parser("join", help="add the bot to a channel")
-    join.add_argument("channel")
-    part = commands.add_parser("part", help="remove the bot from a channel")
-    part.add_argument("channel")
-    topic = commands.add_parser("topic", help="read or set a channel header")
-    topic.add_argument("channel")
+    join = commands.add_parser("join", help="add the bot to a mailbox")
+    join.add_argument("mailbox")
+    part = commands.add_parser("part", help="remove the bot from a mailbox")
+    part.add_argument("mailbox")
+    topic = commands.add_parser("topic", help="read or set a mailbox header")
+    topic.add_argument("mailbox")
     topic.add_argument("text", nargs="?", help="new header; omit to read it")
     nick = commands.add_parser("nick", help="set the bot account nickname")
     nick.add_argument("nickname")
     whois = commands.add_parser("whois", help="show a user by ID or username")
     whois.add_argument("user")
     mode = commands.add_parser(
-        "mode", help="read/set public/private visibility or channel operator (+o/-o)",
-        description=("Read channel details; change public/private visibility; or map IRC-style "
-                     "+o/-o to Mattermost channel-admin membership."),
+        "mode", help="read/set public/private visibility or mailbox operator (+o/-o)",
+        description=("Read mailbox details; change public/private visibility; or map IRC-style "
+                     "+o/-o to Mattermost mailbox-admin membership."),
         epilog=("Examples: mailbox-client mode mm/0/CHANNEL public; "
                 "mailbox-client mode mm/0/CHANNEL +o USER"),
     )
-    mode.add_argument("channel", help="channel ID, discovered name, or mm/INSTANCE/ID address")
+    mode.add_argument("mailbox", help="mailbox ID, discovered name, or mm/INSTANCE/ID address")
     mode.add_argument("setting", nargs="?", help="public, private, +o, or -o; omit to inspect")
     mode.add_argument("user", nargs="?", help="user ID/name required by +o or -o")
-    invite = commands.add_parser("invite", help="add a user to a channel")
+    invite = commands.add_parser("invite", help="add a user to a mailbox")
     invite.add_argument("user")
-    invite.add_argument("channel")
-    kick = commands.add_parser("kick", help="remove a user from a channel")
-    kick.add_argument("channel")
+    invite.add_argument("mailbox")
+    kick = commands.add_parser("kick", help="remove a user from a mailbox")
+    kick.add_argument("mailbox")
     kick.add_argument("user")
-    message = commands.add_parser("message", help="post a message to a channel or DM channel")
+    message = commands.add_parser("message", help="post a message to a mailbox or DM mailbox")
     message.add_argument("target")
     message.add_argument("text", nargs="?")
     notice = commands.add_parser(
         "notice", help="post a tagged notice or an ephemeral user-only notice",
-        description=("Post a mailbox-tagged channel message. With --user, use Mattermost's "
+        description=("Post a mailbox-tagged mailbox message. With --user, use Mattermost's "
                      "ephemeral-post API so only that user sees it."),
         epilog="Example: mailbox-client notice mm/0/CHANNEL --user USER 'Maintenance soon'",
     )
-    notice.add_argument("target", help="channel ID, discovered name, or mm/INSTANCE/ID address")
+    notice.add_argument("target", help="mailbox ID, discovered name, or mm/INSTANCE/ID address")
     notice.add_argument("text", nargs="?", help="notice text; alternatively use --input FILE")
     notice.add_argument("--user", help="user ID or discovered username for an ephemeral post")
     raw = commands.add_parser("raw", help="make an expert-level authenticated /api/v4 request")
@@ -508,17 +508,17 @@ def _instance(base_url: str) -> str:
 
 
 def _split_mm_sigil(value: str) -> tuple[str, str]:
-    """Split a leading @ (user) or ~ (channel) sigil off a Mattermost identifier.
+    """Split a leading @ (user) or ~ (mailbox) sigil off a Mattermost identifier.
 
     Mirrors Mattermost markdown, where ``@name`` mentions a user and ``~name`` links
-    a channel. Returns ``(kind, name)`` with kind ``"user"``, ``"channel"``, or ``""``
+    a mailbox. Returns ``(kind, name)`` with kind ``"user"``, ``"mailbox"``, or ``""``
     (no sigil, caller's kind stands). Channel names and usernames never legitimately
     begin with these characters, so a leading sigil is unambiguous.
     """
     if value.startswith("@"):
         return "user", value[1:]
     if value.startswith("~"):
-        return "channel", value[1:]
+        return "mailbox", value[1:]
     return "", value
 
 
@@ -528,11 +528,11 @@ def _id(value: str, *, directory: IdentifierDirectory | None = None,
     if parsed_url.scheme in {"http", "https"} and parsed_url.hostname:
         parts = [unquote(item) for item in parsed_url.path.split("/") if item]
         try:
-            channel_index = parts.index("channels")
-            value = parts[channel_index + 1]
+            mailbox_index = parts.index("mailboxs")
+            value = parts[mailbox_index + 1]
         except (ValueError, IndexError) as error:
             raise ValueError(
-                "Mattermost URLs must contain /channels/CHANNEL_NAME"
+                "Mattermost URLs must contain /mailboxs/CHANNEL_NAME"
             ) from error
         active_host = _instance(base_url)
         if active_host != "mattermost" and parsed_url.hostname.lower() != active_host:
@@ -567,7 +567,7 @@ def resolve_address(value: str, directory: IdentifierDirectory, *, base_url: str
     if endpoint is None or endpoint.adapter != "mattermost":
         return value
     sigil_kind, _ = _split_mm_sigil(endpoint.identifier)
-    identifier = _id(value, directory=directory, base_url=base_url, kind=sigil_kind or "channel")
+    identifier = _id(value, directory=directory, base_url=base_url, kind=sigil_kind or "mailbox")
     if sigil_kind == "user":
         # Preserve the user marker so the resolved address stays self-describing.
         return f"mm/{endpoint.instance}/@{identifier}"
@@ -631,7 +631,7 @@ def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, val
     pairs: list[tuple[str, list[str], str]] = []
     direct_id = str(value.get("id") or "").strip()
     direct_kind = kind or ("user" if value.get("username") else
-                           "channel" if value.get("team_id") else "")
+                           "mailbox" if value.get("team_id") else "")
     direct_aliases = _record_aliases(value, kind=direct_kind)
     if direct_id and direct_aliases:
         pairs.append((direct_id, direct_aliases, direct_kind))
@@ -652,7 +652,7 @@ def remember_named_ids(directory: IdentifierDirectory | None, base_url: str, val
         identifier = str(raw_identifier).strip()
         if identifier and aliases:
             inferred_kind = ({"user": "user", "owner": "user", "creator": "user",
-                              "channel": "channel", "team": "team", "post": "post",
+                              "mailbox": "mailbox", "team": "team", "post": "post",
                               "root": "thread"}.get(stem, stem))
             pairs.append((identifier, aliases, inferred_kind))
     if pairs:
@@ -689,14 +689,14 @@ def _user_id(session: requests.Session, base_url: str, value: str,
     return str(_request(session, base_url, "GET", f"/api/v4/users/username/{value}")["id"])
 
 
-def _direct_channel_id(session: requests.Session, base_url: str, me_id: str, user_id: str) -> str:
-    """Get-or-create the direct-message channel between the bot and a user.
+def _direct_mailbox_id(session: requests.Session, base_url: str, me_id: str, user_id: str) -> str:
+    """Get-or-create the direct-message mailbox between the bot and a user.
 
-    In Mattermost a DM is itself a channel (type ``"D"``); POST /channels/direct is
-    idempotent and returns the existing DM channel when one already exists.
+    In Mattermost a DM is itself a mailbox (type ``"D"``); POST /mailboxs/direct is
+    idempotent and returns the existing DM mailbox when one already exists.
     """
-    channel = _request(session, base_url, "POST", "/api/v4/channels/direct", [me_id, user_id])
-    return str(channel["id"])
+    mailbox = _request(session, base_url, "POST", "/api/v4/mailboxs/direct", [me_id, user_id])
+    return str(mailbox["id"])
 
 
 def execute(command: str, arguments: dict[str, Any], *, session: requests.Session,
@@ -726,16 +726,16 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
             team = _id(team, directory=directory, base_url=base_url, kind="team")
         bot = arguments.get("bot")
         if bot is not None:
-            # Older behaviour: only the channels the bot (or a named user) has joined.
+            # Older behaviour: only the mailboxs the bot (or a named user) has joined.
             nick = str(bot or "")
             user_id = _user_id(session, base_url, nick, directory) if nick else me_id
-            path = (f"/api/v4/users/{user_id}/teams/{team}/channels" if team else
-                    f"/api/v4/users/{user_id}/channels")
-            channels = _request(session, base_url, "GET", path)
+            path = (f"/api/v4/users/{user_id}/teams/{team}/mailboxs" if team else
+                    f"/api/v4/users/{user_id}/mailboxs")
+            mailboxs = _request(session, base_url, "GET", path)
         else:
-            # Discover every public channel each team exposes. The list API is
+            # Discover every public mailbox each team exposes. The list API is
             # page/per_page only and the list can shift while we read it, so we
-            # de-duplicate by channel id and keep going for a couple of pages past
+            # de-duplicate by mailbox id and keep going for a couple of pages past
             # the first empty one as a safety margin (Mattermost caps per_page
             # ~200, so large pages still need several requests).
             start_page = int(arguments.get("page") or 0)
@@ -745,7 +745,7 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                 str(item["id"]) for item in _request(
                     session, base_url, "GET", f"/api/v4/users/{me_id}/teams")
             ]
-            channels = []
+            mailboxs = []
             seen_ids: set[str] = set()
             for team_id in team_ids:
                 page = start_page
@@ -753,26 +753,26 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                 while empty_pages <= empty_page_margin:
                     query = urlencode({"page": page, "per_page": per_page})
                     batch = _request(session, base_url, "GET",
-                                     f"/api/v4/teams/{team_id}/channels?{query}")
+                                     f"/api/v4/teams/{team_id}/mailboxs?{query}")
                     if isinstance(batch, list) and batch:
                         empty_pages = 0
                         for item in batch:
-                            channel_id = str(item.get("id") or "")
-                            if channel_id and channel_id not in seen_ids:
-                                seen_ids.add(channel_id)
-                                channels.append(item)
+                            mailbox_id = str(item.get("id") or "")
+                            if mailbox_id and mailbox_id not in seen_ids:
+                                seen_ids.add(mailbox_id)
+                                mailboxs.append(item)
                     else:
                         empty_pages += 1
                     page += 1
                     if page - start_page >= 10000:
                         break
         return [_remember(directory, base_url, item, kind=(
-            "dm" if item.get("type") == "D" else "group" if item.get("type") == "G" else "channel"
-        )) for item in channels]
+            "dm" if item.get("type") == "D" else "group" if item.get("type") == "G" else "mailbox"
+        )) for item in mailboxs]
     if command == "names":
-        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
         return _remember_many(directory, base_url, _request(session, base_url, "GET",
-            f"/api/v4/users?in_channel={quote(channel)}&per_page=200"), kind="user")
+            f"/api/v4/users?in_mailbox={quote(mailbox)}&per_page=200"), kind="user")
     if command == "threads":
         team = _id(str(arguments["team"]), directory=directory, base_url=base_url, kind="team")
         payload = _request(session, base_url, "GET",
@@ -784,19 +784,19 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
     if command in {"join", "invite"}:
         user_id = (me_id if command == "join" else
                    _user_id(session, base_url, str(arguments["user"]), directory))
-        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
-        return _request(session, base_url, "POST", f"/api/v4/channels/{channel}/members",
+        mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
+        return _request(session, base_url, "POST", f"/api/v4/mailboxs/{mailbox}/members",
                         {"user_id": user_id})
     if command in {"part", "kick"}:
         user_id = (me_id if command == "part" else
                    _user_id(session, base_url, str(arguments["user"]), directory))
-        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
-        return _request(session, base_url, "DELETE", f"/api/v4/channels/{channel}/members/{user_id}")
+        mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
+        return _request(session, base_url, "DELETE", f"/api/v4/mailboxs/{mailbox}/members/{user_id}")
     if command == "topic":
-        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
         if arguments.get("text") is None:
-            return _request(session, base_url, "GET", f"/api/v4/channels/{channel}")
-        return _request(session, base_url, "PUT", f"/api/v4/channels/{channel}/patch",
+            return _request(session, base_url, "GET", f"/api/v4/mailboxs/{mailbox}")
+        return _request(session, base_url, "PUT", f"/api/v4/mailboxs/{mailbox}/patch",
                         {"header": arguments["text"]})
     if command == "nick":
         return _request(session, base_url, "PUT", f"/api/v4/users/{me_id}/patch",
@@ -807,20 +807,20 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                 f"/api/v4/users/username/{value}")
         return _request(session, base_url, "GET", path)
     if command == "mode":
-        channel = _id(str(arguments["channel"]), directory=directory, base_url=base_url, kind="channel")
+        mailbox = _id(str(arguments["mailbox"]), directory=directory, base_url=base_url, kind="mailbox")
         setting = str(arguments.get("setting") or "").lower()
         if not setting:
-            return _request(session, base_url, "GET", f"/api/v4/channels/{channel}")
+            return _request(session, base_url, "GET", f"/api/v4/mailboxs/{mailbox}")
         if setting in {"public", "private"}:
-            return _request(session, base_url, "PUT", f"/api/v4/channels/{channel}/patch",
+            return _request(session, base_url, "PUT", f"/api/v4/mailboxs/{mailbox}/patch",
                             {"type": "O" if setting == "public" else "P"})
         if setting in {"+o", "-o"}:
             if not arguments.get("user"):
                 raise ValueError(f"mm mode {setting} requires a user")
             user_id = _user_id(session, base_url, str(arguments["user"]), directory)
-            roles = "channel_user channel_admin" if setting == "+o" else "channel_user"
+            roles = "mailbox_user mailbox_admin" if setting == "+o" else "mailbox_user"
             return _request(session, base_url, "PUT",
-                            f"/api/v4/channels/{channel}/members/{user_id}/roles",
+                            f"/api/v4/mailboxs/{mailbox}/members/{user_id}/roles",
                             {"roles": roles})
         raise ValueError("Mattermost mode supports public, private, +o, and -o")
     if command in {"message", "notice"}:
@@ -830,13 +830,13 @@ def execute(command: str, arguments: dict[str, Any], *, session: requests.Sessio
                           if endpoint and endpoint.adapter == "mattermost" else target)
         target_kind, _ = _split_mm_sigil(raw_identifier)
         if target_kind == "user":
-            # @user addresses a person: resolve the user and post to their DM channel.
+            # @user addresses a person: resolve the user and post to their DM mailbox.
             user_id = _user_id(session, base_url, target, directory)
-            channel = _direct_channel_id(session, base_url, me_id, user_id)
+            mailbox = _direct_mailbox_id(session, base_url, me_id, user_id)
         else:
-            channel = _id(target, directory=directory,
-                          base_url=base_url, kind="channel")
-        body: dict[str, Any] = {"channel_id": channel, "message": arguments["text"]}
+            mailbox = _id(target, directory=directory,
+                          base_url=base_url, kind="mailbox")
+        body: dict[str, Any] = {"mailbox_id": mailbox, "message": arguments["text"]}
         if command == "notice":
             body["props"] = {"mailbox_notice": True}
             if arguments.get("user"):
