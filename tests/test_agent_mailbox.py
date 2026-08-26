@@ -45,7 +45,7 @@ def test_status_reports_agents_connectors_mailboxes_and_relays(
     ]
     assert all(item["kind"] == "connector" for item in result["connectors"])
     assert {item["id"] for item in result["mailboxes"]} >= {
-        "server_events_log", "server_outbound_relay_agent_to_agent", "server_outbound_relay_agent_to_mailbox", "agent_one",
+        "server_events_log", "mailbox_chat_agent_to_agent", "server_outbound_relay_agent_to_mailbox", "agent_one",
     }
     assert [item["id"] for item in result["relays"]] == ["relay-one"]
     assert result["relays"][0]["kind"] == "relay"
@@ -134,7 +134,7 @@ def test_direct_registered_agent_send_is_also_copied_to_agent_mailbox(
 
     sent = agent_mailbox.send("worker-two", "direct", sender="worker-one", root=mailbox)
 
-    direct = agent_mailbox.peek("server_outbound_relay_agent_to_agent", root=mailbox)
+    direct = agent_mailbox.peek("mailbox_chat_agent_to_agent", root=mailbox)
     all_sends = agent_mailbox.peek("server_outbound_relay_agent_to_mailbox", root=mailbox)
     agent_inbox = agent_mailbox.peek("worker_two", root=mailbox)
     assert direct[0]["audit_of"] == sent["id"]
@@ -434,7 +434,7 @@ def test_agent_del_purge_removes_private_history_but_keeps_global_audit(
     ]
     assert not any(item["to"] in result["purged_mailboxes"] for item in records)
     assert any(
-        item["to"] == "server_outbound_relay_agent_to_agent"
+        item["to"] == "mailbox_chat_agent_to_agent"
         and item.get("audit_recipient") == "review-agent"
         for item in records
     )

@@ -7,9 +7,14 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 from .sqlite_limits import apply_sqlite_limit
+from .endpoint_address import ADAPTER_ALIASES
+
+
+_SAFE_FILE = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 class IdentifierDirectory:
@@ -121,6 +126,80 @@ class IdentifierDirectory:
             raise ValueError("identifier system is required")
         return value
 
+    @staticmethod
+    def _resolver_key(system: str) -> str:
+        source = str(system).strip().lower()
+        if "/" not in source:
+            return source
+        adapter, instance = source.split("/", 1)
+        canonical = ADAPTER_ALIASES.get(adapter, adapter)
+        return f"{canonical}-{instance}"
+
+    @staticmethod
+    def _safe_name(value: str) -> str:
+        clean = _SAFE_FILE.sub("_", str(value).strip())
+        return clean or "resolver"
+
+    def _resolver_path(self, system: str) -> Path:
+        mailbox_root = self.path.parent.parent
+        key = self._resolver_key(system)
+        return mailbox_root / "resolver" / f"resolver_{self._safe_name(key)}.json"
+
+    def _remember_resolver_entry(
+        self,
+        *,
+        system: str,
+        identifier: str,
+        text: str,
+        kind: str,
+        metadata: dict[str, Any],
+        updated_at: str,
+    ) -> None:
+        target = self._resolver_path(system)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            document = json.loads(target.read_text(encoding="utf-8"))
+        else:
+            document = {
+                "id": self._resolver_key(system),
+                "kind": "resolver_cache",
+                "entries": [],
+            }
+        if not isinstance(document, dict):
+            raise ValueError(f"resolver file must contain a JSON object: {target}")
+        entries = document.get("entries")
+        if not isinstance(entries, list):
+            raise ValueError(f"resolver entries must be a list: {target}")
+        record = {
+            "system": system,
+            "identifier": identifier,
+            "text": text,
+            "kind": kind,
+            "metadata": metadata,
+            "updated_at": updated_at,
+        }
+        replaced = False
+        for index, item in enumerate(entries):
+            if not isinstance(item, dict):
+                continue
+            if (str(item.get("system") or "") == system
+                    and str(item.get("identifier") or "") == identifier
+                    and str(item.get("kind") or "") == kind):
+                entries[index] = record
+                replaced = True
+                break
+        if not replaced:
+            entries.append(record)
+        document["id"] = str(document.get("id") or self._resolver_key(system))
+        document["kind"] = str(document.get("kind") or "resolver_cache")
+        document["entries"] = entries
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(target)
+
     def remember(self, identifier: str, text: str, *, system: str, kind: str = "",
                  metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         canonical = self.normalize(identifier)
@@ -144,6 +223,14 @@ class IdentifierDirectory:
                 """,
                 (source_system, canonical, readable, clean_kind, encoded_metadata, now),
             )
+        self._remember_resolver_entry(
+            system=source_system,
+            identifier=canonical,
+            text=readable,
+            kind=clean_kind,
+            metadata=metadata or {},
+            updated_at=now,
+        )
         return {
             "system": source_system,
             "identifier": canonical,

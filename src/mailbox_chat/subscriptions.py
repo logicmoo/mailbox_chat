@@ -15,7 +15,7 @@ from .connector_registry import store_root
 
 
 SERVER_EVENTS_MAILBOX = "server_events_log"
-SERVER_AGENT_TO_AGENT_MAILBOX = "server_outbound_relay_agent_to_agent"
+SERVER_AGENT_TO_AGENT_MAILBOX = "mailbox_chat_agent_to_agent"
 SERVER_AGENT_TO_MAILBOX_MAILBOX = "server_outbound_relay_agent_to_mailbox"
 BUILTIN_MAILBOXES = {
     SERVER_EVENTS_MAILBOX, SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_MAILBOX_MAILBOX,

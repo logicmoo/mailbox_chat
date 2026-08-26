@@ -49,6 +49,9 @@ Mattermost example is
 - [Compatible agent runtimes](#compatible-agent-runtimes)
 - [Channel-to-mailbox bridges](#mailbox-to-mailbox-bridges)
 
+See also: [`WS_COLLAB_EXTRA_FEATURE_GUIDANCE.md`](/WS_COLLAB_EXTRA_FEATURE_GUIDANCE.md)
+for ws_collab-specific advanced usage patterns.
+
 This document is the operational contract for configuring mailbox connectors,
 chat-platform adapters, and mailbox-to-mailbox bridges. The daemon owns
 `127.0.0.1:46667`; a successful `GET /health` means an instance is already
@@ -189,19 +192,24 @@ fabricate a working session.
 ### Separate mailbox and configuration directories
 
 The non-overlapping defaults are `mailbox/` for mutable data and `config/` for
-configuration. Override either independently:
+environment/secrets. Runtime bootstrap config defaults to `mailbox/config/`.
+Override each independently:
 
 ```powershell
 .\mailbox-server.cmd `
   --mailbox-dir D:\relay-data\production `
-  --config-dir D:\relay-config\production
+  --config-dir D:\relay-env\production `
+  --bootstrap-config-dir D:\relay-bootstrap\production
 ```
 
 Equivalent environment variables are `AGENT_MAILBOX_DIR` and
-`MAILBOX_RELAY_CONFIG_DIR`. The mailbox directory owns the JSON mailbox/registry
+`MAILBOX_RELAY_CONFIG_DIR`. Bootstrap config can also be selected with
+`MAILBOX_BOOTSTRAP_CONFIG_DIR`. The mailbox directory owns the JSON mailbox/registry
 store (per-mailbox message documents plus the `server_registry_*` registries),
 `attachments/`, `runtime/`, and the delivery ledger; cursors live inside
 `server_registry_agents`. The config directory owns `.env` and `mailboxes.json`.
+The bootstrap directory owns presence/system JSON (`presence-*.json`,
+`server_builtin_agents.json`, and optional mailbox/connector overlay files).
 This permits shared
 or read-only configuration with machine-local data, or several isolated proxy
 instances without state overlap.

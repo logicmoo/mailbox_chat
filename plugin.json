@@ -1,0 +1,158 @@
+{
+  "id": "mailbox_chat",
+  "label": "Mailbox Chat",
+  "description": "REST and WebSocket mailbox relay server for workbench-driven agent coordination, bridging, and puppeting.",
+  "summary": "Expose mailbox_chat through the workbench web proxy, then use REST APIs for status, connector/mailbox config, and lifecycle control.",
+  "version": "1.0.0",
+  "entrypoint": "mailbox-server.cmd",
+  "scan": "startup",
+  "routePrefix": "/mailbox_chat",
+  "adminPage": "/mailbox_chat/v1/status",
+  "docs": "README.md",
+  "kind": "custom",
+  "requestTimeoutSeconds": 0,
+  "plugin-install": {
+    "requires": [],
+    "install": null,
+    "files": [
+      {
+        "path": "config/.env",
+        "description": "Primary runtime secrets and endpoint/token settings."
+      },
+      {
+        "path": "config/mailboxes.json",
+        "description": "Optional declarative connector/mailbox config loaded at startup."
+      },
+      {
+        "path": "mailbox/config/server_config_connectors.json",
+        "description": "Optional connector overrides. Primary connector definitions live in presence-*.json files."
+      },
+      {
+        "path": "plugin.json",
+        "description": "Plugin manifest; includes the embedded server_builtin_agents index."
+      },
+      {
+        "path": "mailbox/config/server_config_mailboxes.json",
+        "description": "Optional durable mailbox metadata and aliases."
+      },
+      {
+        "path": "mailbox/config/server_builtin_agents.json",
+        "description": "System builtin agent index. Presence files in the same directory are auto-discovered."
+      },
+      {
+        "path": "registries/identifies_mm-chat-singularitynet-io.json",
+        "description": "SNET Mattermost UUID/name resolver cache file."
+      },
+      {
+        "path": "mailbox/runtime/ws_collab_v1_state.json",
+        "description": "ws_collab compatibility metadata (mailboxes, configs, agent properties)."
+      }
+    ],
+    "steps": [
+      "Start mailbox-server on 127.0.0.1:46667 (or set MAILBOX_RELAY_PORT for a different port).",
+      "Ensure web_proxy mounts /mailbox_chat to this server (plugin-init entry below).",
+      "If MAILBOX_RELAY_TOKEN is set, supply Authorization: Bearer <token> for protected REST routes."
+    ]
+  },
+  "plugin-uninstall": {
+    "uninstall": null,
+    "steps": [
+      "Stop the mailbox-server process.",
+      "Remove the /mailbox_chat web_proxy mount request if workbench should no longer route to this relay."
+    ]
+  },
+  "plugin-init": [
+    {
+      "command": "web_proxy",
+      "description": "Redirect /mailbox_chat to the mailbox_chat REST/WebSocket relay.",
+      "redirect": "http://127.0.0.1:46667",
+      "path": "/mailbox_chat"
+    }
+  ],
+  "plugin-lifecycle": {
+    "standalone": true,
+    "hooks": {
+      "install": null,
+      "installAfter": null,
+      "uninstall": null,
+      "uninstallAfter": null,
+      "workbenchStartup": null,
+      "workbenchStartupAfter": null,
+      "workbenchShutdown": null,
+      "workbenchShutdownAfter": null,
+      "workspaceStartup": null,
+      "workspaceStartupAfter": null,
+      "workspaceShutdown": null,
+      "workspaceShutdownAfter": null
+    },
+    "note": "mailbox_chat runs as its own standalone REST/WS server. Workbench communicates through /mailbox_chat via web_proxy and can puppet/operate it with the plugin-api routes below."
+  },
+  "plugin-api": {
+    "status": {
+      "method": "GET",
+      "path": "/mailbox_chat/v1/status",
+      "description": "Relay and adapter status for health checks and control-plane visibility."
+    },
+    "config": {
+      "method": "POST",
+      "path": "/mailbox_chat/v1/connectors",
+      "description": "Create/update/delete connector configuration (supports action=create|update|delete)."
+    },
+    "restart": {
+      "method": "GET",
+      "path": "/mailbox_chat/api/restart",
+      "description": "Request in-process restart (mailbox-server-loop relaunches the process)."
+    },
+    "shutdown": {
+      "method": "GET",
+      "path": "/mailbox_chat/api/shutdown",
+      "description": "Request graceful relay shutdown (loop exits without relaunch)."
+    },
+    "note": "These routes target the mailbox_chat REST server mounted through web_proxy; restart/shutdown require MAILBOX_RELAY_TOKEN when configured."
+  },
+  "server_builtin_agents": {
+    "schema_version": "1.1",
+    "description": "Embedded builtin agent index for mailbox_chat system agents.",
+    "layout": "split-entry-files",
+    "system_agents": [
+      {
+        "id": "system-lifecycle-agent",
+        "file": "mailbox/config/system-agent-lifecycle.json"
+      },
+      {
+        "id": "event-queue-agent",
+        "file": "mailbox/config/system-agent-event-queue.json"
+      }
+    ]
+  },
+  "workbench-config-paths": [
+    "config/.env",
+    "config/mailboxes.json",
+    "mailbox/config/server_config_connectors.json",
+    "plugin.json",
+    "mailbox/config/server_config_mailboxes.json",
+    "mailbox/config/server_builtin_agents.json",
+    "registries/identifies_mm-chat-singularitynet-io.json",
+    "mailbox/runtime/ws_collab_v1_state.json"
+  ],
+  "ui": {
+    "pages": [
+      {
+        "id": "status",
+        "label": "Mailbox Chat Status",
+        "kind": "configure",
+        "descriptor": "/mailbox_chat/v1/status",
+        "glyph": "✉",
+        "group": "RUNTIME"
+      },
+      {
+        "id": "automation-doc",
+        "label": "Mailbox Chat Automation Guide",
+        "kind": "docs",
+        "descriptor": "/mailbox_chat/CODEX_AUTOMATION.md",
+        "glyph": "📘",
+        "group": "CAPABILITIES"
+      }
+    ]
+  }
+}

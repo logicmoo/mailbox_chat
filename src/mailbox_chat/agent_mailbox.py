@@ -64,7 +64,7 @@ REST_RETRY_DELAY = 1.0
 REST_TOKEN: str | None = None
 MAX_JSONL_ENV = "MAILBOX_RELAY_MAX_JSONL_BYTES"
 DEFAULT_MAX_JSONL_BYTES = 5 * 1024 * 1024 * 1024
-SERVER_AGENT_TO_AGENT_MAILBOX = "server_outbound_relay_agent_to_agent"
+SERVER_AGENT_TO_AGENT_MAILBOX = "mailbox_chat_agent_to_agent"
 SERVER_AGENT_TO_MAILBOX_MAILBOX = "server_outbound_relay_agent_to_mailbox"
 SERVER_AUDIT_MAILBOXES = {SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_MAILBOX_MAILBOX}
 SERVER_WORKER_QUEUE = "server_worker_queue"
@@ -485,6 +485,14 @@ def _mailbox_sub_kind(mailbox_id: str) -> str:
     return "mailbox"
 
 
+def _identifier_directory(root: Path):
+    try:
+        from .identifier_directory import IdentifierDirectory
+    except ImportError:  # Standalone copy downloaded from /agent_mailbox.py.
+        from mailbox_chat.identifier_directory import IdentifierDirectory  # type: ignore[no-redef]
+    return IdentifierDirectory(root)
+
+
 def send(
     recipient: str,
     text: str,
@@ -504,6 +512,7 @@ def send(
     target = root or mailbox_dir()
     target.mkdir(parents=True, exist_ok=True)
     message_id = str(uuid.uuid4())
+    audit_record_ids: list[str] = []
     record: dict[str, Any] = {
         "id": message_id,
         "dedupe_id": message_id,
@@ -561,9 +570,10 @@ def send(
         except (ImportError, OSError, ValueError, json.JSONDecodeError):
             pass
         for audit_recipient in audit_recipients:
+            audit_id = str(uuid.uuid4())
             audit_record = {
                 **record,
-                "id": str(uuid.uuid4()),
+                "id": audit_id,
                 "to": audit_recipient,
                 "audit_of": record["id"],
                 "dedupe_id": record["dedupe_id"],
@@ -574,6 +584,7 @@ def send(
             if addressed_presence_id:
                 audit_record["addressed_presence_id"] = addressed_presence_id
             records.append(audit_record)
+            audit_record_ids.append(audit_id)
     payload_size = sum(
         len(json.dumps(item, ensure_ascii=False).encode("utf-8")) for item in records
     )
@@ -598,6 +609,48 @@ def send(
             )
             if item is record:
                 record = stored
+    resolver_system = f"{str(mailbox_type or 'mailbox').strip().lower() or 'mailbox'}/local"
+    directory = _identifier_directory(target)
+    directory.remember(
+        message_id,
+        message_id,
+        system=resolver_system,
+        kind="message",
+        metadata={
+            "recipient": recipient,
+            "mailbox_type": str(mailbox_type or ""),
+            "message_type": message_type,
+            "attachment_count": len(copied_attachments),
+        },
+    )
+    for audit_id in audit_record_ids:
+        directory.remember(
+            audit_id,
+            audit_id,
+            system=resolver_system,
+            kind="message_audit",
+            metadata={
+                "audit_of": message_id,
+                "recipient": recipient,
+            },
+        )
+    for index, attachment in enumerate(copied_attachments):
+        mime_type = str(attachment.get("mime_type") or "")
+        artifact_kind = "image" if mime_type.startswith("image/") else "file"
+        artifact_id = f"{message_id}:{index}"
+        directory.remember(
+            artifact_id,
+            str(attachment.get("name") or attachment.get("path") or artifact_id),
+            system=resolver_system,
+            kind=artifact_kind,
+            metadata={
+                "message_id": message_id,
+                "path": str(attachment.get("path") or ""),
+                "mime_type": mime_type,
+                "sha256": str(attachment.get("sha256") or ""),
+                "size": int(attachment.get("size") or 0),
+            },
+        )
     return record
 
 

@@ -16,6 +16,7 @@ from ..connector_registry import connectors_for
 from ..delivery_ledger import DeliveryLedger, endpoint_id, with_origin
 from ..endpoint_address import subscription_recipients
 from ..attachment_gateway import attachment_url
+from ..identifier_directory import IdentifierDirectory
 
 
 SocketFactory = Callable[[tuple[str, int], float], socket.socket]
@@ -155,6 +156,22 @@ class IrcAdapter:
         if nickname.casefold() == own_nick.casefold():
             return
         connector = self.connector or {}
+        system = f"irc/{self.irc_instance or str(connector.get('server') or '').strip().lower()}"
+        directory = IdentifierDirectory(mailbox.mailbox_dir())
+        directory.remember(
+            target,
+            target,
+            system=system,
+            kind="mailbox",
+            metadata={"mailbox": target},
+        )
+        directory.remember(
+            nickname,
+            nickname,
+            system=system,
+            kind="user",
+            metadata={"irc_prefix": prefix, "mailbox": target},
+        )
         recipients = list(dict.fromkeys([
             *([str(connector["bridge_agent"])] if connector.get("bridge_agent") else []),
             *connector.get("mailbox_recipients", []),
