@@ -209,6 +209,67 @@ def test_agent_mailbox_post_fans_out_to_other_subscribers_once(tmp_path: Path, m
     assert agent_mailbox.receive("omegaclaw-core-codex", root=tmp_path) == []
 
 
+def test_duplicate_mattermost_source_is_suppressed_per_channel(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.setenv("MM_URL", "https://mattermost.example")
+    monkeypatch.setenv("MM_BOT_TOKEN", "token")
+    monkeypatch.setenv("MM_MAILBOX_ID", "mailbox")
+    connector = {
+        "id": "mattermost-main", "direction": "bidirectional", "mailbox_ids": ["mailbox"],
+        "mailbox_recipients": ["pytest-tmp-666-agent"],
+    }
+    monkeypatch.setattr(
+        "mailbox_chat.adapters.mattermost_adapter.connectors_for",
+        lambda adapter, **_kwargs: [connector] if adapter == "mattermost" else [],
+    )
+    relay = MattermostRelay(session=Session())
+    assert relay.configure() is True
+    relay._connect()
+
+    relay._latest_create_at["mailbox"] = 0
+    relay._poll_inbound(relay.base_url)
+    relay._latest_create_at["mailbox"] = 0
+    relay._poll_inbound(relay.base_url)
+
+    received = [
+        item for item in agent_mailbox.receive("pytest-tmp-666-agent", root=tmp_path)
+        if item["type"] == "mattermost_message"
+    ]
+    assert len(received) == 1
+
+
+def test_mattermost_configures_one_adapter_per_connector(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.setenv("MM_TOKEN_A", "token-a")
+    monkeypatch.setenv("MM_TOKEN_B", "token-b")
+    connectors = [
+        {
+            "id": "mattermost-a", "adapter": "mattermost", "direction": "bidirectional",
+            "base_url": "https://chat.example", "token_env": "MM_TOKEN_A", "mailbox_ids": ["test"],
+        },
+        {
+            "id": "mattermost-b", "adapter": "mattermost", "direction": "bidirectional",
+            "base_url": "https://chat.example", "token_env": "MM_TOKEN_B", "mailbox_ids": ["test"],
+        },
+    ]
+    monkeypatch.setattr(
+        "mailbox_chat.adapters.mattermost_adapter.connectors_for",
+        lambda adapter, **_kwargs: connectors if adapter == "mattermost" else [],
+    )
+    monkeypatch.setattr(
+        "mailbox_chat.mailbox_relay.connectors_for",
+        lambda adapter, **_kwargs: connectors if adapter == "mattermost" else [],
+    )
+
+    relay = ChannelRelay(session=Session())
+    assert relay.configure() is True
+    assert relay.mattermost_enabled is True
+    assert [str(adapter.connector.get("id") or "") for adapter in relay.mattermost_adapters] == [
+        "mattermost-a", "mattermost-b",
+    ]
+    assert [adapter.default_mailbox for adapter in relay.mattermost_adapters] == ["test", "test"]
+
+
 def test_adapter_state_is_always_published_to_server_events_log(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
     config = tmp_path / "config"
