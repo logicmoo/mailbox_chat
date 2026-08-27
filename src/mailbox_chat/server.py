@@ -43,6 +43,7 @@ from .attachment_storage import (
 )
 from .sqlite_limits import DEFAULT_MAX_SQLITE_BYTES, MAX_SQLITE_ENV
 from .identifier_directory import IdentifierDirectory
+from .bootstrap_config import BOOTSTRAP_CONFIG_DIR_ENV, bootstrap_mailbox_state
 from .meta_webhooks import verify_challenge, verify_signature
 from .subscriptions import set_subscription, subscriptions
 from .cmd_client_page import (
@@ -130,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mailbox-dir", type=Path, help="mailbox data directory")
     parser.add_argument("--config-dir", type=Path, help="directory containing .env and mailboxes.json")
     parser.add_argument(
+        "--bootstrap-config-dir", type=Path,
+        help="directory containing server_builtin_agents.json, server_config_connectors.json, "
+             f"and server_config_mailboxes.json (environment: {BOOTSTRAP_CONFIG_DIR_ENV}; "
+             "default: <mailbox-dir>/config)",
+    )
+    parser.add_argument(
         "--public-address", "--public-url", dest="public_url", default=os.environ.get(PUBLIC_URL_ENV),
         help=f"externally reachable base URL advertised to clients and used for attachment links "
              f"(environment: {PUBLIC_URL_ENV})",
@@ -188,6 +195,10 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.token:
         os.environ[TOKEN_ENV] = arguments.token
     mailbox_root = agent_mailbox.mailbox_dir()
+    bootstrap_report = bootstrap_mailbox_state(
+        mailbox_root,
+        config_dir=arguments.bootstrap_config_dir,
+    )
     public_url = arguments.public_url
     if not public_url:
         advertised_host = "127.0.0.1" if arguments.host in {"127.0.0.1", "localhost"} else socket.getfqdn()
@@ -211,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
         "verboseLevel": arguments.verbose,
         "maintenancePaused": False,
         "cycleActive": False,
+        "bootstrap": bootstrap_report,
     })
 
     restart_state = {"exit_code": 0}

@@ -1,0 +1,94 @@
+{
+  "id": "mailbox_chat",
+  "label": "Mailbox Chat",
+  "description": "Durable mailbox relay that bridges chat networks (IRC, Discord, Slack, Matrix/Element, Telegram, WhatsApp, Mattermost, Viber, LINE, Discourse, and more) through per-adapter connectors. Every connected IRC channel or client -- and every other adapter's channel or client -- gets its own mailbox, so cross-adapter communication (an IRC channel talking to a Discord channel, say) flows through one shared, durable message store. While relaying, it also converts between each adapter's differing capabilities (formatting, attachments, threads, presence) so a message composed for one network still makes sense on another.",
+  "summary": "Run the Mailbox Chat relay, review its adapters, and open its command console.",
+  "version": "1.0.0",
+  "entrypoint": "plugin.py",
+  "scan": "startup",
+  "routePrefix": "/mailbox_chat",
+  "configPage": "http://127.0.0.1:5173/mailbox_chat/cmd-client",
+  "mailboxEndpoint": {
+    "path": "/mailbox_chat/v1/registry",
+    "protocol": "registry",
+    "websocket": "/mailbox_chat/v1/chat/ws",
+    "description": "Public registry of agents, connectors, and subscribable mailboxes. Directory only: messages use recipient-cursor semantics (/v1/messages?recipient=), not browsable streams."
+  },
+  "servicesEndpoint": {
+    "path": "/api/plugins/mailbox_chat/endpoints",
+    "description": "Workbench enumerator (the relay is a plain http.server with no native endpoint list; this names its proxy mounts)."
+  },
+  "docs": "DOCS.md",
+  "kind": "custom",
+  "requestTimeoutSeconds": 0,
+  "plugin-install": {
+    "requires": [],
+    "install": "python -m pip install -e \".[dev]\"",
+    "files": [],
+    "steps": [
+      "Install the mailbox_chat package into its own nested .venv (it is a vendored, standalone-only project -- there is no in-process/embedded mode).",
+      "Start the standalone relay: mailbox-server.cmd, or `python -m mailbox_chat.server` (the plugin loader also launches it on demand).",
+      "Open the command console (/cmd-client) and confirm the configured adapters answer."
+    ]
+  },
+  "plugin-init": [
+    {
+      "command": "web_proxy",
+      "description": "Redirects /mailbox_chat to the Mailbox Chat relay.",
+      "redirect": "http://127.0.0.1:46667",
+      "path": "/mailbox_chat"
+    }
+  ],
+  "plugin-uninstall": {
+    "uninstall": null,
+    "steps": [
+      "Stop the standalone relay: mailbox-stop.cmd (or terminate the process this plugin's launch() spawned).",
+      "This is a vendored nested project (its own .git, its own origin remote) -- remove its directory entirely to uninstall it, or leave it and just disable scanning it (set scan: disabled in plugins.json)."
+    ]
+  },
+  "plugin-lifecycle": {
+    "standalone": true,
+    "hooks": {
+      "install": null,
+      "installAfter": null,
+      "uninstall": null,
+      "uninstallAfter": null,
+      "workbenchStartup": null,
+      "workbenchStartupAfter": null,
+      "workbenchShutdown": null,
+      "workbenchShutdownAfter": null,
+      "workspaceStartup": null,
+      "workspaceStartupAfter": null,
+      "workspaceShutdown": null,
+      "workspaceShutdownAfter": null
+    },
+    "note": "Standalone-only: this is a vendored nested project (its own .git, its own requirements.txt/venv) with no embedded mode. Its 'install' phase is a standalone install (`python -m pip install -e \".[dev]\"` in its own directory), and it owns its own process start/stop, so a workbench restart does not restart it -- workbenchShutdown, if implemented, is only a heads-up notification, never a signal to stop or restart the relay."
+  },
+  "plugin-api": {
+    "status": { "method": "GET", "path": "/mailbox_chat/health", "description": "Relay/mailbox/adapter status (equivalent to /mailbox_chat/v1/status)." },
+    "config": { "method": "GET", "path": "/mailbox_chat/cmd-client", "description": "Interactive command console (same page as configPage)." },
+    "restart": { "method": "GET", "path": "/mailbox_chat/api/restart", "description": "Exits the relay process so its supervising loop relaunches it with any updated code. Requires the same bearer token as every other authenticated route." },
+    "shutdown": { "method": "GET", "path": "/mailbox_chat/api/shutdown", "description": "Exits the relay process and does not relaunch it. Requires the same bearer token as every other authenticated route." },
+    "note": "restart/shutdown are real routes on the relay's own server (see server.py's do_GET), unlike every other plugin here -- but they stop mailbox_chat's own standalone process, not the embedded workbench API, and are unrelated to the workbenchShutdown lifecycle hook."
+  },
+  "ui": {
+    "pages": [
+      {
+        "id": "configure",
+        "label": "Mailbox Chat Console",
+        "kind": "configure",
+        "descriptor": "http://127.0.0.1:5173/mailbox_chat/cmd-client",
+        "glyph": "\u2709",
+        "group": "WORKSPACE"
+      },
+      {
+        "id": "status",
+        "label": "Mailbox Chat Status",
+        "kind": "user",
+        "descriptor": "http://127.0.0.1:5173/mailbox_chat/v1/status",
+        "glyph": "\u25c9",
+        "group": "RUNTIME"
+      }
+    ]
+  }
+}
