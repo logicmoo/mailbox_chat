@@ -1463,7 +1463,7 @@ def build_parser() -> argparse.ArgumentParser:
         "mailboxes", help="list external mailboxes we hold a presence on and handle",
         description="List external mailboxes (IRC/Mattermost/etc.) where we have a bot presence "
                     "and are handling messages. Use 'mailboxes' for local streams and the chat "
-                    "'list' command to discover mailboxes we are not on.",
+                    "'list' command to discover chats we are not on.",
         epilog="Example: mailbox-client mailboxes",
     )
     commands.add_parser(

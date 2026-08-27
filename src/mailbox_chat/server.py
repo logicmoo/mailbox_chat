@@ -15,6 +15,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from dotenv import load_dotenv
@@ -77,6 +78,38 @@ def _safe_write_status(relay: ChannelRelay) -> None:
         _write_status(relay)
     except OSError as error:
         relay.status["statusWriteError"] = str(error)
+
+
+def _mailbox_listing_payload(registry: dict[str, Any] | None = None) -> dict[str, Any]:
+    snapshot = registry if isinstance(registry, dict) else public_registry()
+    mailboxes = list(snapshot.get("mailboxes") or [])
+    return {
+        "version": int(snapshot.get("version") or 1),
+        "mailboxes": mailboxes,
+        "count": len(mailboxes),
+    }
+
+
+def _service_listing_payload(registry: dict[str, Any] | None = None) -> dict[str, Any]:
+    snapshot = registry if isinstance(registry, dict) else public_registry()
+    connectors = list(snapshot.get("connectors") or [])
+    services = [
+        {
+            "id": str(connector.get("id") or ""),
+            "adapter": str(connector.get("adapter") or ""),
+            "instance": str(connector.get("instance") or ""),
+            "enabled": bool(connector.get("enabled")),
+            "can_listen": bool(connector.get("can_listen")),
+            "can_send": bool(connector.get("can_send")),
+            "mailbox_ids": list(connector.get("mailbox_ids") or []),
+        }
+        for connector in connectors
+    ]
+    return {
+        "version": int(snapshot.get("version") or 1),
+        "services": services,
+        "count": len(services),
+    }
 
 
 def run_relay_supervisor(relay: ChannelRelay, *, sleep=time.sleep, verbose: int = 0) -> None:
@@ -440,21 +473,21 @@ def main(argv: list[str] | None = None) -> int:
                     "capabilities": ADAPTER_CAPABILITIES,
                 })
                 return
-            if parsed.path == "/v1/discovery/mailboxes":
+            if parsed.path == "/v1/discovery/chats":
                 query = parse_qs(parsed.query)
                 platform = query.get("platform", [""])[0].strip().lower()
                 instance = query.get("instance", [""])[0].strip()
                 try:
                     timeout = float(query.get("timeout", ["30"])[0])
                     if platform == "irc":
-                        from .discovery_admin import discover_irc_mailboxes
-                        mailboxes = discover_irc_mailboxes(instance=instance, timeout=timeout)
+                        from .discovery_admin import discover_irc_chats
+                        chats = discover_irc_chats(instance=instance, timeout=timeout)
                     elif platform == "discord":
-                        from .discovery_admin import discover_discord_mailboxes
-                        mailboxes = discover_discord_mailboxes(instance=instance, timeout=timeout)
+                        from .discovery_admin import discover_discord_chats
+                        chats = discover_discord_chats(instance=instance, timeout=timeout)
                     else:
-                        raise ValueError("mailbox discovery currently supports platform=irc or platform=discord")
-                    self._json(200, {"platform": platform, "mailboxes": mailboxes})
+                        raise ValueError("chat discovery currently supports platform=irc or platform=discord")
+                    self._json(200, {"platform": platform, "chats": chats})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
@@ -482,6 +515,18 @@ def main(argv: list[str] | None = None) -> int:
             if parsed.path == "/v1/registry":
                 try:
                     self._json(200, public_registry())
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    self._json(500, {"error": str(error)})
+                return
+            if parsed.path == "/v1/mailboxes":
+                try:
+                    self._json(200, _mailbox_listing_payload())
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    self._json(500, {"error": str(error)})
+                return
+            if parsed.path == "/v1/services":
+                try:
+                    self._json(200, _service_listing_payload())
                 except (OSError, ValueError, json.JSONDecodeError) as error:
                     self._json(500, {"error": str(error)})
                 return

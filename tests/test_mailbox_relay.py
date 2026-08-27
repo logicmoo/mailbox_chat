@@ -61,7 +61,7 @@ class Session:
         return Response({"order": ["p1"], "posts": {"p1": post}})
 
     def post(self, url, **kwargs):
-        if url.endswith("/mailboxes/direct"):
+        if url.endswith("/channels/direct"):
             self.direct_requests.append(kwargs["json"])
             return Response({"id": "direct-mailbox"})
         self.posts.append(kwargs["json"])
@@ -192,7 +192,7 @@ def test_agent_mailbox_post_fans_out_to_other_subscribers_once(tmp_path: Path, m
     session.empty_mailbox = True
     relay.cycle()
 
-    assert session.posts == [{"mailbox_id": "mailbox", "message": request["text"], "file_ids": []}]
+    assert session.posts == [{"channel_id": "mailbox", "message": request["text"], "file_ids": []}]
     assert agent_mailbox.receive("symbolic-workbench-codex", root=tmp_path) == []
     for recipient in ("omegaclaw-core-codex", "omegaclaw-min"):
         copies = agent_mailbox.receive(recipient, root=tmp_path)
@@ -316,7 +316,7 @@ def test_mattermost_person_endpoint_resolves_dm_without_subscriber_fanout(tmp_pa
     relay.cycle()
 
     assert session.direct_requests == [["bot", "person-1"]]
-    assert session.posts == [{"mailbox_id": "direct-mailbox", "message": "private", "file_ids": []}]
+    assert session.posts == [{"channel_id": "direct-mailbox", "message": "private", "file_ids": []}]
     assert agent_mailbox.receive("omegaclaw-core-codex", root=tmp_path) == []
 
 
@@ -459,3 +459,70 @@ def test_relay_configures_one_irc_adapter_per_server_and_routes_outbound(monkeyp
     assert relay.irc_adapter_for(instance="irc.libera.chat").connector_id == "irc-libera"
     summary = relay._irc_status_summary()
     assert {server["connector_id"] for server in summary["servers"]} == {"irc-primary", "irc-libera"}
+
+
+def test_relay_suppresses_duplicate_irc_profiles(monkeypatch) -> None:
+    primary = {
+        "id": "irc-libera", "adapter": "irc", "direction": "bidirectional", "enabled": True,
+        "server": "irc.libera.chat", "mailbox_ids": ["##logicmoo"], "nickname": "prologmud",
+        "bridge_agent": "", "mailbox_recipients": [],
+    }
+    duplicate = {
+        "id": "irc-irc.libera.chat", "adapter": "irc", "direction": "bidirectional", "enabled": True,
+        "server": "irc.libera.chat", "mailbox_ids": ["##logicmoo"], "nickname": "prologmud",
+        "bridge_agent": "", "mailbox_recipients": [],
+    }
+    monkeypatch.setattr(
+        "mailbox_chat.adapters.mattermost_adapter.connectors_for",
+        lambda adapter, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "mailbox_chat.mailbox_relay.connectors_for",
+        lambda adapter, **_kwargs: [primary, duplicate] if adapter == "irc" else [],
+    )
+    relay = ChannelRelay(session=Session())
+    relay.configure()
+
+    assert [adapter.connector_id for adapter in relay.irc_adapters] == ["irc-libera"]
+    summary = relay._irc_status_summary()
+    assert summary["duplicates_suppressed"] == [{
+        "suppressed_connector_id": "irc-irc.libera.chat",
+        "kept_connector_id": "irc-libera",
+        "instance": "irc.libera.chat",
+        "nickname": "prologmud",
+        "mailbox_ids": ["##logicmoo"],
+    }]
+
+
+def test_relay_prefers_token_backed_mattermost_connectors(monkeypatch) -> None:
+    monkeypatch.setenv("MM_TOKEN_A", "token-a")
+    monkeypatch.setenv("MM_TOKEN_B", "token-b")
+    legacy = {
+        "id": "mm-chat-singularitynet-io", "adapter": "mattermost", "direction": "bidirectional",
+        "enabled": True, "base_url": "https://chat.singularitynet.io", "instance": "chat.singularitynet.io",
+        "mailbox_ids": ["one"],
+    }
+    bot_a = {
+        "id": "mattermost-snet-a", "adapter": "mattermost", "direction": "bidirectional",
+        "enabled": True, "base_url": "https://chat.singularitynet.io", "instance": "chat.singularitynet.io",
+        "token_env": "MM_TOKEN_A", "mailbox_ids": ["one"],
+    }
+    bot_b = {
+        "id": "mattermost-snet-b", "adapter": "mattermost", "direction": "bidirectional",
+        "enabled": True, "base_url": "https://chat.singularitynet.io", "instance": "chat.singularitynet.io",
+        "token_env": "MM_TOKEN_B", "mailbox_ids": ["one"],
+    }
+    monkeypatch.setattr(
+        "mailbox_chat.mailbox_relay.connectors_for",
+        lambda adapter, **_kwargs: [legacy, bot_a, bot_b] if adapter == "mattermost" else [],
+    )
+    monkeypatch.setattr(
+        "mailbox_chat.adapters.mattermost_adapter.connectors_for",
+        lambda adapter, **_kwargs: [legacy, bot_a, bot_b] if adapter == "mattermost" else [],
+    )
+    relay = ChannelRelay(session=Session())
+
+    assert relay.configure() is True
+    assert [str(adapter.connector.get("id") or "") for adapter in relay.mattermost_adapters] == [
+        "mattermost-snet-a", "mattermost-snet-b",
+    ]

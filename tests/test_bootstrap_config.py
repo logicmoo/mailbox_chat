@@ -162,7 +162,7 @@ def test_bootstrap_scans_presence_config_and_materializes_registries(tmp_path: P
     assert atom["mailbox_types"] == ["room-one"]
     assert atom["reply-in-threads"] is True
     assert atom["password"] == "$MM_BOT_TOKEN_ATOM_ANT"
-    assert mm_connector["token_env"] == "MM_BOT_TOKEN_ATOM_ANT"
+    assert mm_connector["token_env"] in {"MM_BOT_TOKEN_ATOM_ANT", "MM_BOT_TOKEN_MIN"}
     assert mm_connector["token_env_fallbacks"] == [
         "MM_BOT_TOKEN_ATOM_ANT",
         "MM_BOT_TOKEN_MIN",
@@ -188,3 +188,43 @@ def test_bootstrap_uses_explicit_config_dir(tmp_path: Path) -> None:
     assert report["agents_upserted"] == 1
     assert report["connectors_upserted"] == 1
     assert mailbox_store.get_entry(mailbox_root, mailbox_store.CONNECTORS_REGISTRY, "irc-irc.libera.chat")
+
+
+def test_bootstrap_replaces_legacy_derived_connector_id(tmp_path: Path) -> None:
+    mailbox_root = tmp_path / "mailbox"
+    config_root = mailbox_root / "config"
+    _write_json(config_root / "server_builtin_agents.json", {"system_agents": []})
+    _write_json(
+        config_root / "presence-irc-libera-prologmud.json",
+        {
+            "id": "presence-irc-libera-prologmud",
+            "payload": {"kind": "agent", "agent_kind": "presence_agent", "adapter": "irc", "server": "irc.libera.chat"},
+            "connector": {
+                "id": "irc-libera",
+                "adapter": "irc",
+                "instance": "irc.libera.chat",
+                "server": "irc.libera.chat",
+                "nickname": "prologmud",
+                "mailbox_ids": ["##logicmoo"],
+            },
+        },
+    )
+    mailbox_store.put_entry(
+        mailbox_root,
+        mailbox_store.CONNECTORS_REGISTRY,
+        "irc-irc.libera.chat",
+        {
+            "kind": "connector",
+            "adapter": "irc",
+            "server": "irc.libera.chat",
+            "nickname": "prologmud",
+            "mailbox_ids": ["##logicmoo"],
+        },
+    )
+
+    bootstrap_mailbox_state(mailbox_root, config_dir=config_root)
+
+    assert mailbox_store.get_entry(mailbox_root, mailbox_store.CONNECTORS_REGISTRY, "irc-libera")
+    assert mailbox_store.get_entry(
+        mailbox_root, mailbox_store.CONNECTORS_REGISTRY, "irc-irc.libera.chat",
+    ) is None

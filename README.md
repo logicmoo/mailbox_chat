@@ -126,25 +126,57 @@ Runtime PID, status, and logs are under `mailbox/runtime/mailbox-relay-PORT/`.
 
 ## REST mailbox API on port 46667
 
-```text
-GET  /health
-GET  /v1/status
-GET  /v1/adapters
-GET  /v1/registry
-GET  /v1/registry
-GET  /v1/cursors?cursor=AGENT_ID
-GET  /v1/messages?recipient=IDENTITY
-POST /v1/agents
-POST /v1/connectors
-POST /v1/mailboxes
-POST /v1/relays
-POST /v1/cursors
-POST /v1/messages
-POST /api/restart
-POST /api/shutdown
-GET  /page-demo
-GET  /cmd-client/?args=ARGUMENTS
-```
+### GET endpoints
+
+| Endpoint | Purpose | Required query fields | Typical status |
+|---|---|---|---|
+| `/` | Health/status alias | none | `200` |
+| `/health` | Health/status alias | none | `200` |
+| `/v1/status` | Runtime state, connector lifecycle, mailbox root | none | `200` |
+| `/v1/adapters` | Supported/planned adapters + capabilities | none | `200` |
+| `/v1/registry` | Public registry snapshot (`agents`, `connectors`, `mailboxes`, `relays`) | none | `200` |
+| `/v1/services` | Service map summary by connector/service | none | `200` |
+| `/v1/mailboxes` | Mailbox listing summary | none | `200` |
+| `/v1/subscriptions` | Subscriptions for one identity | `identity` | `200`, `400` if missing |
+| `/v1/cursors` | Cursor recipients and positions | `cursor` | `200`, `400` if missing |
+| `/v1/messages` | Receive/peek mailbox messages | `recipient` (optional: `advance`, `cursor`) | `200`, `400` if missing recipient |
+| `/v1/identifiers` | Identifier directory search | optional: `system`, `identifier`, `text`, `kind`, `limit` | `200`, `400` for invalid `limit` |
+| `/v1/identifier-resolution-requests` | Requested unresolved identifiers | optional: `system`, `identifier` | `200` |
+| `/v1/discovery/chats` | Platform chat discovery (WhatsApp groups, IRC channels, Discord text channels, etc.) | `platform` (`irc` or `discord`), optional `instance`, `timeout` | `200`, `400` when unsupported platform or missing adapter creds |
+| `/v1/discovery/users` | Platform user/member discovery | `platform`, `mailbox`, optional `instance`, `timeout` | `200`, `400` when mailbox missing/unsupported platform |
+| `/v1/chat/ws` | WebSocket mailbox chat endpoint | WebSocket upgrade + `recipient` | `101`, `400` when upgrade/recipient missing |
+| `/cmd-client/` | Browser mailbox-client console | optional `args` | `200` |
+| `/cmd-client/output` | Poll command session output/status | `session` | `200`, `404` unknown session |
+
+### POST endpoints
+
+| Endpoint | Purpose | Notes |
+|---|---|---|
+| `/v1/messages` | Send message | JSON body with `to` and message fields |
+| `/v1/ack` | Explicit acknowledgement | Updates recipient cursor for one message |
+| `/v1/cursors` | Cursor mutations | Create/move/reset cursor positions |
+| `/v1/agents` | Add/remove agent presence metadata | `action: "delete"` for remove |
+| `/v1/connectors` | Add/remove connector registry records | `action: "delete"` for remove |
+| `/v1/mailboxes` | Add/remove mailbox metadata and optional subscriptions | `action: "delete"` for remove |
+| `/v1/relays` | Add/remove relay routes | `action: "delete"` for remove |
+| `/v1/subscriptions` | Enable/disable mailbox subscriptions | Identity-scoped subscription changes |
+| `/v1/identifiers` | Upsert identifier mapping entries | Structured identifier registry writes |
+| `/v1/identifier-resolution-requests` | Submit resolution requests | Tracks unresolved IDs for later merge |
+| `/v1/irc/command` | IRC admin/list/discovery commands | Adapter must be enabled |
+| `/v1/mm/command` | Mattermost admin/list/discovery commands | Adapter must be enabled |
+| `/v1/exec` | Run/enqueue mailbox-client work items | Supports `priority` now/enque/follow-enque |
+| `/v1/maintenance/pause` | Pause relay cycle for maintenance | Requires auth when token is configured |
+| `/v1/maintenance/resume` | Resume relay cycle | Requires auth when token is configured |
+| `/v1/maintenance/trim` | Trim message store by retention/default | Requires paused+quiesced server |
+| `/v1/maintenance/trim-before` | Trim message store before explicit time | Requires paused+quiesced server |
+| `/v1/maintenance/trim-to-size` | Trim message store by size | Requires paused+quiesced server |
+| `/api/restart` | Restart relay process (loop relaunch) | Accepts GET or POST |
+| `/api/shutdown` | Stop relay process (loop exit 42) | Accepts GET or POST |
+
+`/v1/connectors` and `/v1/relays` are POST-only routes, so `GET` on those paths
+returns `404 {"error":"not found"}` by design. Discovery routes use
+`/v1/discovery/*` (not `/v1/discover/*`), and `/v1/discovery/chats` is the
+canonical route.
 
 Every `mailbox-client` action has a REST equivalent, so a remote client (`--url`)
 can do everything a local one can. The registry-mutating commands map to
@@ -298,7 +330,7 @@ mailbox-client --url http://127.0.0.1:46667 --as symbolic-workbench-codex `
 `mailboxes` lists external mailboxes we hold a presence on and are handling
 (IRC/Mattermost/etc.). `mailboxes` is the full local catalog of cursor-consumed
 streams: agent inboxes, server/audit streams, and the local mailbox view of
-external mailboxes. To discover mailboxes we are *not* on, use the chat `list`
+external mailboxes. To discover chats we are *not* on, use the chat `list`
 command. `agents` lists
 all registered messageable agents, including their presences. Each entry also
 includes its private `agent_mailbox` and a flat
@@ -380,15 +412,15 @@ temporary subscription and automatically unsubscribes that temporary mailbox
 when the console switches elsewhere. Both make the selected conversation the
 default source and destination. `/leave` explicitly removes either kind.
 
-List mailboxes visible to the configured IRC account with the IRC `LIST`
-protocol and save their names, topics, and visible-user counts in the registry:
+List chats visible to the configured IRC account with the IRC `LIST` protocol
+and save their names, topics, and visible-user counts in the registry:
 
 ```powershell
-mailbox-client discover mailboxes --platform irc
+mailbox-client discover chats --platform irc
 mailbox-client discover users --platform irc --mailbox irc/0/testing
 ```
 
-From a console connected to the server, use `/discover mailboxes --platform
+From a console connected to the server, use `/discover chats --platform
 irc` or `/discover users --platform irc --mailbox irc/0/testing`. User discovery
 uses IRC `NAMES`, retains status prefixes such as operator (`@`) and voice (`+`),
 and saves each nickname in the registry with its mailbox context. Some IRC
@@ -438,7 +470,7 @@ Every trim creates a timestamped backup and remaps durable cursor offsets.
 Finish with `POST /v1/maintenance/resume`.
 
 With no `--on` selector, `mailbox-client list` visits every enabled configured
-provider and groups the mailbox results by provider. An unavailable provider is
+provider and groups the chat results by provider. An unavailable provider is
 reported in its own result instead of hiding successful results from the other
 providers. Use `--on TYPE/INSTANCE` to restrict listing to one provider:
 
@@ -450,7 +482,7 @@ mailbox-client list --on mm/chat.singularitynet.io
 The same top-level commands operate on Mattermost when an `mm/INSTANCE/ID`
 address is supplied. For commands without a mailbox argument, select the
 platform instance with `--on mm/INSTANCE`. The relay maps the operations to
-mailbox listing, membership, headers, bot nickname, user lookup, visibility,
+chat listing, membership, headers, bot nickname, user lookup, visibility,
 posts, notices, and constrained authenticated `/api/v4/` requests. For example:
 
 ```powershell
@@ -653,12 +685,18 @@ legacy fallback when the JSON connector omits those fields.
 For multi-bot Mattermost operation, declare one connector per bot token and
 point them at the same `mailbox_ids` channel(s). The relay deduplicates inbound
 events per channel/source so mirrored listeners do not fan out duplicates.
+Set each connector's `instance` in config to the service FQDN (for SNET:
+`chat.singularitynet.io`) so endpoint routing is stable and explicit.
 
 To surface when one listener falls behind the others on the same channel, set:
 
 ```dotenv
 MATTERMOST_CHANNEL_LAG_WARNING_SECONDS=180
 ```
+
+For IRC, set each connector `id` + `instance` explicitly (for Libera:
+`irc.libera.chat`). Connectors with the same server FQDN, nickname, and mailbox
+set are treated as duplicates and only one live connection is started.
 
 Never store tokens in workspace resources, workflow files, mailbox records, or
 this README. Remote-machine access should be provided through an authenticated

@@ -129,8 +129,6 @@ def _merge_connector_payload(existing: dict[str, Any], incoming: dict[str, Any])
             continue
         if value is None:
             continue
-        if key == "token_env" and str(merged.get("token_env") or "").strip():
-            continue
         if isinstance(value, str):
             if not value.strip() and str(merged.get(key) or "").strip():
                 continue
@@ -146,7 +144,12 @@ def _merge_connector_payload(existing: dict[str, Any], incoming: dict[str, Any])
     ]
     token_envs = [value for value in dict.fromkeys(token_envs) if value]
     if token_envs:
-        merged["token_env"] = str(merged.get("token_env") or token_envs[0]).strip() or token_envs[0]
+        preferred_token_env = (
+            str(incoming.get("token_env") or "").strip()
+            or str(merged.get("token_env") or "").strip()
+            or token_envs[0]
+        )
+        merged["token_env"] = preferred_token_env
         merged["token_env_fallbacks"] = token_envs
 
     merged["mailbox_ids"] = list(dict.fromkeys([
@@ -230,6 +233,25 @@ def _derive_connector_id(record: dict[str, Any]) -> str:
     if host:
         return f"{adapter}-{_clean_name(host)}"
     return f"{adapter}-default"
+
+
+def _connector_signature(record: dict[str, Any]) -> tuple[str, str, str]:
+    adapter = str(record.get("adapter") or "").strip().lower()
+    host = _endpoint_host(
+        str(
+            record.get("base_url")
+            or record.get("endpoint")
+            or record.get("server")
+            or record.get("instance")
+            or "",
+        )
+    )
+    discriminator = ""
+    if adapter == "irc":
+        discriminator = str(record.get("nickname") or "").strip().casefold()
+    elif adapter == "mattermost":
+        discriminator = str(record.get("token_env") or "").strip()
+    return adapter, host, discriminator
 
 
 def _looks_like_mailbox(record: dict[str, Any]) -> bool:
@@ -410,6 +432,16 @@ def bootstrap_mailbox_state(
             merged_payload["bridge_agent"] = declared_by_agent
         merged_payload["id"] = connector_id
         mailbox_store.put_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id, merged_payload)
+        explicit_id = str(record.get("id") or "").strip()
+        if explicit_id:
+            derived_payload = dict(merged_payload)
+            derived_payload.pop("id", None)
+            legacy_id = _derive_connector_id(derived_payload)
+            if legacy_id and legacy_id != connector_id:
+                legacy_entry = mailbox_store.get_entry(root, mailbox_store.CONNECTORS_REGISTRY, legacy_id)
+                legacy_payload = _as_dict((legacy_entry or {}).get("payload"))
+                if legacy_payload and _connector_signature(legacy_payload) == _connector_signature(merged_payload):
+                    mailbox_store.delete_entry(root, mailbox_store.CONNECTORS_REGISTRY, legacy_id)
         upserted_connectors.add(connector_id)
         connector_ids.add(connector_id)
         adapter = str(merged_payload.get("adapter") or "").strip().lower()

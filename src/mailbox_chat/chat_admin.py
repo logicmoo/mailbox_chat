@@ -172,13 +172,13 @@ def _remote_discovery_list(url: str, token: str, platform: str) -> dict:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     with urllib.request.urlopen(urllib.request.Request(
-        f"{url.rstrip('/')}/v1/discovery/mailboxes?{query}", headers=headers,
+        f"{url.rstrip('/')}/v1/discovery/chats?{query}", headers=headers,
     ), timeout=35) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
-    """List mailboxes from every configured, enabled provider with discovery support."""
+    """List chats from every configured, enabled provider with discovery support."""
     connectors = [item for item in load_connectors() if item["enabled"]]
     providers: list[dict] = []
     new_entries = 0
@@ -198,13 +198,13 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
                 providers.append({"provider": "mm", "result": response.get("result", response)})
             elif adapter == "irc":
                 response = _remote_discovery_list(args.url, token, "irc")
-                providers.append({"provider": "irc", "result": response.get("mailboxes", response)})
+                providers.append({"provider": "irc", "result": response.get("chats", response.get("mailboxes", response))})
             elif adapter == "discord":
                 response = _remote_discovery_list(args.url, token, "discord")
-                providers.append({"provider": "discord", "result": response.get("mailboxes", response)})
+                providers.append({"provider": "discord", "result": response.get("chats", response.get("mailboxes", response))})
             else:
                 providers.append({"provider": adapter,
-                                  "error": "mailbox listing is not implemented by this adapter"})
+                                  "error": "chat listing is not implemented by this adapter"})
         except Exception as error:  # One unavailable provider must not hide the others.
             providers.append({"provider": "mm" if adapter == "mattermost" else adapter,
                               "error": str(error)})
@@ -228,7 +228,7 @@ def _command_curl(args: argparse.Namespace, token: str, platform: str,
     if args.command in {"teams", "threads"}:
         raise ValueError(f"{args.command} is not available on IRC")
     if args.command == "list":
-        return _discovery_curl(base, token, "mailboxes", 30.0)
+        return _discovery_curl(base, token, "chats", 30.0)
     if args.command == "names":
         return _discovery_curl(base, token, "users", 15.0, args.mailbox)
     return curl_command("POST", f"{base}/v1/irc/command", token=token,
@@ -249,10 +249,10 @@ def _list_all_curl(args: argparse.Namespace, token: str) -> list[str]:
                 payload={"command": "list", "arguments": mm_arguments}))
         elif adapter == "irc":
             query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "mailbox": ""})
-            lines.append(curl_command("GET", f"{base}/v1/discovery/mailboxes?{query}", token=token))
+            lines.append(curl_command("GET", f"{base}/v1/discovery/chats?{query}", token=token))
         elif adapter == "discord":
             query = urllib.parse.urlencode({"platform": "discord", "timeout": 30.0, "mailbox": ""})
-            lines.append(curl_command("GET", f"{base}/v1/discovery/mailboxes?{query}", token=token))
+            lines.append(curl_command("GET", f"{base}/v1/discovery/chats?{query}", token=token))
     return lines
 
 

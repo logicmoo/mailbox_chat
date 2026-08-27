@@ -176,6 +176,7 @@ class ChannelRelay(MattermostRelay):
         self.irc = irc_adapter or IrcAdapter()
         self._injected_irc = irc_adapter
         self.irc_adapters: list[IrcAdapter] = []
+        self._irc_duplicates_suppressed: list[dict[str, Any]] = []
         self.discord = discord_adapter or DiscordAdapter()
         self.matrix = matrix_adapter or MatrixAdapter()
         self.slack = slack_adapter or SlackAdapter()
@@ -188,6 +189,7 @@ class ChannelRelay(MattermostRelay):
         self.whatsapp_personal = WhatsAppPersonalAdapter()
         self.mattermost_enabled = False
         self.mattermost_adapters: list[MattermostRelay] = []
+        self._mattermost_connector_status: dict[str, dict[str, Any]] = {}
         self.delivery_ledger = DeliveryLedger(self._mailbox().mailbox_dir())
         self._adapter_event_states: dict[str, str] = {}
         self._mattermost_channel_lagging: dict[str, bool] = {}
@@ -319,7 +321,36 @@ class ChannelRelay(MattermostRelay):
         return enabled
 
     def _configure_mattermost(self) -> bool:
-        connectors = list(connectors_for("mattermost"))
+        raw_connectors = list(connectors_for("mattermost"))
+        self._mattermost_connector_status = {}
+        token_backed_instances = {
+            endpoint_instance("mattermost", connector)
+            for connector in raw_connectors
+            if str(connector.get("token_env") or "").strip()
+        }
+        connectors: list[dict[str, Any]] = []
+        for connector in raw_connectors:
+            connector_id = str(connector.get("id") or "")
+            instance = endpoint_instance("mattermost", connector)
+            if instance and instance in token_backed_instances and not str(
+                connector.get("token_env") or ""
+            ).strip():
+                self._mattermost_connector_status[connector_id] = {
+                    "enabled": False,
+                    "connected": False,
+                    "lastError": (
+                        "Skipped legacy connector because token-backed bot connectors "
+                        f"are configured for {instance}"
+                    ),
+                    "mailboxes": list(connector.get("mailbox_ids") or []),
+                }
+                self._log(
+                    "skipping legacy mattermost connector "
+                    f"{connector.get('id') or '<unknown>'} on {instance} "
+                    "because token-backed bot connectors are configured",
+                )
+                continue
+            connectors.append(connector)
         adapters: list[MattermostRelay] = []
         if not connectors:
             self.mattermost_enabled = super().configure()
@@ -342,6 +373,13 @@ class ChannelRelay(MattermostRelay):
                 )
             except Exception as error:
                 raise RuntimeError(f"mattermost configuration failed: {error}") from error
+            connector_id = str(connector.get("id") or "")
+            self._mattermost_connector_status[connector_id] = {
+                "enabled": bool(adapter.status.get("enabled")),
+                "connected": bool(adapter.status.get("connected") and getattr(adapter, "_bot_user_id", "")),
+                "lastError": adapter.status.get("lastError"),
+                "mailboxes": list(adapter.status.get("mailboxes") or connector.get("mailbox_ids") or []),
+            }
             if not enabled:
                 if adapter.status.get("lastError"):
                     self._log(f"mattermost adapter disabled: {adapter.status['lastError']}")
@@ -361,7 +399,34 @@ class ChannelRelay(MattermostRelay):
         """Build one IRC adapter per configured IRC connector (multi-server)."""
         connectors = list(connectors_for("irc"))
         adapters: list[IrcAdapter] = []
+        self._irc_duplicates_suppressed = []
+        seen_profiles: dict[tuple[str, str, tuple[str, ...]], str] = {}
         for index, connector in enumerate(connectors):
+            instance = endpoint_instance("irc", connector)
+            nickname = str(connector.get("nickname") or "").strip().casefold()
+            mailbox_ids = tuple(sorted(
+                str(mailbox_id).strip()
+                for mailbox_id in connector.get("mailbox_ids", [])
+                if str(mailbox_id).strip()
+            ))
+            profile = (instance, nickname, mailbox_ids)
+            connector_id = str(connector.get("id") or index)
+            if profile in seen_profiles:
+                original = seen_profiles[profile]
+                self._irc_duplicates_suppressed.append({
+                    "suppressed_connector_id": connector_id,
+                    "kept_connector_id": original,
+                    "instance": instance,
+                    "nickname": str(connector.get("nickname") or ""),
+                    "mailbox_ids": list(mailbox_ids),
+                })
+                self._log(
+                    f"skipping duplicate IRC connector {connector_id} for "
+                    f"{instance} nick {connector.get('nickname') or ''} "
+                    f"(already using {original})",
+                )
+                continue
+            seen_profiles[profile] = connector_id
             adapter = (self._injected_irc if index == 0 and self._injected_irc is not None
                        else IrcAdapter())
             try:
@@ -404,20 +469,37 @@ class ChannelRelay(MattermostRelay):
                    for adapter in self.mattermost_adapters)
 
     def _mattermost_status_summary(self) -> dict[str, Any]:
+        configured = list(connectors_for("mattermost"))
+        active_by_id = {
+            str(adapter.connector.get("id") or ""): adapter
+            for adapter in self.mattermost_adapters
+            if str(adapter.connector.get("id") or "")
+        }
+        servers: list[dict[str, Any]] = []
+        for index, connector in enumerate(configured):
+            connector_id = str(connector.get("id") or "")
+            instance = endpoint_instance("mattermost", connector)
+            adapter = active_by_id.get(connector_id)
+            status = self._mattermost_connector_status.get(connector_id, {})
+            servers.append({
+                "name": "mattermost" if index == 0 else f"mattermost:{connector_id or index}",
+                "connector_id": connector_id,
+                "instance": instance,
+                "enabled": bool(status.get("enabled", bool(adapter))),
+                "connected": bool(
+                    status.get("connected", False)
+                    or (adapter and adapter.status.get("connected") and getattr(adapter, "_bot_user_id", ""))
+                ),
+                "lastError": status.get("lastError"),
+                "mailboxes": list(
+                    status.get("mailboxes")
+                    or (list(adapter.status.get("mailboxes") or []) if adapter else list(connector.get("mailbox_ids") or []))
+                ),
+            })
         return {
             "enabled": self.mattermost_enabled,
             "connected": self._mattermost_connected(),
-            "servers": [
-                {
-                    "name": "mattermost" if index == 0 else (
-                        f"mattermost:{adapter.connector.get('id') or index}"
-                    ),
-                    "connector_id": str(adapter.connector.get("id") or ""),
-                    "instance": endpoint_instance("mattermost", adapter.connector),
-                    **adapter.status,
-                }
-                for index, adapter in enumerate(self.mattermost_adapters)
-            ],
+            "servers": servers,
         }
 
     def _irc_status_summary(self) -> dict[str, Any]:
@@ -429,6 +511,7 @@ class ChannelRelay(MattermostRelay):
                  **adapter.status}
                 for adapter in self.irc_adapters
             ],
+            "duplicates_suppressed": list(self._irc_duplicates_suppressed),
         }
 
     def _select_irc_adapter(self, message: dict[str, Any]) -> IrcAdapter:

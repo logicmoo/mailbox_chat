@@ -10,6 +10,8 @@ import ssl
 import time
 import uuid
 import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from ..connector_registry import connectors_for
@@ -29,6 +31,7 @@ class IrcAdapter:
         self.connector: dict[str, Any] | None = None
         self.buffer = ""
         self.joined = False
+        self._list_requested = False
         self.status: dict[str, Any] = {
             "enabled": False,
             "connected": False,
@@ -81,6 +84,7 @@ class IrcAdapter:
         nickname = str(self.connector.get("nickname") or "mailbox-relay")
         self._write(f"NICK {nickname}")
         self._write(f"USER {nickname} 0 * :Mailbox Channel Relay Bridging Proxy")
+        self._list_requested = False
         self.status.update({"connected": True, "lastError": None})
 
     def close(self) -> None:
@@ -90,7 +94,69 @@ class IrcAdapter:
             finally:
                 self.connection = None
         self.joined = False
+        self._list_requested = False
         self.status["connected"] = False
+
+    @staticmethod
+    def _safe_name(value: str) -> str:
+        clean = "".join(
+            character if character.isalnum() or character in {"_", "-", "."} else "_"
+            for character in str(value).strip()
+        )
+        return clean or "irc"
+
+    def _list_cache_interval_seconds(self) -> int:
+        connector_value = ((self.connector or {}).get("list_cache_interval_seconds")
+                           if self.connector else None)
+        candidate = str(
+            connector_value if connector_value is not None
+            else os.environ.get("IRC_LIST_CACHE_INTERVAL_SECONDS", "43200")
+        ).strip()
+        try:
+            return max(0, int(candidate))
+        except ValueError:
+            return 43200
+
+    def _server_metadata_path(self, mailbox_root: Path) -> Path:
+        instance = self.irc_instance or str((self.connector or {}).get("server") or "irc").strip().lower()
+        key = self._safe_name(f"irc-{instance}")
+        return mailbox_root / "resolver" / f"server_metadata_{key}.json"
+
+    def _load_server_metadata(self, mailbox_root: Path) -> dict[str, Any]:
+        target = self._server_metadata_path(mailbox_root)
+        if not target.exists():
+            return {}
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+
+    def _save_server_metadata(self, mailbox_root: Path, metadata: dict[str, Any]) -> None:
+        target = self._server_metadata_path(mailbox_root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(target)
+
+    def _should_request_mailbox_list(self, mailbox_root: Path) -> bool:
+        interval = self._list_cache_interval_seconds()
+        if interval <= 0:
+            return True
+        metadata = self._load_server_metadata(mailbox_root)
+        last_requested = float(metadata.get("last_list_requested_epoch") or 0.0)
+        return (time.time() - last_requested) >= float(interval)
+
+    def _mark_mailbox_list_requested(self, mailbox_root: Path) -> None:
+        now = time.time()
+        metadata = self._load_server_metadata(mailbox_root)
+        metadata.update({
+            "adapter": "irc",
+            "connector_id": self.connector_id,
+            "instance": self.irc_instance,
+            "server": str((self.connector or {}).get("server") or "").strip().lower(),
+            "last_list_requested_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "last_list_requested_epoch": now,
+            "list_cache_interval_seconds": self._list_cache_interval_seconds(),
+        })
+        self._save_server_metadata(mailbox_root, metadata)
 
     def _write(self, line: str) -> None:
         if not self.connection:
@@ -132,6 +198,43 @@ class IrcAdapter:
             return
         if " 001 " in line:
             self._join_mailboxes()
+            if not self._list_requested:
+                mailbox_root = mailbox.mailbox_dir()
+                if self._should_request_mailbox_list(mailbox_root):
+                    self._write("LIST")
+                    self._mark_mailbox_list_requested(mailbox_root)
+                    self.status["mailbox_list_request_skipped"] = False
+                else:
+                    self.status["mailbox_list_request_skipped"] = True
+                self._list_requested = True
+            return
+        if " 322 " in line and line.startswith(":"):
+            fields = line.split(" ", 5)
+            if len(fields) >= 5:
+                target = fields[3]
+                topic = fields[5].removeprefix(":") if len(fields) >= 6 else ""
+                try:
+                    visible_users = int(fields[4])
+                except ValueError:
+                    visible_users = 0
+                connector = self.connector or {}
+                system = f"irc/{self.irc_instance or str(connector.get('server') or '').strip().lower()}"
+                directory = IdentifierDirectory(mailbox.mailbox_dir())
+                directory.remember(
+                    target,
+                    target,
+                    system=system,
+                    kind="mailbox",
+                    metadata={
+                        "mailbox": target,
+                        "topic": topic,
+                        "visible_users": visible_users,
+                        "source": "irc_list",
+                    },
+                )
+            return
+        if " 323 " in line:
+            self.status["mailbox_list_cached_at"] = time.time()
             return
         if " PRIVMSG " not in line or not line.startswith(":"):
             if " NOTICE " in line or line.startswith("ERROR ") or (

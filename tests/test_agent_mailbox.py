@@ -632,7 +632,7 @@ def test_curl_covers_chat_platform_commands(capsys) -> None:
         ("notice", "mm/chat.snt/CID", "heads up"): ("-X POST", "/v1/mm/command"),
         ("join", "mm/chat.snt/CID"): ("-X POST", "/v1/mm/command"),
         ("teams", "--on", "mm/example"): ("-X POST", "/v1/mm/command"),
-        ("list", "--on", "irc"): ("-X GET", "/v1/discovery/mailboxes"),
+        ("list", "--on", "irc"): ("-X GET", "/v1/discovery/chats"),
         ("names", "#chan", "--on", "irc"): ("-X GET", "/v1/discovery/users"),
     }
     for argv, (method, fragment) in cases.items():
@@ -645,11 +645,11 @@ def test_curl_covers_chat_platform_commands(capsys) -> None:
 
 def test_curl_covers_discovery_commands(capsys) -> None:
     assert agent_mailbox.main([
-        "discover", "--url", "https://relay.example", "mailboxes", "--platform", "irc", "--curl",
+        "discover", "--url", "https://relay.example", "chats", "--platform", "irc", "--curl",
     ]) == 0
-    mailboxes = capsys.readouterr().out
-    assert mailboxes.startswith("curl ") and "-X GET" in mailboxes
-    assert "/v1/discovery/mailboxes" in mailboxes
+    chats = capsys.readouterr().out
+    assert chats.startswith("curl ") and "-X GET" in chats
+    assert "/v1/discovery/chats" in chats
 
     assert agent_mailbox.main([
         "discover", "--url", "https://relay.example", "users",

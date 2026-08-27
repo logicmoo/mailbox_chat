@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import time
 
 from mailbox_chat import agent_mailbox
 from mailbox_chat.adapters import irc_adapter
@@ -48,6 +50,7 @@ def test_irc_registration_ping_join_and_inbound_mailbox(tmp_path: Path, monkeypa
     sent = "".join(connection.sent)
     assert "NICK relay\r\n" in sent
     assert "JOIN #agents\r\n" in sent
+    assert "LIST\r\n" in sent
     assert "PONG :token\r\n" in sent
     assert agent_mailbox.receive("irc-bridge-agent", root=tmp_path)[0]["text"] == "hello IRC"
     assert agent_mailbox.receive("observer", root=tmp_path)[0]["mailbox_type"] == "irc"
@@ -98,6 +101,58 @@ def test_irc_list_mailboxes_collects_names_counts_and_topics(monkeypatch) -> Non
          "metadata": {"visible_users": 3}},
     ]
     assert "LIST\r\n" in "".join(connection.sent)
+
+
+def test_irc_login_caches_listed_mailboxes_in_resolver(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
+    connection = FakeSocket()
+    connection.chunks.append(
+        b":server 001 relay :welcome\r\n"
+        b":server 322 relay #agents 42 :Agent coordination\r\n"
+        b":server 322 relay #testing 3 :Test room\r\n"
+        b":server 323 relay :End of LIST\r\n"
+    )
+    adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
+    assert adapter.configure()
+
+    adapter.cycle(agent_mailbox)
+
+    cache_path = tmp_path / "resolver" / "resolver_irc-irc.example.json"
+    document = json.loads(cache_path.read_text(encoding="utf-8"))
+    entries = document["entries"]
+    by_identifier = {item["identifier"]: item for item in entries}
+    assert by_identifier["#agents"]["metadata"]["visible_users"] == 42
+    assert by_identifier["#agents"]["metadata"]["topic"] == "Agent coordination"
+    assert by_identifier["#testing"]["metadata"]["visible_users"] == 3
+    assert by_identifier["#testing"]["metadata"]["topic"] == "Test room"
+
+
+def test_irc_login_skips_list_when_cache_is_recent(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(agent_mailbox.MAILBOX_ENV, str(tmp_path))
+    monkeypatch.setattr(irc_adapter, "connectors_for", lambda *_args, **_kwargs: [connector()])
+    metadata_path = tmp_path / "resolver" / "server_metadata_irc-irc.example.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps({
+            "adapter": "irc",
+            "instance": "irc.example",
+            "last_list_requested_epoch": time.time(),
+            "list_cache_interval_seconds": 43200,
+        }) + "\n",
+        encoding="utf-8",
+    )
+    connection = FakeSocket()
+    connection.chunks.append(b":server 001 relay :welcome\r\n")
+    adapter = IrcAdapter(socket_factory=lambda _address, _timeout: connection)
+    assert adapter.configure()
+
+    adapter.cycle(agent_mailbox)
+
+    sent = "".join(connection.sent)
+    assert "JOIN #agents\r\n" in sent
+    assert "LIST\r\n" not in sent
+    assert adapter.status["mailbox_list_request_skipped"] is True
 
 
 def test_irc_names_lists_mailbox_users_and_status(monkeypatch) -> None:

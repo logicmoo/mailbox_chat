@@ -1156,7 +1156,7 @@ surfaces that the CLI does not currently wrap.
 | Readable diagnostic text | Yes | No | `--format text` summarizes structured server diagnostics. |
 | Bearer-token authentication | Yes | Yes | CLI accepts `--token` or `AGENT_MAILBOX_TOKEN`. |
 | Server and adapter status | Partial | Yes | CLI `status` wraps `/v1/status`; direct REST also exposes `/v1/adapters`. |
-| Connector inspection | No | Yes | Use `GET /v1/connectors`. |
+| Connector inspection | No | Yes | Use `GET /v1/registry` or `GET /v1/services` for read-only inspection; `POST /v1/connectors` is the mutation route. |
 | Identifier/UUID directory | No | Yes | Use `GET/POST /v1/identifiers`. |
 | Identifier-resolution requests | No | Yes | Use `GET/POST /v1/identifier-resolution-requests`. |
 | Named mailbox registry | `mailbox-add`/`mailbox-del` | Yes | Use `POST /v1/mailboxes` (add or `action:delete`). |

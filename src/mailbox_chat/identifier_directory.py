@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -193,12 +195,31 @@ class IdentifierDirectory:
         document["id"] = str(document.get("id") or self._resolver_key(system))
         document["kind"] = str(document.get("kind") or "resolver_cache")
         document["entries"] = entries
-        temporary = target.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+        temporary = target.with_name(
+            f"{target.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
         )
-        temporary.replace(target)
+        try:
+            temporary.write_text(
+                json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            replaced = False
+            last_error: OSError | None = None
+            for _ in range(8):
+                try:
+                    temporary.replace(target)
+                    replaced = True
+                    break
+                except OSError as error:
+                    last_error = error
+                    if getattr(error, "winerror", None) not in {5, 32}:
+                        raise
+                    time.sleep(0.05)
+            if not replaced:
+                raise last_error or OSError(f"failed to replace resolver cache {target}")
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     def remember(self, identifier: str, text: str, *, system: str, kind: str = "",
                  metadata: dict[str, Any] | None = None) -> dict[str, Any]:
