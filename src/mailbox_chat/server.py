@@ -49,6 +49,15 @@ from .subscriptions import set_subscription, subscriptions
 from .cmd_client_page import (
     command_status, render_cmd_client_page, start_mailbox_client, stop_mailbox_client,
 )
+from .ws_collab_api import (
+    WS_COLLAB_MOUNT,
+    handle_ws_collab_delete,
+    handle_ws_collab_get,
+    handle_ws_collab_post,
+    is_ws_collab_path,
+    is_ws_collab_ws_path,
+    run_ws_collab_websocket,
+)
 
 
 def runtime_paths(port: int, mailbox_root: Path | None = None) -> tuple[Path, Path, Path]:
@@ -132,9 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config-dir", type=Path, help="directory containing .env and mailboxes.json")
     parser.add_argument(
         "--bootstrap-config-dir", type=Path,
-        help="directory containing server_builtin_agents.json, server_config_connectors.json, "
-             f"and server_config_mailboxes.json (environment: {BOOTSTRAP_CONFIG_DIR_ENV}; "
-             "default: <mailbox-dir>/config)",
+        help="directory containing presence/system bootstrap JSON (environment: "
+             f"{BOOTSTRAP_CONFIG_DIR_ENV}; default: <mailbox-dir>/config)",
     )
     parser.add_argument(
         "--public-address", "--public-url", dest="public_url", default=os.environ.get(PUBLIC_URL_ENV),
@@ -278,6 +286,33 @@ def main(argv: list[str] | None = None) -> int:
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
+            if is_ws_collab_ws_path(parsed.path):
+                key = self.headers.get("Sec-WebSocket-Key", "").strip()
+                if not key or self.headers.get("Upgrade", "").lower() != "websocket":
+                    self._json(400, {"error": "WebSocket upgrade is required"})
+                    return
+                self.send_response(101, "Switching Protocols")
+                self.send_header("Upgrade", "websocket")
+                self.send_header("Connection", "Upgrade")
+                self.send_header("Sec-WebSocket-Accept", accept_value(key))
+                self.end_headers()
+                try:
+                    run_ws_collab_websocket(
+                        self.connection,
+                        root=mailbox_root,
+                        client_ip=(self.client_address[0] if self.client_address else None),
+                        required_token=os.environ.get(TOKEN_ENV, ""),
+                    )
+                except (ConnectionError, OSError, ValueError, json.JSONDecodeError):
+                    pass
+                self.close_connection = True
+                return
+            if parsed.path == WS_COLLAB_MOUNT or parsed.path.startswith(WS_COLLAB_MOUNT + "/"):
+                status, payload = handle_ws_collab_get(parsed.path, parsed.query, root=mailbox_root) or (
+                    404, {"error": "not found"}
+                )
+                self._json(status, payload)
+                return
             if parsed.path in {"/v1/webhooks/whatsapp", "/v1/webhooks/facebook-messenger"}:
                 token_env = ("WHATSAPP_VERIFY_TOKEN" if parsed.path.endswith("whatsapp")
                              else "FACEBOOK_VERIFY_TOKEN")
@@ -411,11 +446,15 @@ def main(argv: list[str] | None = None) -> int:
                 instance = query.get("instance", [""])[0].strip()
                 try:
                     timeout = float(query.get("timeout", ["30"])[0])
-                    if platform != "irc":
-                        raise ValueError("mailbox discovery currently supports platform=irc")
+                    if platform == "irc":
                     from .discovery_admin import discover_irc_mailboxes
-                    self._json(200, {"platform": platform,
-                                     "mailboxes": discover_irc_mailboxes(instance=instance, timeout=timeout)})
+                        mailboxes = discover_irc_mailboxes(instance=instance, timeout=timeout)
+                    elif platform == "discord":
+                        from .discovery_admin import discover_discord_mailboxes
+                        mailboxes = discover_discord_mailboxes(instance=instance, timeout=timeout)
+                    else:
+                        raise ValueError("mailbox discovery currently supports platform=irc or platform=discord")
+                    self._json(200, {"platform": platform, "mailboxes": mailboxes})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
@@ -426,13 +465,17 @@ def main(argv: list[str] | None = None) -> int:
                 instance = query.get("instance", [""])[0].strip()
                 try:
                     timeout = float(query.get("timeout", ["15"])[0])
-                    if platform != "irc":
-                        raise ValueError("user discovery currently supports platform=irc")
                     if not mailbox:
                         raise ValueError("mailbox is required")
+                    if platform == "irc":
                     from .discovery_admin import discover_irc_users
-                    self._json(200, {"platform": platform, "mailbox": mailbox,
-                                     "users": discover_irc_users(mailbox, instance=instance, timeout=timeout)})
+                        users = discover_irc_users(mailbox, instance=instance, timeout=timeout)
+                    elif platform == "discord":
+                        from .discovery_admin import discover_discord_users
+                        users = discover_discord_users(mailbox, instance=instance, timeout=timeout)
+                    else:
+                        raise ValueError("user discovery currently supports platform=irc or platform=discord")
+                    self._json(200, {"platform": platform, "mailbox": mailbox, "users": users})
                 except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                     self._json(400, {"error": str(error)})
                 return
@@ -499,6 +542,20 @@ def main(argv: list[str] | None = None) -> int:
 
         def do_POST(self) -> None:
             request_path = urlparse(self.path).path
+            if request_path == WS_COLLAB_MOUNT or request_path.startswith(WS_COLLAB_MOUNT + "/"):
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                    if not isinstance(payload, dict):
+                        raise ValueError("JSON body must be an object")
+                    status, body = handle_ws_collab_post(request_path, payload, root=mailbox_root) or (
+                        404, {"error": "not found"}
+                    )
+                except (ValueError, OSError, json.JSONDecodeError) as error:
+                    self._json(400, {"error": str(error)})
+                    return
+                self._json(status, body)
+                return
             if request_path in {"/v1/webhooks/whatsapp", "/v1/webhooks/facebook-messenger"}:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(length)
@@ -960,6 +1017,18 @@ def main(argv: list[str] | None = None) -> int:
                 self._json(400, {"error": str(error)})
                 return
             self._json(201, {"message": identifiers.enrich(message)})
+
+        def do_DELETE(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path == WS_COLLAB_MOUNT or parsed.path.startswith(WS_COLLAB_MOUNT + "/"):
+                status, payload = handle_ws_collab_delete(parsed.path, parsed.query, root=mailbox_root) or (
+                    404, {"error": "not found"}
+                )
+                self._json(status, payload)
+                return
+            if not self._authorized():
+                return
+            self._json(404, {"error": "not found"})
 
         def log_message(self, _format: str, *_args) -> None:
             if arguments.verbose >= 2:

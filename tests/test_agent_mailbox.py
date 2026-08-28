@@ -45,7 +45,7 @@ def test_status_reports_agents_connectors_mailboxes_and_relays(
     ]
     assert all(item["kind"] == "connector" for item in result["connectors"])
     assert {item["id"] for item in result["mailboxes"]} >= {
-        "server_events_log", "server_outbound_relay_agent_to_agent", "server_outbound_relay_agent_to_mailbox", "agent_one",
+        "server_events_log", "mailbox_chat_agent_to_agent", "mailbox_chat_agent_to_chat", "agent_one",
     }
     assert [item["id"] for item in result["relays"]] == ["relay-one"]
     assert result["relays"][0]["kind"] == "relay"
@@ -106,19 +106,19 @@ def test_dir_store_send_receive_and_cursor(tmp_path: Path) -> None:
 
 def test_unknown_envelope_fields_are_preserved(tmp_path: Path) -> None:
     sent = agent_mailbox.send(
-        "server_outbound_relay_agent_to_mailbox", "done", root=tmp_path,
+        "mailbox_chat_agent_to_chat", "done", root=tmp_path,
         extra_fields={"workflow_run_id": "run-1", "correlation_id": "corr-1"},
     )
     assert sent["workflow_run_id"] == "run-1"
-    stored = mailbox_store.load_mailbox(tmp_path, "server_outbound_relay_agent_to_mailbox")
+    stored = mailbox_store.load_mailbox(tmp_path, "mailbox_chat_agent_to_chat")
     first = next(record for _key, record in mailbox_store.ordered_messages(stored))
     assert first["correlation_id"] == "corr-1"
 
 
-def test_every_send_is_copied_to_agent_to_mailbox_audit(tmp_path: Path) -> None:
+def test_every_send_is_copied_to_agent_to_chat_audit(tmp_path: Path) -> None:
     sent = agent_mailbox.send("some-mailbox", "hello", sender="worker", root=tmp_path)
 
-    copies = agent_mailbox.peek("server_outbound_relay_agent_to_mailbox", root=tmp_path)
+    copies = agent_mailbox.peek("mailbox_chat_agent_to_chat", root=tmp_path)
     assert len(copies) == 1
     assert copies[0]["audit_of"] == sent["id"]
     assert copies[0]["dedupe_id"] == sent["dedupe_id"] == sent["id"]
@@ -134,8 +134,8 @@ def test_direct_registered_agent_send_is_also_copied_to_agent_mailbox(
 
     sent = agent_mailbox.send("worker-two", "direct", sender="worker-one", root=mailbox)
 
-    direct = agent_mailbox.peek("server_outbound_relay_agent_to_agent", root=mailbox)
-    all_sends = agent_mailbox.peek("server_outbound_relay_agent_to_mailbox", root=mailbox)
+    direct = agent_mailbox.peek("mailbox_chat_agent_to_agent", root=mailbox)
+    all_sends = agent_mailbox.peek("mailbox_chat_agent_to_chat", root=mailbox)
     agent_inbox = agent_mailbox.peek("worker_two", root=mailbox)
     assert direct[0]["audit_of"] == sent["id"]
     assert all_sends[0]["audit_of"] == sent["id"]
@@ -144,8 +144,8 @@ def test_direct_registered_agent_send_is_also_copied_to_agent_mailbox(
 
 
 def test_audit_mailbox_writes_do_not_recursively_audit_themselves(tmp_path: Path) -> None:
-    agent_mailbox.send("server_outbound_relay_agent_to_mailbox", "audit", root=tmp_path)
-    stored = mailbox_store.load_mailbox(tmp_path, "server_outbound_relay_agent_to_mailbox")
+    agent_mailbox.send("mailbox_chat_agent_to_chat", "audit", root=tmp_path)
+    stored = mailbox_store.load_mailbox(tmp_path, "mailbox_chat_agent_to_chat")
     assert len(stored.get("messages") or {}) == 1
 
 
@@ -434,7 +434,7 @@ def test_agent_del_purge_removes_private_history_but_keeps_global_audit(
     ]
     assert not any(item["to"] in result["purged_mailboxes"] for item in records)
     assert any(
-        item["to"] == "server_outbound_relay_agent_to_agent"
+        item["to"] == "mailbox_chat_agent_to_agent"
         and item.get("audit_recipient") == "review-agent"
         for item in records
     )
@@ -793,7 +793,7 @@ def test_positional_external_endpoint_routes_through_mailbox_relay(tmp_path, cap
     ]) == 0
 
     record = json.loads(capsys.readouterr().out)
-    assert record["to"] == "server_outbound_relay_agent_to_mailbox"
+    assert record["to"] == "mailbox_chat_agent_to_chat"
     assert record["text"] == "hello"
     assert record["mailbox_type"] == "mattermost"
     assert record["mailbox_id"] == "mailbox-1"

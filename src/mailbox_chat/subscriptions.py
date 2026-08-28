@@ -15,10 +15,10 @@ from .connector_registry import store_root
 
 
 SERVER_EVENTS_MAILBOX = "server_events_log"
-SERVER_AGENT_TO_AGENT_MAILBOX = "server_outbound_relay_agent_to_agent"
-SERVER_AGENT_TO_MAILBOX_MAILBOX = "server_outbound_relay_agent_to_mailbox"
+SERVER_AGENT_TO_AGENT_MAILBOX = "mailbox_chat_agent_to_agent"
+SERVER_AGENT_TO_CHAT_MAILBOX = "mailbox_chat_agent_to_chat"
 BUILTIN_MAILBOXES = {
-    SERVER_EVENTS_MAILBOX, SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_MAILBOX_MAILBOX,
+    SERVER_EVENTS_MAILBOX, SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_CHAT_MAILBOX,
 }
 
 
@@ -126,7 +126,7 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
         mailbox_id = item["id"]
         if mailbox_id == SERVER_EVENTS_MAILBOX:
             return "system"
-        if mailbox_id in {SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_MAILBOX_MAILBOX}:
+        if mailbox_id in {SERVER_AGENT_TO_AGENT_MAILBOX, SERVER_AGENT_TO_CHAT_MAILBOX}:
             return "audit"
         connector_id = str(item.get("connector")
                            or (item.get("metadata") or {}).get("connector") or "")
@@ -148,7 +148,7 @@ def available_sources(path: Path | None = None) -> list[dict[str, Any]]:
         {"id": SERVER_AGENT_TO_AGENT_MAILBOX, "kind": "mailbox", "mailbox_type": "audit",
          "aliases": [], "subscribers": [],
          "metadata": {"scope": "direct_agent"}},
-        {"id": SERVER_AGENT_TO_MAILBOX_MAILBOX, "kind": "mailbox", "mailbox_type": "audit",
+        {"id": SERVER_AGENT_TO_CHAT_MAILBOX, "kind": "mailbox", "mailbox_type": "audit",
          "aliases": [], "subscribers": [],
          "metadata": {"scope": "all_sends"}},
     ]:

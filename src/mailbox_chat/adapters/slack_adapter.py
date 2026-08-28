@@ -71,7 +71,7 @@ class SlackAdapter:
             for mailbox_id in connector.get("mailbox_ids", []):
                 history = self._payload(self.session.get(
                     f"{SLACK_API}/conversations.history", headers=self._headers(connector),
-                    params={"mailbox": mailbox_id, "limit": 1}, timeout=15,
+                    params={"channel": mailbox_id, "limit": 1}, timeout=15,
                 ))
                 messages = history.get("messages") or []
                 self.latest_ts[(connector["id"], mailbox_id)] = str(messages[0]["ts"]) if messages else "0"
@@ -97,7 +97,7 @@ class SlackAdapter:
     def _poll_mailbox(self, mailbox: Any, connector: dict[str, Any], mailbox_id: str) -> None:
         payload = self._payload(self.session.get(
             f"{SLACK_API}/conversations.history", headers=self._headers(connector),
-            params={"mailbox": mailbox_id, "oldest": self.latest_ts.get((connector["id"], mailbox_id), "0"),
+            params={"channel": mailbox_id, "oldest": self.latest_ts.get((connector["id"], mailbox_id), "0"),
                     "inclusive": "false", "limit": 100}, timeout=15,
         ))
         for message in reversed(payload.get("messages") or []):
@@ -176,7 +176,7 @@ class SlackAdapter:
         thread_ts = str(message.get("thread_id") or message.get("root_id") or "")
         text = str(message.get("text") or "")
         if text:
-            payload: dict[str, Any] = {"mailbox": mailbox_id, "text": text}
+            payload: dict[str, Any] = {"channel": mailbox_id, "text": text}
             if thread_ts:
                 payload["thread_ts"] = thread_ts
             self._payload(self.session.post(
@@ -196,7 +196,7 @@ class SlackAdapter:
             upload = self.session.post(str(allocation["upload_url"]), files={"file": (path.name, stream)}, timeout=60)
         upload.raise_for_status()
         complete: dict[str, Any] = {
-            "files": [{"id": allocation["file_id"], "title": path.name}], "mailbox_id": mailbox_id,
+            "files": [{"id": allocation["file_id"], "title": path.name}], "channel_id": mailbox_id,
         }
         if thread_ts:
             complete["thread_ts"] = thread_ts

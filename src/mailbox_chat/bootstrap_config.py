@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from . import mailbox_store
+from .endpoint_address import endpoint_instance, mailbox_resource_id
 
 
 BOOTSTRAP_CONFIG_DIR_ENV = "MAILBOX_BOOTSTRAP_CONFIG_DIR"
@@ -128,12 +129,25 @@ def _merge_connector_payload(existing: dict[str, Any], incoming: dict[str, Any])
             continue
         if value is None:
             continue
+        if key == "token_env" and str(merged.get("token_env") or "").strip():
+            continue
         if isinstance(value, str):
             if not value.strip() and str(merged.get(key) or "").strip():
                 continue
             merged[key] = value.strip()
         else:
             merged[key] = value
+
+    token_envs = [
+        *(str(value).strip() for value in _as_list(existing.get("token_env_fallbacks")) if str(value).strip()),
+        str(existing.get("token_env") or "").strip(),
+        str(incoming.get("token_env") or "").strip(),
+        *(str(value).strip() for value in _as_list(incoming.get("token_env_fallbacks")) if str(value).strip()),
+    ]
+    token_envs = [value for value in dict.fromkeys(token_envs) if value]
+    if token_envs:
+        merged["token_env"] = str(merged.get("token_env") or token_envs[0]).strip() or token_envs[0]
+        merged["token_env_fallbacks"] = token_envs
 
     merged["mailbox_ids"] = list(dict.fromkeys([
         *(str(value).strip() for value in _as_list(existing.get("mailbox_ids")) if str(value).strip()),
@@ -167,7 +181,6 @@ def _looks_like_agent(record: dict[str, Any]) -> bool:
         str(payload.get("kind") or "").strip().lower() == "agent"
         or bool(payload.get("agent_kind"))
         or bool(payload.get("agent_roles"))
-        or bool(payload.get("connector_id"))
         or bool(record.get("agent_kind"))
         or bool(record.get("agent_roles"))
     ))
@@ -399,6 +412,8 @@ def bootstrap_mailbox_state(
         mailbox_store.put_entry(root, mailbox_store.CONNECTORS_REGISTRY, connector_id, merged_payload)
         upserted_connectors.add(connector_id)
         connector_ids.add(connector_id)
+        adapter = str(merged_payload.get("adapter") or "").strip().lower()
+        instance = endpoint_instance(adapter, merged_payload) if adapter else ""
         for mailbox_id in _as_list(merged_payload.get("mailbox_ids")):
             declared_mailbox = str(mailbox_id).strip()
             if not declared_mailbox or declared_mailbox.startswith("$"):
@@ -408,6 +423,14 @@ def bootstrap_mailbox_state(
                 mailbox_type="system_mailboxes",
                 declared_by=connector_id,
             )
+            if adapter and instance:
+                canonical_mailbox = mailbox_resource_id(adapter, instance, declared_mailbox)
+                if canonical_mailbox and canonical_mailbox != declared_mailbox:
+                    ensure_mailbox_record(
+                        canonical_mailbox,
+                        mailbox_type="system_mailboxes",
+                        declared_by=f"{connector_id}:canonical",
+                    )
         return True
 
     def upsert_mailbox(record: dict[str, Any], *, source: str) -> bool:

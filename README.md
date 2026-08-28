@@ -85,6 +85,19 @@ Start directly on Windows (the `.env` file is optional for mailbox-only use):
 mailbox-server.cmd
 ```
 
+On startup, the relay now bootstraps agents, connectors, and mailbox metadata by
+scanning every `*.json` file in `mailbox/config/` (presence-first layout).
+System agents come from `server_builtin_agents.json` plus referenced files, while
+each live external identity should be represented by one `presence-*.json` file.
+Connector IDs are derived internally from adapter + endpoint/server when omitted
+from config.
+
+To point bootstrap at another directory:
+
+```powershell
+mailbox-server.cmd --bootstrap-config-dir D:\mailbox-bootstrap
+```
+
 Add `--verbose` for adapter startup, connection, failure, and retry messages,
 or `--verbose 2` to include successful adapter polls and HTTP request logging.
 Level `0` reports errors only. Failed adapters continue retrying with bounded
@@ -239,9 +252,9 @@ Invoke-RestMethod http://127.0.0.1:46667/v1/agents `
 The server exposes retained operational mailboxes:
 
 - `server_events` contains server lifecycle and adapter events.
-- `agent_to_agent` contains copies of sends whose target is
+- `mailbox_chat_agent_to_agent` contains copies of sends whose target is
   a registered agent.
-- `agent_to_mailbox` contains a copy of every ordinary
+- `mailbox_chat_agent_to_chat` contains a copy of every ordinary
   send.
 - The agent ID itself is its writable mailbox. Messages addressed through one
   of its presences are copied to that mailbox. For example,
@@ -276,8 +289,8 @@ mailbox-client --url http://127.0.0.1:46667 agent-del review-agent `
   --purge --dry-run
 mailbox-client --url http://127.0.0.1:46667 cursors --cursor symbolic-workbench-codex
 mailbox-client --url http://127.0.0.1:46667 cursor-init `
-  server_events agent_to_agent `
-  agent_to_mailbox --cursor symbolic-workbench-codex --start now
+  server_events mailbox_chat_agent_to_agent `
+  agent_to_chat --cursor symbolic-workbench-codex --start now
 mailbox-client --url http://127.0.0.1:46667 --as symbolic-workbench-codex `
   poll --subscriptions --interval 30 --checks 11
 ```
@@ -636,6 +649,16 @@ MATTERMOST_RELAY_ENABLED=1
 
 The former `MM_URL`, `MM_MAILBOX_ID`, and `MM_MAILBOX_IDS` variables remain a
 legacy fallback when the JSON connector omits those fields.
+
+For multi-bot Mattermost operation, declare one connector per bot token and
+point them at the same `mailbox_ids` channel(s). The relay deduplicates inbound
+events per channel/source so mirrored listeners do not fan out duplicates.
+
+To surface when one listener falls behind the others on the same channel, set:
+
+```dotenv
+MATTERMOST_CHANNEL_LAG_WARNING_SECONDS=180
+```
 
 Never store tokens in workspace resources, workflow files, mailbox records, or
 this README. Remote-machine access should be provided through an authenticated

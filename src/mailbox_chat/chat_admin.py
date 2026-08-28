@@ -166,8 +166,8 @@ def _platform(args: argparse.Namespace) -> str:
     return "mm" if args.command in {"teams", "threads"} else "irc"
 
 
-def _remote_irc_list(url: str, token: str) -> dict:
-    query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "mailbox": ""})
+def _remote_discovery_list(url: str, token: str, platform: str) -> dict:
+    query = urllib.parse.urlencode({"platform": platform, "timeout": 30.0, "mailbox": ""})
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -197,8 +197,11 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
                     new_entries += int(registry.get("new_entries") or 0)
                 providers.append({"provider": "mm", "result": response.get("result", response)})
             elif adapter == "irc":
-                response = _remote_irc_list(args.url, token)
+                response = _remote_discovery_list(args.url, token, "irc")
                 providers.append({"provider": "irc", "result": response.get("mailboxes", response)})
+            elif adapter == "discord":
+                response = _remote_discovery_list(args.url, token, "discord")
+                providers.append({"provider": "discord", "result": response.get("mailboxes", response)})
             else:
                 providers.append({"provider": adapter,
                                   "error": "mailbox listing is not implemented by this adapter"})
@@ -209,8 +212,8 @@ def _list_providers(args: argparse.Namespace, token: str) -> tuple[dict, int]:
 
 
 def _discovery_curl(base: str, token: str, resource: str, timeout: float,
-                    mailbox: str = "") -> str:
-    query = urllib.parse.urlencode({"platform": "irc", "timeout": timeout,
+                    mailbox: str = "", platform: str = "irc") -> str:
+    query = urllib.parse.urlencode({"platform": platform, "timeout": timeout,
                                     "mailbox": mailbox, "instance": ""})
     return curl_command("GET", f"{base}/v1/discovery/{resource}?{query}", token=token)
 
@@ -246,6 +249,9 @@ def _list_all_curl(args: argparse.Namespace, token: str) -> list[str]:
                 payload={"command": "list", "arguments": mm_arguments}))
         elif adapter == "irc":
             query = urllib.parse.urlencode({"platform": "irc", "timeout": 30.0, "mailbox": ""})
+            lines.append(curl_command("GET", f"{base}/v1/discovery/mailboxes?{query}", token=token))
+        elif adapter == "discord":
+            query = urllib.parse.urlencode({"platform": "discord", "timeout": 30.0, "mailbox": ""})
             lines.append(curl_command("GET", f"{base}/v1/discovery/mailboxes?{query}", token=token))
     return lines
 

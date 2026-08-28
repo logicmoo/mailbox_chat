@@ -18,8 +18,8 @@ def test_monitored_sources_use_resource_ids_not_transport_addresses(tmp_path, mo
 
     sources = available_sources(mailbox)
     assert {item["id"] for item in sources} == {
-        "server_events_log", "server_outbound_relay_agent_to_agent",
-        "server_outbound_relay_agent_to_mailbox", "mm-chat-singularitynet-io-mailbox-123",
+        "server_events_log", "mailbox_chat_agent_to_agent",
+        "mailbox_chat_agent_to_chat", "mm-chat-singularitynet-io-mailbox-123",
     }
     assert {item["kind"] for item in sources} == {"mailbox"}
     assert {item["mailbox_type"] for item in sources} == {"system", "audit", "mattermost"}
@@ -30,16 +30,16 @@ def test_monitored_sources_use_resource_ids_not_transport_addresses(tmp_path, mo
 def test_local_audit_subscription_uses_one_canonical_mailbox(tmp_path, monkeypatch) -> None:
     mailbox = tmp_path / "mailbox"
     seed_store(mailbox, subscriptions=[{
-        "id": "server_outbound_relay_agent_to_agent",
+        "id": "mailbox_chat_agent_to_agent",
         "subscribers": ["worker"],
     }])
 
     matches = [
         item for item in available_sources(mailbox)
-        if item["id"] == "server_outbound_relay_agent_to_agent"
+        if item["id"] == "mailbox_chat_agent_to_agent"
     ]
     assert matches == [{
-        "id": "server_outbound_relay_agent_to_agent",
+        "id": "mailbox_chat_agent_to_agent",
         "kind": "mailbox",
         "mailbox_type": "audit",
         "aliases": [],
