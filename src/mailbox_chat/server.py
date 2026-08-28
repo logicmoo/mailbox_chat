@@ -447,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     timeout = float(query.get("timeout", ["30"])[0])
                     if platform == "irc":
-                    from .discovery_admin import discover_irc_mailboxes
+                        from .discovery_admin import discover_irc_mailboxes
                         mailboxes = discover_irc_mailboxes(instance=instance, timeout=timeout)
                     elif platform == "discord":
                         from .discovery_admin import discover_discord_mailboxes
@@ -468,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
                     if not mailbox:
                         raise ValueError("mailbox is required")
                     if platform == "irc":
-                    from .discovery_admin import discover_irc_users
+                        from .discovery_admin import discover_irc_users
                         users = discover_irc_users(mailbox, instance=instance, timeout=timeout)
                     elif platform == "discord":
                         from .discovery_admin import discover_discord_users
